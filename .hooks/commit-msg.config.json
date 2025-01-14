@@ -1,0 +1,16 @@
+{
+    "length": {
+      "min": 3,
+      "max": 50
+    },
+    "types": [
+      "build",
+      "docs",
+      "feat",
+      "fix",
+      "refactor",
+      "test",
+      "chore",
+      "style"
+    ]
+  }
