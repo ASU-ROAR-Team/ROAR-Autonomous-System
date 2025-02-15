@@ -1,0 +1,14 @@
+<launch>
+   <node name="heightmap_converter" 
+        pkg="heightmap_costmap" 
+        type="heightmap_to_costmap.py" 
+        output="screen">
+	<param name="image_path" 
+           value="$(find heightmap_costmap)/maps/heightmap.png" />
+	<param name="resolution" value="0.1" />  
+	<param name="origin_x" value="0" />   
+	<param name="origin_y" value="0" />
+	<param name="gradient_scale" value="150" />
+	<param name="stability_scale" value="90" />
+    </node>
+</launch>
