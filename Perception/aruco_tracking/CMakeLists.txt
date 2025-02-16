@@ -7,6 +7,8 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
   message_generation
+  geometry_msgs
+  roar_msgs
 )
 
 #catkin_install_python(PROGRAMS
@@ -14,19 +16,18 @@ find_package(catkin REQUIRED COMPONENTS
  # DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 #)
 
-## Generate messages in the 'msg' folder
-add_message_files(
-  FILES
-  LandmarkArray.msg
-  Landmark.msg 
-)
+
+
 
 ## Generate added messages with any dependencies listed here
 generate_messages(
   DEPENDENCIES
   sensor_msgs
   std_msgs
+  geometry_msgs
+  roar_msgs
 )
+
 
 ## Declare ROS dynamic reconfigure parameters (if any)
 # generate_dynamic_reconfigure_options(
@@ -37,8 +38,9 @@ generate_messages(
 ## catkin specific configuration ##
 ###################################
 catkin_package(
-  CATKIN_DEPENDS rospy sensor_msgs std_msgs
+  CATKIN_DEPENDS rospy sensor_msgs std_msgs geometry_msgs roar_msgs
 )
+
 
 ###########
 ## Build ##

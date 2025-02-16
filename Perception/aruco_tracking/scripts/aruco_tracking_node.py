@@ -2,7 +2,7 @@
 import rospy
 import cv2
 import numpy as np
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2.aruco as aruco
