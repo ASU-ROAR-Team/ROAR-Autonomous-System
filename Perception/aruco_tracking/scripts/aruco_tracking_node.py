@@ -26,20 +26,20 @@ def aruco_display(corners, ids, image):
         for (markerCorner, markerID) in zip(corners, ids):
             corners = markerCorner.reshape((4, 2))
             (topLeft, topRight, bottomRight, bottomLeft) = corners
+            print(topLeft)
+            # # Draw the marker's bounding box
+            # cv2.line(image, tuple(topLeft), tuple(topRight), (0, 255, 0), 2)
+            # cv2.line(image, tuple(topRight), tuple(bottomRight), (0, 255, 0), 2)
+            # cv2.line(image, tuple(bottomRight), tuple(bottomLeft), (0, 255, 0), 2)
+            # cv2.line(image, tuple(bottomLeft), tuple(topLeft), (0, 255, 0), 2)
 
-            # Draw the marker's bounding box
-            cv2.line(image, tuple(topLeft), tuple(topRight), (0, 255, 0), 2)
-            cv2.line(image, tuple(topRight), tuple(bottomRight), (0, 255, 0), 2)
-            cv2.line(image, tuple(bottomRight), tuple(bottomLeft), (0, 255, 0), 2)
-            cv2.line(image, tuple(bottomLeft), tuple(topLeft), (0, 255, 0), 2)
-
-            # Find the center of the marker
+            # # Find the center of the marker
             cX = int((topLeft[0] + bottomRight[0]) / 2.0)
             cY = int((topLeft[1] + bottomRight[1]) / 2.0)
-            cv2.circle(image, (cX, cY), 4, (0, 0, 255), -1)
+            # cv2.circle(image, (cX, cY), 4, (0, 0, 255), -1)
 
             # Display the marker ID
-            cv2.putText(image, str(markerID), (topLeft[0], topLeft[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            # cv2.putText(image, str(markerID), (topLeft[0], topLeft[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             rospy.loginfo(f"Detected ArUco marker ID: {markerID}")
             
             # Publish the detection information (marker ID and position)
@@ -53,11 +53,11 @@ def image_callback(image_data):
         cv_image = bridge.imgmsg_to_cv2(image_data, "bgr8")
 
         # Define the ArUco dictionary and parameters
-        aruco_dict = aruco.Dictionary_get(ARUCO_DICT["DICT_5X5_100"])  # Choose your dictionary
-        aruco_params = aruco.DetectorParameters_create()
-
+        aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
+        aruco_params = cv2.aruco.DetectorParameters()
+        detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
         # Detect ArUco markers in the image
-        corners, ids, rejected = aruco.detectMarkers(cv_image, aruco_dict, parameters=aruco_params)
+        corners, ids, rejected = detector.detectMarkers(cv_image)
 
         # Display and publish the results
         cv_image = aruco_display(corners, ids, cv_image)
