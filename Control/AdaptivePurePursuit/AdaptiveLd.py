@@ -34,7 +34,7 @@ class Control:
         self.ki = 0.5
         self.kd = 0.0
         self.distLD = 0.3
-        self.indexLD=0
+        self.indexLD = 0
 
         self.dt = 0.1
         self.currentX = 0.0
@@ -102,6 +102,7 @@ class Control:
         """
         self.waypoints=[(pose.pose.position.x,pose.pose.position.y) for pose in msg.poses]
         self.updateWaypointsPlot()
+        rospy.loginfo("got waypoints")
 
     def updatePose(self, data:ModelStates):
         """
@@ -180,7 +181,7 @@ class Control:
         looaheadPoint: a tuple containing the lookahead co-ordinates in the form (x,y)
         ----
         """
-        for i, waypoint in enumerate(self.waypoints[self.indexLD:],self.indexLD): 
+        for i, waypoint in enumerate(self.waypoints): 
                 print("new waypoint")
                 distanceToRobot = np.linalg.norm(np.array(waypoint) - np.array(robotPosition))
                 print("waypoint = "+str(waypoint[0])+ ", "+str(waypoint[1]))
