@@ -55,8 +55,11 @@
   <build_export_depend>socketcan_interface</build_export_depend>
   <exec_depend>rospy</exec_depend>
   <exec_depend>socketcan_interface</exec_depend>
-
-
+  <depend>roar_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>socketcan_bridge</depend>
+  <depend>can_msgs</depend>
   <!-- The export tag contains other, unspecified, tags -->
   <export>
     <!-- Other tools can request additional information be placed here -->
