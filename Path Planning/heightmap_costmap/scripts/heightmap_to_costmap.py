@@ -13,11 +13,11 @@ class HeightmapConverter:
 
         # **Load Parameters**
         image_path = rospy.get_param('~image_path', 'heightmap.png')
-        resolution = rospy.get_param('~resolution', 0.1)  # meters/pixel
-        origin_x = rospy.get_param('~origin_x', -5.0)    # Map origin (meters)
-        origin_y = rospy.get_param('~origin_y', -5.0)
-        gradient_scale = rospy.get_param('~gradient_scale', 50.0)  # Slope penalty
-        stability_scale = rospy.get_param('~stability_scale', 30.0) # Terrain change penalty
+        resolution = rospy.get_param('~resolution', 0.0586901)  # meters/pixel
+        origin_x = rospy.get_param('~origin_x', 0.0)    # Map origin (meters)
+        origin_y = rospy.get_param('~origin_y', 0.0)
+        gradient_scale = rospy.get_param('~gradient_scale', 150.0)  # Slope penalty
+        stability_scale = rospy.get_param('~stability_scale', 90.0) # Terrain change penalty
 
         # **Load PNG Heightmap (Grayscale)**
         heightmap = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
