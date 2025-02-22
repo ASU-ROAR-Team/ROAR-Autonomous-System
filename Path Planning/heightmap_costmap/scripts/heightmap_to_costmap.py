@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import csv
-import os  # Added to get the current working directory
+import os  
 
 class HeightmapConverter:
     def __init__(self):
