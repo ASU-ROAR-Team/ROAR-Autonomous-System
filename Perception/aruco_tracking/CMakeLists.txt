@@ -19,14 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 
 
-## Generate added messages with any dependencies listed here
-generate_messages(
-  DEPENDENCIES
-  sensor_msgs
-  std_msgs
-  geometry_msgs
-  roar_msgs
-)
+
 
 
 ## Declare ROS dynamic reconfigure parameters (if any)
@@ -42,28 +35,17 @@ catkin_package(
 )
 
 
-###########
-## Build ##
-###########
+include_directories(${catkin_INCLUDE_DIRS})
 
-## Specify additional locations of header files
-include_directories(
-  ${catkin_INCLUDE_DIRS}
-)
+install(
+  DIRECTORY src
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+  USE_SOURCE_PERMISSIONS)
 
-###########
-## Install ##
-#############
+catkin_python_setup()
 
 # Mark executable scripts (Python) for installation
 catkin_install_python(PROGRAMS
-  scripts/aruco_tracking_node.py
+  nodes/node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
-
-#############
-## Testing ##
-#############
-
-# Add folders to be run by Python nosetests (if any)
-# catkin_add_nosetests(test)
