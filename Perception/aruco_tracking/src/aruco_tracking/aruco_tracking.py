@@ -25,12 +25,15 @@ class ArucoTracker:
 
     def __init__(self, arucoDictType: int = cv2.aruco.DICT_5X5_100):
         """
-        Initialize the ArucoTracker with the specified ArUco dictionary.
-
+        Initialize the ArucoTracker with a specified ArUco marker dictionary.
+        
+        Retrieves the predefined ArUco dictionary, sets up default detector parameters,
+        and creates the corresponding marker detector instance.
+        
         Parameters
         ----------
         arucoDictType : int, optional
-            The type of ArUco dictionary to use (default is DICT_5X5_100).
+            ArUco dictionary type to use (default is cv2.aruco.DICT_5X5_100).
         """
         self.arucoDict = cv2.aruco.getPredefinedDictionary(arucoDictType)
         self.arucoParams = cv2.aruco.DetectorParameters()
@@ -67,7 +70,23 @@ class ArucoTracker:
         distCoeffs: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Estimate the pose of detected ArUco markers using solvePnP.
+        Estimate the pose of detected ArUco markers.
+        
+        For each marker, compute its rotation and translation vectors using cv2.solvePnP with the
+        IPPE_SQUARE method. The function defines the marker's 3D object points based on the provided
+        marker size, then processes each set of detected corners. Markers that fail pose estimation are
+        skipped, and any errors encountered are printed. If no corners are provided, empty arrays are
+        returned.
+        
+        Args:
+            corners: List of arrays specifying the 2D coordinates for each marker's corners.
+            markerSize: The physical size of the marker, determining its 3D object points.
+            cameraMatrix: The camera intrinsic parameter matrix.
+            distCoeffs: The array of distortion coefficients for the camera.
+        
+        Returns:
+            A tuple of two numpy arrays: the first contains rotation vectors and the second contains
+            translation vectors for the markers.
         """
         if not corners:
             return np.array([]), np.array([])

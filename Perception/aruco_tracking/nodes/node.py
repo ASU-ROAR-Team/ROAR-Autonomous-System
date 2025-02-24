@@ -39,7 +39,14 @@ class ArucoTrackingNode:
 
     def __init__(self):
         """
-        Initialize the ArucoTrackingNode and load parameters.
+        Initializes the ArucoTrackingNode instance.
+        
+        This constructor sets up the ROS node ("arucoTrackingNode") and initializes core
+        components for ArUco marker detection. It creates a CvBridge for image conversion,
+        loads configuration parameters from the ROS parameter server, instantiates the
+        ArucoTracker with the specified dictionary type, and initializes camera parameters.
+        Additionally, it subscribes to camera image and camera info topics and sets up a
+        publisher for broadcasting detected marker poses.
         """
         rospy.init_node("arucoTrackingNode", anonymous=True)
         self.bridge = CvBridge()
@@ -63,7 +70,12 @@ class ArucoTrackingNode:
 
     def loadParameters(self):
         """
-        Load parameters from the ROS parameter server.
+        Load and validate ROS parameters for the ArucoTrackingNode.
+        
+        This method retrieves configuration parameters from the ROS parameter server, including the topics
+        for camera images and camera info, the ArUco dictionary type, visualization options, and marker size.
+        Default values are used when parameters are not explicitly set. If the mandatory camera topic is
+        missing, an error is logged and the node is signaled to shut down.
         """
         self.cameraTopic = rospy.get_param("~cameraTopic", "/camera/color/image_raw")
         self.cameraInfoTopic = rospy.get_param("~cameraInfoTopic", "/camera/color/camera_info")
@@ -79,12 +91,16 @@ class ArucoTrackingNode:
 
     def imageCallback(self, imageMsg: Image):
         """
-        Callback for processing incoming camera images.
-
-        Parameters
-        ----------
-        imageMsg : Image
-            The incoming ROS Image message.
+        Processes a ROS Image message to detect ArUco markers and publish their poses.
+        
+        This callback converts the incoming ROS Image to an OpenCV image using CvBridge, then detects
+        ArUco markers with an ArUco tracker. For each detected marker, it estimates the pose using the
+        configured marker size and camera calibration parameters, draws the markers (and axes) on the image,
+        and creates a Landmark message containing a PoseStamped. The landmark pose is then published.
+        If enabled, the function also draws rejected marker candidates and visualizes the processed image.
+          
+        Parameters:
+            imageMsg (Image): Incoming ROS Image message.
         """
         # try:
         cvImage = self.bridge.imgmsg_to_cv2(imageMsg, "bgr8")
@@ -145,19 +161,25 @@ class ArucoTrackingNode:
 
     def cameraInfoCallback(self, cameraInfoMsg: CameraInfo):
         """
-        Callback for processing camera calibration information.
-
+        Updates camera calibration parameters from a ROS CameraInfo message.
+        
+        Extracts the camera matrix and distortion coefficients from the provided CameraInfo
+        message and updates the node's internal parameters accordingly.
+        
         Parameters
         ----------
         cameraInfoMsg : CameraInfo
-            The incoming ROS CameraInfo message.
+            The ROS message containing calibration data.
         """
         self.cameraMatrix = np.array(cameraInfoMsg.K).reshape(3, 3)
         self.distCoeffs = np.array(cameraInfoMsg.D)
 
     def run(self):
         """
-        Run the node.
+        Start the ROS event loop.
+        
+        This method calls rospy.spin() to keep the node active, continuously processing
+        incoming messages and callbacks until the node is externally shut down.
         """
         rospy.spin()
 
