@@ -23,11 +23,6 @@ class Control:
     """This class containts functions to control the rover's motion using
     adaptive pure pursuit algorithm"""
 
-    DISTLD = 0.3
-    MAXVELOCITY = 1.57
-    WIDTH = 0.8
-    localPath = False
-
     def __init__(self):
         rospy.init_node("controller", anonymous=True)
         self.velocityPublisher = {
@@ -59,6 +54,10 @@ class Control:
 
         self.indexLD = 0
         self.currentPosition = [0, 0, 0]  ##[x,y,theta]
+        DISTLD = 0.3
+        MAXVELOCITY = 1.57
+        WIDTH = 0.8
+        localPath = False
 
         self.waypoints = []
 
@@ -147,13 +146,13 @@ class Control:
         ----
         """
         # Clamping the value to be within the range -1.57 to 1.57
-        velocity = min(max(velocity, -control.MAXVELOCITY), control.MAXVELOCITY)
+        velocity = min(max(velocity, -self.MAXVELOCITY), self.MAXVELOCITY)
 
         if velocity < 0:
             # Mapping negative values from -1.57 to 0 to the range 0 to 61
-            return int(((velocity + control.MAXVELOCITY) / control.MAXVELOCITY) * 61)
+            return int(((velocity + self.MAXVELOCITY) / self.MAXVELOCITY) * 61)
 
-        return int((velocity / control.MAXVELOCITY) * 60 + 67)
+        return int((velocity / self.MAXVELOCITY) * 60 + 67)
 
     def setVelocity(self, k: float):
         """
@@ -169,7 +168,7 @@ class Control:
         velocity : the suitable velocity
         ----
         """
-        velocity = control.MAXVELOCITY / (1 + abs(k))
+        velocity = self.MAXVELOCITY / (1 + abs(k))
         goalPoint = self.waypoints[-1]
         distanceToGoal = np.linalg.norm(
             np.array((self.currentPosition[0], self.currentPosition[1])) - np.array(goalPoint)
@@ -191,7 +190,7 @@ class Control:
         looaheadPoint: a tuple containing the lookahead co-ordinates in the form (x,y)
         ----
         """
-        if Control.localPath:
+        if self.localPath:
             self.indexLD = 0
         for i, waypoint in enumerate(self.waypoints[self.indexLD :], start=self.indexLD):
             print("new waypoint")
@@ -199,7 +198,7 @@ class Control:
             print("waypoint = " + str(waypoint[0]) + ", " + str(waypoint[1]))
             print("dist=" + str(distanceToRobot))
 
-            if distanceToRobot < control.DISTLD:
+            if distanceToRobot < self.DISTLD:
                 self.indexLD = i
                 lookaheadPoint = waypoint
 
@@ -240,18 +239,18 @@ class Control:
             self.debuggingLists["pastCurvature"].append(k)
             velocityCentre = self.setVelocity(k)
             print("velocityCentre=" + str(velocityCentre))
-            control.DISTLD = 0.25 * velocityCentre + 0.05
-            self.debuggingLists["pastLD"].append(control.DISTLD)
+            self.DISTLD = 0.25 * velocityCentre + 0.05
+            self.debuggingLists["pastLD"].append(self.DISTLD)
             self.debuggingLists["pastHeadings"].append(self.currentPosition[2])
             velocityRight = velocityCentre * (
-                1 - control.WIDTH * deltaX / (actualLookahead * actualLookahead)
+                1 - self.WIDTH * deltaX / (actualLookahead * actualLookahead)
             )
             velocityLeft = velocityCentre * (
-                1 + control.WIDTH * deltaX / (actualLookahead * actualLookahead)
+                1 + self.WIDTH * deltaX / (actualLookahead * actualLookahead)
             )
 
-            velocityRight = min(max(velocityRight, -control.MAXVELOCITY), control.MAXVELOCITY)
-            velocityLeft = min(max(velocityLeft, -control.MAXVELOCITY), control.MAXVELOCITY)
+            velocityRight = min(max(velocityRight, -self.MAXVELOCITY), self.MAXVELOCITY)
+            velocityLeft = min(max(velocityLeft, -self.MAXVELOCITY), self.MAXVELOCITY)
 
             self.debuggingLists["pastVL"].append(velocityLeft)
             self.debuggingLists["pastVR"].append(velocityRight)
