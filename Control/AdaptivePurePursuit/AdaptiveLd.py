@@ -54,10 +54,10 @@ class Control:
 
         self.indexLD = 0
         self.currentPosition = [0, 0, 0]  ##[x,y,theta]
-        DISTLD = 0.3
-        MAXVELOCITY = 1.57
-        WIDTH = 0.8
-        localPath = False
+        self.DISTLD = 0.3
+        self.MAXVELOCITY = 1.57
+        self.WIDTH = 0.8
+        self.localPath = False
 
         self.waypoints = []
 
