@@ -59,7 +59,7 @@ class ArucoTrackingNode:
         rospy.Subscriber(self.cameraInfoTopic, CameraInfo, self.cameraInfoCallback)
 
         # Publishers
-        self.posePub = rospy.Publisher("/landmark_topic", PoseStamped, queue_size=10)
+        self.posePub = rospy.Publisher("/landmark_topic", LandmarkArray, queue_size=10)
 
     def loadParameters(self):
         """
