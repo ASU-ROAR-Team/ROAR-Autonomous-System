@@ -131,7 +131,7 @@ class ArucoTrackingNode:
                 landmarkArrMsg.landmarks.append(landmarkMsg)
 
             # Publish pose
-            self.posePub.publish(poseMsg)
+            self.posePub.publish(landmarkArrMsg)
 
         if self.showRejected:
             cvImage = self.arucoTracker.drawRejectedMarkers(cvImage, rejected)
