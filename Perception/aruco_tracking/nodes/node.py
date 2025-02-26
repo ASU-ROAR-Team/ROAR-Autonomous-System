@@ -91,9 +91,13 @@ class ArucoTrackingNode:
         corners, ids, rejected = self.arucoTracker.detectMarkers(cvImage)
         if ids is not None:
             # Estimate pose
-            rvecs, tvecs = self.arucoTracker.estimatePose(
-                corners, self.markerSize, self.cameraMatrix, self.distCoeffs
-            )
+            if self.cameraMatrix is None or self.distCoeffs is None:
+                rospy.logwarn_throttle(1, "Camera calibration not available. Cannot estimate pose.")
+                return
+            else:
+                rvecs, tvecs = self.arucoTracker.estimatePose(
+                    corners, self.markerSize, self.cameraMatrix, self.distCoeffs
+                )
             print(rvecs[0][1], tvecs[0][1])
             # Draw markers, axes, and pose information
             cvImage = self.arucoTracker.drawMarkers(
