@@ -27,71 +27,81 @@ class Control:
         rospy.init_node("controller", anonymous=True)
         self.velocityPublisher = {
             "LF": rospy.Publisher(
-                "/wheel_lhs_front_velocity_controller/command", Float64, queue_size=10
+                rospy.get_param("publishing_topics/left_front_wheel"), Float64, queue_size=10
             ),
             "RF": rospy.Publisher(
-                "/wheel_rhs_front_velocity_controller/command", Float64, queue_size=10
+                rospy.get_param("publishing_topics/right_front_wheel"), Float64, queue_size=10
             ),
             "LR": rospy.Publisher(
-                "/wheel_lhs_rear_velocity_controller/command", Float64, queue_size=10
+                rospy.get_param("publishing_topics/left_rear_wheel"), Float64, queue_size=10
             ),
             "RR": rospy.Publisher(
-                "/wheel_rhs_rear_velocity_controller/command", Float64, queue_size=10
+                rospy.get_param("publishing_topics/right_rear_wheel"), Float64, queue_size=10
             ),
             "LM": rospy.Publisher(
-                "/wheel_lhs_mid_velocity_controller/command", Float64, queue_size=10
+                rospy.get_param("publishing_topics/left_mid_wheel"), Float64, queue_size=10
             ),
             "RM": rospy.Publisher(
-                "/wheel_rhs_mid_velocity_controller/command", Float64, queue_size=10
+                rospy.get_param("publishing_topics/right_mid_wheel"), Float64, queue_size=10
             ),
         }
         # Publishers
         self.subscribers = {
-            "Pose": rospy.Subscriber("/gazebo/model_states", ModelStates, self.updatePose),
-            "Path": rospy.Subscriber("/Path", Path, self.pathCallback),
+            "Pose": rospy.Subscriber(
+                rospy.get_param("subscribing_topics/pose"), ModelStates, self.updatePose
+            ),
+            "Path": rospy.Subscriber(
+                rospy.get_param("subscribing_topics/path"), Path, self.pathCallback
+            ),
         }
         # Subscribers
 
         self.indexLD = 0
         self.currentPosition = [0, 0, 0]  ##[x,y,theta]
-        self.DISTLD = 0.3
-        self.MAXVELOCITY = 1.57
-        self.WIDTH = 0.8
-        self.localPath = False
+        self.distLd = 0.3
+        self.MAXVELOCITY = rospy.get_param("robot_parameter/maxVelocity", 1.57)
+        self.WIDTH = rospy.get_param("robot_parameters/width", 0.8)
+        self.localPath = rospy.get_param("algorithm_parameters/localPath", False)
+        self.visualize = rospy.get_param("meta_parameters/visualize")
+        self.log = rospy.get_param("meta_parameters/log", False)
+        self.KL = rospy.get_param("algorithm_parameters/KL", 0.25)
+        self.KC = rospy.get_param("algorithm_parameters/KC", 0.05)
 
         self.waypoints = []
+        if self.visualize:
+            # Setup matplotlib for plotting
+            _, self.ax1 = plt.subplots(1, 1, figsize=(6, 6))  # Single plot with one axis
+            # Plot for waypoints
+            self.ax1.set_xlabel("X")
+            self.ax1.set_ylabel("Y")
+            self.ax1.set_title("Waypoints and Robot Path")
+            self.ax1.set_xlim(-5, 4)  # Set x-axis limits from -10 to 10
+            self.ax1.set_ylim(-1, 6.5)  # Set y-axis limits from -10 to 10
+            self.plots = {
+                "waypointsPlot": self.ax1.plot([], [], "b--", label="Waypoints"),
+                "robotPositionPlot": self.ax1.plot(
+                    [], [], "r^", label="Robot Position", markersize=6
+                ),
+                "lookaheadPointPlot": self.ax1.plot(
+                    [], [], "go", label="Look ahead point", markersize=3
+                ),
+                "robotPathPlot": self.ax1.plot([], [], "r-", label="Robot Path"),
+            }
+            # Add a plot for the robot's path
 
-        # Setup matplotlib for plotting
-        _, self.ax1 = plt.subplots(1, 1, figsize=(6, 6))  # Single plot with one axis
-        # Plot for waypoints
-        self.ax1.set_xlabel("X")
-        self.ax1.set_ylabel("Y")
-        self.ax1.set_title("Waypoints and Robot Path")
-        self.ax1.set_xlim(-5, 4)  # Set x-axis limits from -10 to 10
-        self.ax1.set_ylim(-1, 6.5)  # Set y-axis limits from -10 to 10
-        self.plots = {
-            "waypointsPlot": self.ax1.plot([], [], "b--", label="Waypoints"),
-            "robotPositionPlot": self.ax1.plot([], [], "r^", label="Robot Position", markersize=6),
-            "lookaheadPointPlot": self.ax1.plot(
-                [], [], "go", label="Look ahead point", markersize=3
-            ),
-            "robotPathPlot": self.ax1.plot([], [], "r-", label="Robot Path"),
-        }
-        # Add a plot for the robot's path
+            ##for debugging
+            self.debuggingLists = {
+                "pastPositionsX": [],
+                "pastPositionsY": [],
+                "pastVL": [],
+                "pastVR": [],
+                "pastLD": [],
+                "pastCurvature": [],
+                "pastHeadings": [],
+            }
+            self.ax1.legend()
 
-        ##for debugging
-        self.debuggingLists = {
-            "pastPositionsX": [],
-            "pastPositionsY": [],
-            "pastVL": [],
-            "pastVR": [],
-            "pastLD": [],
-            "pastCurvature": [],
-            "pastHeadings": [],
-        }
-        self.ax1.legend()
-
-        plt.tight_layout()
+            plt.tight_layout()
 
     def pathCallback(self, msg: Path):
         """
@@ -107,8 +117,9 @@ class Control:
         ----
         """
         self.waypoints = [(pose.pose.position.x, pose.pose.position.y) for pose in msg.poses]
-        self.updateWaypointsPlot()
         rospy.loginfo("got waypoints")
+        if self.visualize:
+            self.updateWaypointsPlot()
 
     def updatePose(self, msg: ModelStates):
         """
@@ -198,14 +209,15 @@ class Control:
             print("waypoint = " + str(waypoint[0]) + ", " + str(waypoint[1]))
             print("dist=" + str(distanceToRobot))
 
-            if distanceToRobot < self.DISTLD:
+            if distanceToRobot < self.distLd:
                 self.indexLD = i
                 lookaheadPoint = waypoint
 
             else:
                 lookaheadPoint = self.waypoints[self.indexLD]
                 break
-        self.plotLookaheadPoint(lookaheadPoint[0], lookaheadPoint[1])
+        if self.visualize:
+            self.plotLookaheadPoint(lookaheadPoint[0], lookaheadPoint[1])
         return lookaheadPoint
 
     def purePursuit(self):
@@ -239,8 +251,8 @@ class Control:
             self.debuggingLists["pastCurvature"].append(k)
             velocityCentre = self.setVelocity(k)
             print("velocityCentre=" + str(velocityCentre))
-            self.DISTLD = 0.25 * velocityCentre + 0.05
-            self.debuggingLists["pastLD"].append(self.DISTLD)
+            self.distLd = self.KL * velocityCentre + self.KC
+            self.debuggingLists["pastLD"].append(self.distLd)
             self.debuggingLists["pastHeadings"].append(self.currentPosition[2])
             velocityRight = velocityCentre * (
                 1 - self.WIDTH * deltaX / (actualLookahead * actualLookahead)
@@ -274,10 +286,10 @@ class Control:
             self.velocityPublisher["RM"].publish(velocityRight)
             self.velocityPublisher["LR"].publish(velocityLeft)
             self.velocityPublisher["RR"].publish(velocityRight)
-
-            self.plotRoverPosition()
-            # Give time for plot to update
-            plt.pause(0.001)
+            if self.visualize:
+                self.plotRoverPosition()
+                # Give time for plot to update
+                plt.pause(0.001)
 
     def plotRoverPosition(self):
         """
@@ -380,7 +392,8 @@ class Control:
 if __name__ == "__main__":
     try:
         control = Control()
-        rospy.on_shutdown(control.shutdownSeq)
+        if control.log:
+            rospy.on_shutdown(control.shutdownSeq)
         while not rospy.is_shutdown():
             if len(control.waypoints) > 0:
                 control.purePursuit()
