@@ -320,7 +320,7 @@ ax.set_ylabel("Y Position")
 ax.set_title("Live APF Path")
 ax.legend()
 ax.grid()
-GOALREACHED = False
+GOALREACHED = False  # marker for goal
 
 while not rospy.is_shutdown() and not GOALREACHED:
     if FLAG == 1:  # to check if a message is being sent

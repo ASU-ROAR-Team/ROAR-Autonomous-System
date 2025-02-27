@@ -1,7 +1,7 @@
 <launch>
   <arg name="model" default="$(env TURTLEBOT3_MODEL)" doc="model type [burger, waffle, waffle_pi]"/>
-  <arg name="x_pos" default="4.5"/>
-  <arg name="y_pos" default="0.5"/>
+  <arg name="x_pos" default="0.5"/>
+  <arg name="y_pos" default="9.5"/>
   <arg name="z_pos" default="0.0"/>
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
@@ -18,22 +18,23 @@
   <node pkg="gazebo_ros" type="spawn_model" name="spawn_urdf" args="-urdf -model turtlebot3_$(arg model) -x $(arg x_pos) -y $(arg y_pos) -z $(arg z_pos) -param robot_description" />
 
   <node pkg="apf_trials" name="APF_update" type="APF_update.py" output="screen">
-    <param name="xGoal" value="0.5" />
-    <param name="yGoal" value="4.5" />
-    <param name="xObs" value="2.5" />
-    <param name="yObs" value="2.5" />
-    <param name="KATT" value="1" />
-    <param name="KREP" value="2" />
+    <param name="xGoal" value="9.5" />
+    <param name="yGoal" value="0.5" />
+    <!-- <param name="xObs" value="2.5" />
+    <param name="yObs" value="2.5" /> -->
+    <param name="KATT" value="4" />
+    <param name="KREP" value="100" />
     <param name="QSTAR" value="1.4" />
-    <param name="TAU" value="0.06" />
+    <param name="M" value="1" />
+    <param name="TAU" value="0.1" />
     <param name="ROBMASS" value="1.8" />
   </node>
-
+<!-- <node pkg="AdaptivePurePursuit" name="AdaptiveLd" type="AdaptiveLd.py"/> -->
   <node pkg="apf_trials" name="Lyapunov_update" type="Lyapunov_update.py">
     <param name="K_x" value="2" />
     <param name="K_theta" value="2" />
     <param name="Vd_des" value="0.001" />
     <param name="Omega_des" value="0" />
   </node>
-
+  <node pkg="apf_trials" name="Obstacle_publisher" type="Obstacle_publisher.py"/>
 </launch>
