@@ -6,15 +6,17 @@ This script implements an Artificial Potential Field (APF) that acts
 as a local planner to avoid dynamic obstacles (their positions are unknown)
 
 """
-from typing import List
+from typing import List, Dict
+import threading
 import rospy
 from geometry_msgs.msg import Twist, Pose, PoseStamped
 from nav_msgs.msg import Odometry, Path
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from sympy import symbols, sqrt, cos, sin, atan2
 import matplotlib.pyplot as plt
-
-# from roar_msgs.msg import Obstacle
+from roar_msgs.msg import Obstacle
+from matplotlib.patches import Circle
+from matplotlib.lines import Line2D
 
 
 # from gazebo_msgs.msg import ModelStates, LinkStates
@@ -88,6 +90,17 @@ POSMSG = Pose()  # Identify msg variable of data type Pose
 POSITION = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 VELOCITYMSG = Twist()
 VELOCITY = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+OBSTACLEDIC: Dict[int, List[float]] = {}  # Dictionary to store obstacle positions and radii
+obstacleLock = threading.Lock()  # Thread lock for OBSTACLEDIC
+FLAG2 = 0  # Flag to indicate if obstacle data has been received
+# APF Inputs
+GOALPOS = [rospy.get_param("~xGoal"), rospy.get_param("~yGoal")]
+apfParam = [
+    rospy.get_param("~KATT"),
+    rospy.get_param("~KREP"),
+    rospy.get_param("~QSTAR"),
+    rospy.get_param("~M"),
+]  # [KATT,KREP,QSTAR,M]
 
 
 def callback(data: Odometry) -> None:
@@ -138,42 +151,45 @@ def callback(data: Odometry) -> None:
 SUB = rospy.Subscriber(
     "/odom", Odometry, callback
 )  # Identify the subscriber "sub2" to subscribe topic "/odom" of type "Odometry"
-OBSTPOS = [2.5, 2.5, 0]
-# def obstacle_callback(data: Obstacle) -> None:
-#     """
-#     Callback function to update the obstacle position and radius.
 
-#     Parameters:
-#     ----
-#     data: Obstacle message containing the obstacle's position and radius.
-#     ----
-#     Returns:
-#     ----
-#     None
-#     ----
-#     """
-#     global OBSTPOS # pylint: disable=global-statement
 
-#     # Update the obstacle position and radius
-#     OBSTPOS = [data.position.x, data.position.y, data.radius]
-# OBSTSUB = rospy.Subscriber('obstacle_topic', Obstacle, obstacle_callback)
-# obstacleList = []  # List to store obstacle positions
+def obstacleCallback(data: Obstacle) -> None:
+    """
+    Callback function to update the obstacle position and radius.
 
-while FLAG == 0:  # Wait until the Rover receives a message before proceeding
+    Parameters:
+    ----
+    data: Obstacle message containing the obstacle's position and radius.
+    ----
+    Returns:
+    ----
+    None
+    ----
+    """
+    global FLAG2  # pylint: disable=global-statement
+
+    # Update the obstacle position and radius
+    obstacleId = data.id.data  # Get obstacle ID
+    radius = data.radius.data
+    influenceRange = apfParam[2] + radius
+    obstacleInfo = [
+        data.position.pose.position.x,
+        data.position.pose.position.y,
+        radius,
+        influenceRange,
+    ]
+    with obstacleLock:
+        # Update the dictionary with the latest obstacle data
+        OBSTACLEDIC[obstacleId] = obstacleInfo
+    FLAG2 = 1
+
+
+obstacleTopic = rospy.get_param("~obstacle_topic", default="obstacle_topic")
+OBSTSUB = rospy.Subscriber("obstacle_topic", Obstacle, obstacleCallback)
+
+while FLAG == 0 or FLAG2 == 0:  # Wait until the Rover receives a message before proceeding
     pass
-#######################################################################
-#######################################################################
-# APF Inputs
-GOALPOS = [rospy.get_param("~xGoal"), rospy.get_param("~yGoal")]
-# OBSTPOS = [rospy.get_param("~xObs"), rospy.get_param("~yObs")]
-apfParam = [
-    rospy.get_param("~KATT"),
-    rospy.get_param("~KREP"),
-    rospy.get_param("~QSTAR"),
-    rospy.get_param("~M"),
-]  # [KATT,KREP,QSTAR,M]
-#######################################################################
-#######################################################################
+
 # APF Equations
 xRob = symbols("xRob")
 yRob = symbols("yRob")
@@ -181,6 +197,7 @@ xGoal = symbols("xGoal")
 yGoal = symbols("yGoal")
 xObs = symbols("xObs")
 yObs = symbols("yObs")
+rangeEff = symbols("rangeEff")
 
 # Attraction Forces Equations
 attVal = sqrt((xRob - xGoal) ** 2 + (yRob - yGoal) ** 2)
@@ -189,11 +206,9 @@ fxAtt = apfParam[0] * attVal * cos(attAngle)
 fyAtt = apfParam[0] * attVal * sin(attAngle)
 # Repulsion Forces Equations
 distObs = sqrt((xRob - xObs) ** 2 + (yRob - yObs) ** 2)
-repValue1 = (
-    apfParam[1] * ((1 / distObs) - (1 / apfParam[2])) * (attVal ** apfParam[3] / attVal**3)
-)
+repValue1 = apfParam[1] * ((1 / distObs) - (1 / rangeEff)) * (attVal ** apfParam[3] / attVal**3)
 repValue2 = (
-    apfParam[1] * apfParam[3] * (((1 / distObs) - (1 / apfParam[2])) ** 2) * (attVal ** apfParam[3])
+    apfParam[1] * apfParam[3] * (((1 / distObs) - (1 / rangeEff)) ** 2) * (attVal ** apfParam[3])
 )
 repValue = repValue1 + repValue2
 repAngle = atan2((yObs - yRob), (xObs - xRob))
@@ -209,7 +224,7 @@ fyRep = -repValue * sin(repAngle)
 
 
 def apfFn(
-    robPos: List[float], goalPos: List[float], obstPos: List[float], apfPar: List[float]
+    robPos: List[float], goalPos: List[float], obstDict: Dict[int, List[float]]
 ) -> List[float]:
     """
     This function calculates the total force
@@ -218,7 +233,7 @@ def apfFn(
     ----
     robPos: gives the ROVER POSITION
     goalPos: provides the goal POSITION
-    OBSTPOS: provides the obstacle POSITION
+    obstDict: provides the obstacle positions and radii
     apfParam: provides the apf constants
     ----
     Returns:
@@ -250,44 +265,49 @@ def apfFn(
             (attVal, distGoalVal),
         ]
     )
+    fxRepTotal = 0
+    fyRepTotal = 0
+    with obstacleLock:
+        for obstInfo in obstDict.values():
+            distObstVal = float(
+                distObs.subs(
+                    [(xRob, robPos[0]), (yRob, robPos[1]), (xObs, obstInfo[0]), (yObs, obstInfo[1])]
+                ).evalf()
+            )
 
-    distObstVal = float(
-        distObs.subs(
-            [(xRob, robPos[0]), (yRob, robPos[1]), (xObs, obstPos[0]), (yObs, obstPos[1])]
-        ).evalf()
-    )
-    if distObstVal < apfPar[2]:
-        fxRepVal = fxRep.subs(
-            [
-                (xRob, robPos[0]),
-                (yRob, robPos[1]),
-                (xObs, obstPos[0]),
-                (yObs, obstPos[1]),
-                (xGoal, goalPos[0]),
-                (yGoal, goalPos[1]),
-                (distObs, distObstVal),
-                (attVal, distGoalVal),
-            ]
-        )
+            if distObstVal < obstInfo[3]:
+                fxRepVal = fxRep.subs(
+                    [
+                        (xRob, robPos[0]),
+                        (yRob, robPos[1]),
+                        (xObs, obstInfo[0]),
+                        (yObs, obstInfo[1]),
+                        (xGoal, goalPos[0]),
+                        (yGoal, goalPos[1]),
+                        (distObs, distObstVal),
+                        (attVal, distGoalVal),
+                        (rangeEff, obstInfo[3]),
+                    ]
+                )
 
-        fyRepVal = fyRep.subs(
-            [
-                (xRob, robPos[0]),
-                (yRob, robPos[1]),
-                (xObs, obstPos[0]),
-                (yObs, obstPos[1]),
-                (xGoal, goalPos[0]),
-                (yGoal, goalPos[1]),
-                (distObs, distObstVal),
-                (attVal, distGoalVal),
-            ]
-        )
-    else:
-        fxRepVal = 0
-        fyRepVal = 0
+                fyRepVal = fyRep.subs(
+                    [
+                        (xRob, robPos[0]),
+                        (yRob, robPos[1]),
+                        (xObs, obstInfo[0]),
+                        (yObs, obstInfo[1]),
+                        (xGoal, goalPos[0]),
+                        (yGoal, goalPos[1]),
+                        (distObs, distObstVal),
+                        (attVal, distGoalVal),
+                        (rangeEff, obstInfo[3]),
+                    ]
+                )
+                fxRepTotal += fxRepVal
+                fyRepTotal += fyRepVal
 
-    fxNetVal = fxAttVal + fxRepVal  # +fxGrad
-    fyNetVal = fyAttVal + fyRepVal  # +fyGrad
+    fxNetVal = fxAttVal + fxRepTotal  # +fxGrad
+    fyNetVal = fyAttVal + fyRepTotal  # +fyGrad
     fxyNet = [fxNetVal, fyNetVal]
     # rospy.loginfo(f"Attractive Force: fx = {fxAttVal}, fy = {fyAttVal}")
     # rospy.loginfo(f"Repulsive Force: fx = {fxRepVal}, fy = {fyRepVal}")
@@ -306,20 +326,6 @@ waypoints = []
 
 # the plotting function to plot the goal, obstacle, planned path
 fig, ax = plt.subplots()
-(robotDot,) = ax.plot([], [], "bo", markersize=5, label="Robot")  # Robot marker
-(plannedPathLine,) = ax.plot([], [], "ro", linewidth=2, label="Planned Path")  # Precomputed path
-plt.scatter(GOALPOS[0], GOALPOS[1], color="green", label="Goal", s=100)  # Goal point
-obstacle = plt.Rectangle(
-    (1.925, 1.925), 1.15, 1.15, color="red", alpha=0.5, label="Obstacle"
-)  # obstacle as a rectangle
-ax.add_patch(obstacle)
-ax.set_xlim(0, 10)
-ax.set_ylim(0, 10)
-ax.set_xlabel("X Position")
-ax.set_ylabel("Y Position")
-ax.set_title("Live APF Path")
-ax.legend()
-ax.grid()
 GOALREACHED = False  # marker for goal
 
 while not rospy.is_shutdown() and not GOALREACHED:
@@ -327,8 +333,8 @@ while not rospy.is_shutdown() and not GOALREACHED:
         # initial ROVER POSITION and VELOCITY
         robPos0 = [POSITION[0], POSITION[1], POSITION[2], POSITION[3], POSITION[4], POSITION[5]]
         posPrev = robPos0
-        for i in range(20):  # the loop which caculates the path the ROVER should follow
-            fxyTotal = apfFn(posPrev, GOALPOS, OBSTPOS, apfParam)
+        for i in range(100):  # the loop which caculates the path the ROVER should follow
+            fxyTotal = apfFn(posPrev, GOALPOS, OBSTACLEDIC)
             fNet = float(sqrt(fxyTotal[0] ** 2 + fxyTotal[1] ** 2))
             fNetDir = float(atan2(fxyTotal[1], fxyTotal[0]))
             # rospy.loginfo(f"Step {i}: fxyTotal = {fxyTotal}, fNet = {fNet}, angleDes = {fNetDir}")
@@ -358,6 +364,20 @@ while not rospy.is_shutdown() and not GOALREACHED:
         robPosDes = robPos0
 
     # placing the waypoints in the planned path to plot it
+    ax.cla()
+    (robotDot,) = ax.plot([], [], "bo", markersize=5, label="Robot")  # Robot marker
+    (plannedPathLine,) = ax.plot(
+        [], [], "ro", linewidth=2, label="Planned Path"
+    )  # Precomputed path
+    plt.scatter(GOALPOS[0], GOALPOS[1], color="green", label="Goal", s=100)  # Goal point
+    ax.set_xlabel("X Position")
+    ax.set_ylabel("Y Position")
+    ax.set_title("Live APF Path")
+    obstacle_legend = Line2D(
+        [0], [0], marker="o", color="w", markerfacecolor="red", markersize=10, label="Obstacle"
+    )
+    plt.legend(handles=[robotDot, plannedPathLine, obstacle_legend])
+    ax.grid()
     plannedTrajectoryx = [wp[0] for wp in waypoints]
     plannedTrajectoryy = [wp[1] for wp in waypoints]
     plannedPathLine.set_data(plannedTrajectoryx, plannedTrajectoryy)
@@ -366,5 +386,13 @@ while not rospy.is_shutdown() and not GOALREACHED:
     pub1.publish(path.poses[0].pose)
     path = Path()
     robotDot.set_data(POSITION[0], POSITION[1])  # ploting the current ROVER POSITION dynamically
+    for obstPlot in OBSTACLEDIC.values():
+        obstacle = Circle(
+            (obstPlot[0], obstPlot[1]), obstPlot[2], color="red", alpha=0.5, label="Obstacle"
+        )
+        ax.add_patch(obstacle)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 10)
+    ax.set_aspect("equal")
     plt.pause(0.001)
     rate.sleep()

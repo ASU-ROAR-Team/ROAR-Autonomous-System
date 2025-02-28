@@ -5,7 +5,7 @@
   <arg name="z_pos" default="0.0"/>
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
-    <arg name="world_name" value="$(find apf_trials)/APF_map/APF_world.world"/>
+    <arg name="world_name" value="worlds/empty.world"/>
     <arg name="paused" value="false"/>
     <arg name="use_sim_time" value="true"/>
     <arg name="gui" value="true"/>
@@ -24,10 +24,11 @@
     <param name="yObs" value="2.5" /> -->
     <param name="KATT" value="4" />
     <param name="KREP" value="100" />
-    <param name="QSTAR" value="1.4" />
+    <param name="QSTAR" value="0.5" />
     <param name="M" value="1" />
     <param name="TAU" value="0.1" />
     <param name="ROBMASS" value="1.8" />
+    <param name="obstacle_topic" value="obstacle_topic" />
   </node>
 <!-- <node pkg="AdaptivePurePursuit" name="AdaptiveLd" type="AdaptiveLd.py"/> -->
   <node pkg="apf_trials" name="Lyapunov_update" type="Lyapunov_update.py">
@@ -36,5 +37,10 @@
     <param name="Vd_des" value="0.001" />
     <param name="Omega_des" value="0" />
   </node>
-  <node pkg="apf_trials" name="Obstacle_publisher" type="Obstacle_publisher.py"/>
+  <node pkg="apf_trials" name="Obstacle_publisher" type="Obstacle_publisher.py">
+    <param name="obstacle_x" value="2" />
+    <param name="obstacle_y" value="8" />
+    <param name="obstacle_radius" value="1" />
+    <param name="obstacle_id" value="1" />
+  </node>
 </launch>
