@@ -6,20 +6,20 @@ This script implements an Artificial Potential Field (APF) that acts
 as a local planner to avoid dynamic obstacles (their positions are unknown)
 
 """
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import threading
 import rospy
-from geometry_msgs.msg import Twist, Pose, PoseStamped
-from nav_msgs.msg import Odometry, Path
+from geometry_msgs.msg import Pose, PoseStamped
+from nav_msgs.msg import Path
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from sympy import symbols, sqrt, cos, sin, atan2
 import matplotlib.pyplot as plt
 from roar_msgs.msg import Obstacle
 from matplotlib.patches import Circle
 from matplotlib.lines import Line2D
-
-
-# from gazebo_msgs.msg import ModelStates, LinkStates
+from gazebo_msgs.msg import ModelStates
+import pandas as pd
+import numpy as np
 
 # This is the publisher node which publishes a path for the controller
 rospy.init_node("Path_Planning_APF", anonymous=True)
@@ -27,83 +27,14 @@ pub = rospy.Publisher("/Path", Path, queue_size=10)
 path = Path()
 pub1 = rospy.Publisher(
     "/APF_Des_Pos", Pose, queue_size=10
-)  # Identify the publisher "pub1" to publish on topic "/APF_Des_Pos" to send message of type "Pose"
+)  # Identify the publisher "pub1" to publish on topic "/APF_Des_Pos" to send message of type "Path"
 rate = rospy.Rate(10)
 
-# FLAG = 0	# flag to indicate if new data has been received
-# POSMSG = Pose()	# variable to store the current POSITION
-# POSITION = [0, 0, 0, 0, 0, 0] # initialization of the POSITION to be zero
-# VELOCITYMSG= Twist() # variables to store current VELOCITY
-# VELOCITY = [0, 0, 0, 0, 0, 0] # initialization of the VELOCITY to be zero
-
-# def callback1(data:ModelStates):
-#  """
-
-#  This function feedbacks the ROVER current location
-
-#  Parameters:
-#  ----
-#  data: this gives the ROVER POSITION and orientation
-#  ----
-#  Returns:
-#  ----
-#  None
-#  ----
-#  """
-#  global POSMSG
-#  global sub
-#  global FLAG
-#  global POSITION
-#  global VELOCITYMSG
-#  global VELOCITY
-#  msg = data
-
-#  POSMSG.position.x = round(msg.pose[1].position.x, 4)
-#  POSMSG.position.y = round(msg.pose[1].position.y, 4)
-#  POSMSG.position.z = round(msg.pose[1].position.z, 4)
-#  POSMSG.orientation.x = round(msg.pose[1].orientation.x, 4)
-#  POSMSG.orientation.y = round(msg.pose[1].orientation.y, 4)
-#  POSMSG.orientation.z = round(msg.pose[1].orientation.z, 4)
-#  POSMSG.orientation.w = round(msg.pose[1].orientation.w, 4)
-#  [roll, pitch, yaw] = euler_from_quaternion(
-# (POSMSG.orientation.x, POSMSG.orientation.y, POSMSG.orientation.z, POSMSG.orientation.w))
-#  POSITION = [POSMSG.position.x,POSMSG.position.y,POSMSG.position.z,yaw, pitch, roll]
-#  VELOCITYMSG.linear.x = round(msg.twist[1].linear.x, 4)
-#  VELOCITYMSG.linear.y = round(msg.twist[1].linear.y, 4)
-#  VELOCITYMSG.linear.z = round(msg.twist[1].linear.z, 4)
-#  VELOCITYMSG.angular.x = round(msg.twist[1].angular.x, 4)
-#  VELOCITYMSG.angular.y = round(msg.twist[1].angular.y, 4)
-#  VELOCITYMSG.angular.z = round(msg.twist[1].angular.z, 4)
-#  VELOCITY = [
-# VELOCITYMSG.linear.x,
-# VELOCITYMSG.linear.y,
-# VELOCITYMSG.linear.z,
-# VELOCITYMSG.angular.x,
-# VELOCITYMSG.angular.y,
-# VELOCITYMSG.angular.z]
-#  FLAG = 1
-
-# sub = rospy.Subscriber('/gazebo/model_states', ModelStates, callback1)
-# #Identify the subscriber "sub2" to subscribe topic "/odom" of type "Odometry"
-FLAG = 0  # Initialize flag by zero
-POSMSG = Pose()  # Identify msg variable of data type Pose
-POSITION = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-VELOCITYMSG = Twist()
-VELOCITY = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-OBSTACLEDIC: Dict[int, List[float]] = {}  # Dictionary to store obstacle positions and radii
-obstacleLock = threading.Lock()  # Thread lock for OBSTACLEDIC
-FLAG2 = 0  # Flag to indicate if obstacle data has been received
-# APF Inputs
-GOALPOS = [rospy.get_param("~xGoal"), rospy.get_param("~yGoal")]
-apfParam = [
-    rospy.get_param("~KATT"),
-    rospy.get_param("~KREP"),
-    rospy.get_param("~QSTAR"),
-    rospy.get_param("~M"),
-]  # [KATT,KREP,QSTAR,M]
+POSMSG = Pose()  # variable to store the current POSITION
+POSITION = [0, 0, 0, 0, 0, 0]  # initialization of the POSITION to be zero
 
 
-def callback(data: Odometry) -> None:
+def callback(data: ModelStates) -> None:
     """
 
     This function feedbacks the ROVER current location
@@ -117,40 +48,34 @@ def callback(data: Odometry) -> None:
     None
     ----
     """
-    global FLAG, POSITION, VELOCITY  # pylint: disable=global-statement
 
+    global POSITION  # pylint: disable=W0603
     msg = data
-    POSMSG.position.x = msg.pose.pose.position.x
-    POSMSG.position.y = msg.pose.pose.position.y
-    POSMSG.position.z = msg.pose.pose.position.z
-    POSMSG.orientation.x = msg.pose.pose.orientation.x
-    POSMSG.orientation.y = msg.pose.pose.orientation.y
-    POSMSG.orientation.z = msg.pose.pose.orientation.z
-    POSMSG.orientation.w = msg.pose.pose.orientation.w
+
+    POSMSG.position.x = round(msg.pose[1].position.x, 4)
+    POSMSG.position.y = round(msg.pose[1].position.y, 4)
+    POSMSG.position.z = round(msg.pose[1].position.z, 4)
+    POSMSG.orientation.x = round(msg.pose[1].orientation.x, 4)
+    POSMSG.orientation.y = round(msg.pose[1].orientation.y, 4)
+    POSMSG.orientation.z = round(msg.pose[1].orientation.z, 4)
+    POSMSG.orientation.w = round(msg.pose[1].orientation.w, 4)
     [roll, pitch, yaw] = euler_from_quaternion(
         (POSMSG.orientation.x, POSMSG.orientation.y, POSMSG.orientation.z, POSMSG.orientation.w)
     )
     POSITION = [POSMSG.position.x, POSMSG.position.y, POSMSG.position.z, yaw, pitch, roll]
-    VELOCITYMSG.linear.x = msg.twist.twist.linear.x
-    VELOCITYMSG.linear.y = msg.twist.twist.linear.y
-    VELOCITYMSG.linear.z = msg.twist.twist.linear.z
-    VELOCITYMSG.angular.x = msg.twist.twist.angular.x
-    VELOCITYMSG.angular.y = msg.twist.twist.angular.y
-    VELOCITYMSG.angular.z = msg.twist.twist.angular.z
-    VELOCITY = [
-        VELOCITYMSG.linear.x,
-        VELOCITYMSG.linear.y,
-        VELOCITYMSG.linear.z,
-        VELOCITYMSG.angular.x,
-        VELOCITYMSG.angular.y,
-        VELOCITYMSG.angular.z,
-    ]
-    FLAG = 1
 
 
-SUB = rospy.Subscriber(
-    "/odom", Odometry, callback
-)  # Identify the subscriber "sub2" to subscribe topic "/odom" of type "Odometry"
+SUB = rospy.Subscriber("/gazebo/model_states", ModelStates, callback)
+
+OBSTACLEDIC: Dict[int, List[float]] = {}  # Dictionary to store obstacle positions and radii
+obstacleLock = threading.Lock()  # Thread lock for OBSTACLEDIC
+FILEPATH = "/home/omar/Downloads/path.csv"
+apfParam = [
+    rospy.get_param("~KATT"),
+    rospy.get_param("~KREP"),
+    rospy.get_param("~QSTAR"),
+    rospy.get_param("~M"),
+]  # [KATT,KREP,QSTAR,M]
 
 
 def obstacleCallback(data: Obstacle) -> None:
@@ -166,7 +91,6 @@ def obstacleCallback(data: Obstacle) -> None:
     None
     ----
     """
-    global FLAG2  # pylint: disable=global-statement
 
     # Update the obstacle position and radius
     obstacleId = data.id.data  # Get obstacle ID
@@ -181,14 +105,13 @@ def obstacleCallback(data: Obstacle) -> None:
     with obstacleLock:
         # Update the dictionary with the latest obstacle data
         OBSTACLEDIC[obstacleId] = obstacleInfo
-    FLAG2 = 1
 
 
 obstacleTopic = rospy.get_param("~obstacle_topic", default="obstacle_topic")
-OBSTSUB = rospy.Subscriber("obstacle_topic", Obstacle, obstacleCallback)
+OBSTSUB = rospy.Subscriber(obstacleTopic, Obstacle, obstacleCallback)
 
-while FLAG == 0 or FLAG2 == 0:  # Wait until the Rover receives a message before proceeding
-    pass
+rospy.wait_for_message("/gazebo/model_states", ModelStates)
+
 
 # APF Equations
 xRob = symbols("xRob")
@@ -223,8 +146,67 @@ fyRep = -repValue * sin(repAngle)
 #     fyGrad = sym.exp(grad) * sin(robCurrentPos[3])
 
 
+def loadWaypointsFromCSV(filePath: str) -> Tuple[List[Tuple[float, float]], pd.DataFrame]:
+    """
+    Load waypoints from a CSV file using Pandas.
+
+    Parameters:
+    ----
+    file_path: Path to the CSV file containing waypoints.
+    ----
+    Returns:
+    ----
+    waypoints: A list of tuples representing the waypoints in the form [(x1, y1), (x2, y2), ...].
+    ----
+    """
+    # Read the CSV file into a DataFrame
+    dfFunc = pd.read_csv(filePath)
+
+    lookaheadPoints = list(zip(dfFunc["x_world"], dfFunc["y_world"]))
+
+    return lookaheadPoints, dfFunc
+
+
+def dynamicGoal(
+    robotPosition: List[float], goals: List[Tuple[float, float]], lookaheadDistance: float
+) -> Tuple[float, float]:
+    """
+    Calculate the dynamic goal (lookahead point) based on the
+    robot's current position and the waypoints.
+
+    Parameters:
+    ----
+    robotPosition: A tuple containing the robot's current position in the form (x, y).
+    waypoints: A list of tuples representing the path in the form [(x1, y1), (x2, y2), ...].
+    lookaheadDistance: The lookahead distance threshold.
+    ----
+    Returns:
+    ----
+    dynamicGoal: A tuple containing the coordinates of the dynamic goal in the form (x, y).
+    ----
+    """
+    # Find the index of the closest goal point
+    minDist = float("inf")
+    closestIndex = 0
+    for i, goal in enumerate(goals):
+        dist = sqrt((goal[0] - robotPosition[0]) ** 2 + (goal[1] - robotPosition[1]) ** 2)
+        if dist < minDist:
+            minDist = dist
+            closestIndex = i  # Update to the closest goal point
+
+    # Now search forward for the first goal that is `lookaheadDistance` away
+    for j in range(closestIndex, len(goals)):
+        dist = sqrt((goals[j][0] - robotPosition[0]) ** 2 + (goals[j][1] - robotPosition[1]) ** 2)
+        if dist >= lookaheadDistance:
+            return goals[j]  # Return the first valid lookahead point
+
+    return goals[-1]  # If no waypoint is found, return the last waypoint
+
+
 def apfFn(
-    robPos: List[float], goalPos: List[float], obstDict: Dict[int, List[float]]
+    robPos: List[float],
+    goalPos: List[float],
+    obstDict: Dict[int, List[float]],
 ) -> List[float]:
     """
     This function calculates the total force
@@ -309,81 +291,120 @@ def apfFn(
     fxNetVal = fxAttVal + fxRepTotal  # +fxGrad
     fyNetVal = fyAttVal + fyRepTotal  # +fyGrad
     fxyNet = [fxNetVal, fyNetVal]
-    # rospy.loginfo(f"Attractive Force: fx = {fxAttVal}, fy = {fyAttVal}")
-    # rospy.loginfo(f"Repulsive Force: fx = {fxRepVal}, fy = {fyRepVal}")
-    # rospy.loginfo(f"Net Force: fx = {fxNetVal}, fy = {fyNetVal}")
     return fxyNet
 
 
 #######################################################################################
 
 # parameters to be initialized
-TAU = rospy.get_param("~TAU")  # Sampling Time
-ROBMASS = rospy.get_param("~ROBMASS")  # Robot Mass
+TAU = rospy.get_param("~TAU")
+ROBMASS = rospy.get_param("~ROBMASS")
 plannedTrajectoryx = []
 plannedTrajectoryy = []
 waypoints = []
+goalPoints, df = loadWaypointsFromCSV(FILEPATH)
+LOOKAHEADDISTANCE = 2.0
 
-# the plotting function to plot the goal, obstacle, planned path
 fig, ax = plt.subplots()
 GOALREACHED = False  # marker for goal
 
 while not rospy.is_shutdown() and not GOALREACHED:
-    if FLAG == 1:  # to check if a message is being sent
-        # initial ROVER POSITION and VELOCITY
-        robPos0 = [POSITION[0], POSITION[1], POSITION[2], POSITION[3], POSITION[4], POSITION[5]]
-        posPrev = robPos0
-        for i in range(100):  # the loop which caculates the path the ROVER should follow
-            fxyTotal = apfFn(posPrev, GOALPOS, OBSTACLEDIC)
-            fNet = float(sqrt(fxyTotal[0] ** 2 + fxyTotal[1] ** 2))
-            fNetDir = float(atan2(fxyTotal[1], fxyTotal[0]))
-            # rospy.loginfo(f"Step {i}: fxyTotal = {fxyTotal}, fNet = {fNet}, angleDes = {fNetDir}")
-            xDes = posPrev[0] + cos(fNetDir) * TAU
-            yDes = posPrev[1] + sin(fNetDir) * TAU
-            #  print("VELOCITY = "+str(math.hypot(velCurx,velCury))+"at point"+str(i))
-            thetaDes = fNetDir
-            robPosDes = [xDes, yDes, thetaDes]
-            waypoints.append((posPrev[0], posPrev[1]))
-            posPrev = [xDes, yDes]
-            distGoal = sqrt((xDes - GOALPOS[0]) ** 2 + (yDes - GOALPOS[1]) ** 2)
-            pose = PoseStamped()
 
-            pose.pose.position.x = robPosDes[0]
-            pose.pose.position.y = robPosDes[1]
-            pose.pose.position.z = 0
-            [qx_des, qy_des, qz_des, qw_des] = quaternion_from_euler(0, 0, robPosDes[2])
-            pose.pose.orientation.x = qx_des
-            pose.pose.orientation.y = qy_des
-            pose.pose.orientation.z = qz_des
-            pose.pose.orientation.w = qw_des
-            path.poses.append(pose)
-            if distGoal < 0.1:
-                GOALREACHED = True
-                break
+    # initial ROVER POSITION
+    robPos0 = [
+        float(POSITION[0]),
+        float(POSITION[1]),
+        float(POSITION[2]),
+        float(POSITION[3]),
+        float(POSITION[4]),
+        float(POSITION[5]),
+    ]
+    posPrev = [float(POSITION[0]), float(POSITION[1])]
+    dynamicGoalPoint = dynamicGoal(posPrev, goalPoints, LOOKAHEADDISTANCE)
+    GOALPOS = list(dynamicGoalPoint)
+    for m in range(20):  # the loop which caculates the path the ROVER should follow
+        fxyTotal = apfFn(posPrev, GOALPOS, OBSTACLEDIC)
+        fNet = float(sqrt(fxyTotal[0] ** 2 + fxyTotal[1] ** 2))
+        fNetDir = float(atan2(fxyTotal[1], fxyTotal[0]))
+        xDes = posPrev[0] + cos(fNetDir) * TAU
+        yDes = posPrev[1] + sin(fNetDir) * TAU
+        thetaDes = fNetDir
+        robPosDes = [xDes, yDes, thetaDes]
+        waypoints.append((posPrev[0], posPrev[1]))
+        posPrev = [xDes, yDes]
+        distGoal = sqrt((POSITION[0] - GOALPOS[0]) ** 2 + (POSITION[1] - GOALPOS[1]) ** 2)
+        pose = PoseStamped()
+
+        pose.pose.position.x = robPosDes[0]
+        pose.pose.position.y = robPosDes[1]
+        pose.pose.position.z = 0
+        [qx_des, qy_des, qz_des, qw_des] = quaternion_from_euler(0, 0, robPosDes[2])
+        pose.pose.orientation.x = qx_des
+        pose.pose.orientation.y = qy_des
+        pose.pose.orientation.z = qz_des
+        pose.pose.orientation.w = qw_des
+        path.poses.append(pose)
+        if distGoal < 0.1:
+            GOALREACHED = True
+            break
     else:
         robPosDes = robPos0
 
-    # placing the waypoints in the planned path to plot it
     ax.cla()
-    (robotDot,) = ax.plot([], [], "bo", markersize=5, label="Robot")  # Robot marker
-    (plannedPathLine,) = ax.plot(
-        [], [], "ro", linewidth=2, label="Planned Path"
-    )  # Precomputed path
-    plt.scatter(GOALPOS[0], GOALPOS[1], color="green", label="Goal", s=100)  # Goal point
+    (robotDot,) = ax.plot([], [], "bo", markersize=5, label="Robot")
+    (plannedPathLine,) = ax.plot([], [], "r--", linewidth=2, label="Planned Path")
+    lookaheadPoint = plt.scatter(
+        GOALPOS[0], GOALPOS[1], color="c", marker="*", label="Lookahead Point", s=100
+    )
     ax.set_xlabel("X Position")
     ax.set_ylabel("Y Position")
     ax.set_title("Live APF Path")
+
+    xValues = np.array(df["x_world"])
+    yValues = np.array(df["y_world"])
+    globalPath = plt.plot(xValues, yValues, "y-", linewidth=2, label="Global Path")
+    goalPoint = ax.plot(
+        goalPoints[-1][0], goalPoints[-1][1], "go", markersize=10, label="Goal Point"
+    )
+
+    # Create legend handles
+    robot_legend = Line2D(
+        [0], [0], marker="o", color="w", markerfacecolor="blue", markersize=8, label="Robot"
+    )
+    planned_path_legend = Line2D(
+        [0], [0], linestyle="--", color="r", linewidth=2, label="Planned Path"
+    )
     obstacle_legend = Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="red", markersize=10, label="Obstacle"
     )
-    plt.legend(handles=[robotDot, plannedPathLine, obstacle_legend])
+    goal_legend = Line2D(
+        [0], [0], marker="o", color="w", markerfacecolor="green", markersize=10, label="Goal"
+    )
+    global_path_legend = Line2D(
+        [0], [0], linestyle="-", color="y", linewidth=2, label="Global Path"
+    )
+    lookahead_legend = Line2D(
+        [0], [0], marker="*", color="w", markerfacecolor="c", markersize=10, label="Lookahead Point"
+    )
+
+    # Set legend
+    plt.legend(
+        handles=[
+            robot_legend,
+            planned_path_legend,
+            obstacle_legend,
+            goal_legend,
+            global_path_legend,
+            lookahead_legend,
+        ]
+    )
+
     ax.grid()
     plannedTrajectoryx = [wp[0] for wp in waypoints]
     plannedTrajectoryy = [wp[1] for wp in waypoints]
     plannedPathLine.set_data(plannedTrajectoryx, plannedTrajectoryy)
     waypoints = []
     pub.publish(path)
-    pub1.publish(path.poses[0].pose)
     path = Path()
     robotDot.set_data(POSITION[0], POSITION[1])  # ploting the current ROVER POSITION dynamically
     for obstPlot in OBSTACLEDIC.values():
@@ -391,8 +412,8 @@ while not rospy.is_shutdown() and not GOALREACHED:
             (obstPlot[0], obstPlot[1]), obstPlot[2], color="red", alpha=0.5, label="Obstacle"
         )
         ax.add_patch(obstacle)
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, 10)
+    ax.set_xlim(0, 23)
+    ax.set_ylim(0, 36)
     ax.set_aspect("equal")
     plt.pause(0.001)
     rate.sleep()
