@@ -18,10 +18,6 @@
   <node pkg="gazebo_ros" type="spawn_model" name="spawn_urdf" args="-urdf -model turtlebot3_$(arg model) -x $(arg x_pos) -y $(arg y_pos) -z $(arg z_pos) -param robot_description" />
 
   <node pkg="apf_trials" name="APF_update" type="APF_update.py" output="screen">
-    <param name="xGoal" value="9.5" />
-    <param name="yGoal" value="0.5" />
-    <!-- <param name="xObs" value="2.5" />
-    <param name="yObs" value="2.5" /> -->
     <param name="KATT" value="4" />
     <param name="KREP" value="100" />
     <param name="QSTAR" value="0.5" />
