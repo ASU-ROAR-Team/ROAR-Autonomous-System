@@ -17,4 +17,4 @@ robot_parameters:
 algorithm_parameters:
   KL: 0.25
   KC: 0.05
-  localPath: False
+  localPath: True
