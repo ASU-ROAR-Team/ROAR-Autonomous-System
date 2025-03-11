@@ -1,0 +1,5 @@
+<launch>
+<rosparam command="load" file="$(find AdaptivePurePursuit)/config/params.yaml" />
+<node name="controller" pkg="AdaptivePurePursuit" type="AdaptiveLd.py" output="screen" />
+<node name="path" pkg="AdaptivePurePursuit" type="pathTest.py" />
+</launch>
