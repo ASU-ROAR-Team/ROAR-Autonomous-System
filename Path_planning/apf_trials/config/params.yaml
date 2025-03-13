@@ -1,0 +1,19 @@
+APF_update:
+  # force coefficients
+  KATT: 4                # Attractive gain
+  KREP: 100              # Repulsive gain
+  KENHANCED: 60          # Enhanced attraction gain
+  KGRADIENT: 0.1         # Costmap gradient coefficient
+
+  # Obstacle parameters
+  QSTAR: 0.5             # Influence range threshold (meters)
+  obstacle_topic: "obstacle_topic"  # Topic name for obstacles
+
+  # Path following parameters
+  M: 1                   # Potential field exponent
+  LOOKAHEADDIST: 2       # Lookahead distance (meters)
+  CHECKPOINTDIST: 1.8    # Checkpoint triggering distance (meters)
+
+
+  # Time parameters
+  TAU: 0.1               # Time step for simulation (seconds)

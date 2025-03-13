@@ -9,7 +9,7 @@ import rospy
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
-from sympy import symbols, Expr
+from sympy import symbols, sqrt, cos, sin, atan2, Expr
 import matplotlib.pyplot as plt
 from roar_msgs.msg import Obstacle
 from matplotlib.patches import Circle
@@ -81,10 +81,10 @@ class APFPlanner:
         symbol = self.apfSymbols
         parameters = self.config["apfParams"]
 
-        attVal: Expr = math.sqrt((symbol[0] - symbol[2]) ** 2 + (symbol[1] - symbol[3]) ** 2)
-        attAngle: Expr = math.atan2(symbol[3] - symbol[1], symbol[2] - symbol[0])
+        attVal: Expr = sqrt((symbol[0] - symbol[2]) ** 2 + (symbol[1] - symbol[3]) ** 2)
+        attAngle: Expr = atan2(symbol[3] - symbol[1], symbol[2] - symbol[0])
 
-        obsDist: Expr = math.sqrt((symbol[0] - symbol[4]) ** 2 + (symbol[1] - symbol[5]) ** 2)
+        obsDist: Expr = sqrt((symbol[0] - symbol[4]) ** 2 + (symbol[1] - symbol[5]) ** 2)
         repTerm1: Expr = parameters[1] * (
             (1 / obsDist - 1 / symbol[6]) * (attVal ** parameters[3] / attVal**3)
         )
@@ -93,13 +93,13 @@ class APFPlanner:
             * parameters[3]
             * ((1 / obsDist - 1 / symbol[6]) ** 2 * attVal ** parameters[3])
         )
-        repAngle: Expr = math.atan2(symbol[5] - symbol[1], symbol[4] - symbol[0])
+        repAngle: Expr = atan2(symbol[5] - symbol[1], symbol[4] - symbol[0])
 
         return {
-            "attX": parameters[0] * attVal * math.cos(attAngle),
-            "attY": parameters[0] * attVal * math.sin(attAngle),
-            "repX": -(repTerm1 + repTerm2) * math.cos(repAngle),
-            "repY": -(repTerm1 + repTerm2) * math.sin(repAngle),
+            "attX": parameters[0] * attVal * cos(attAngle),
+            "attY": parameters[0] * attVal * sin(attAngle),
+            "repX": -(repTerm1 + repTerm2) * cos(repAngle),
+            "repY": -(repTerm1 + repTerm2) * sin(repAngle),
         }
 
     def initVisualization(self) -> Dict[str, Any]:
@@ -187,19 +187,19 @@ class APFPlanner:
         if self.config["checkpoints"]:
             xDirection = position[0] - self.config["checkpoints"][0][0]
             yDirection = position[1] - self.config["checkpoints"][0][1]
-            distance = math.sqrt(xDirection**2 + yDirection**2)
+            distance = sqrt(xDirection**2 + yDirection**2)
 
             if distance <= self.config["apfParams"][8]:
-                angle = math.atan2(-yDirection, -xDirection)
+                angle = atan2(-yDirection, -xDirection)
                 gain = self.config["apfParams"][6] * self.config["apfParams"][0] * distance
-                xEnhanced = gain * math.cos(angle)
-                yEnhanced = gain * math.sin(angle)
+                xEnhanced = gain * cos(angle)
+                yEnhanced = gain * sin(angle)
         return (xEnhanced, yEnhanced)
 
     def updateCheckpoints(self, position: List[float]) -> None:
         """Remove reached checkpoints"""
         if self.config["checkpoints"]:
-            distance = math.sqrt(
+            distance = sqrt(
                 (position[0] - self.config["checkpoints"][0][0]) ** 2
                 + (position[1] - self.config["checkpoints"][0][1]) ** 2
             )
@@ -211,9 +211,7 @@ class APFPlanner:
         """Determine current navigation target"""
         if not self.robotState["awayFromStart"]:
             startPoint = self.config["goalPoints"][-1]
-            distance = math.sqrt(
-                (position[0] - startPoint[0]) ** 2 + (position[1] - startPoint[1]) ** 2
-            )
+            distance = sqrt((position[0] - startPoint[0]) ** 2 + (position[1] - startPoint[1]) ** 2)
             if distance >= 1.0:
                 self.robotState["awayFromStart"] = True
                 rospy.loginfo("Robot 1m from start, using full path")
@@ -233,14 +231,14 @@ class APFPlanner:
 
         for idx in range(self.robotState["currentIndex"], len(candidates)):
             if (
-                math.sqrt(
+                sqrt(
                     (candidates[idx][0] - position[0]) ** 2
                     + (candidates[idx][1] - position[1]) ** 2
                 )
                 >= self.config["apfParams"][4]
             ):
                 return (candidates[idx][0], candidates[idx][1])
-        return (candidates[-1][0], candidates[-1][1])
+        return (candidates[-1][0], candidates[-1][0])
 
     def calculateForces(
         self, position: List[float], goal: Tuple[float, float]
@@ -263,7 +261,7 @@ class APFPlanner:
         with self.obstacleData["lock"]:
             for obst in self.obstacleData["obstacles"].values():
                 subs.update({symbol[4]: obst[0], symbol[5]: obst[1], symbol[6]: obst[3]})
-                if math.sqrt((position[0] - obst[0]) ** 2 + (position[1] - obst[1]) ** 2) < obst[3]:
+                if sqrt((position[0] - obst[0]) ** 2 + (position[1] - obst[1]) ** 2) < obst[3]:
                     fxRep += float(self.apfForces["repX"].subs(subs).evalf())
                     fyRep += float(self.apfForces["repY"].subs(subs).evalf())
 
@@ -339,7 +337,7 @@ class APFPlanner:
             pose = PoseStamped()
             pose.pose.position.x = point[0]
             pose.pose.position.y = point[1]
-            orientation = quaternion_from_euler(0, 0, math.atan2(point[1], point[0]))
+            orientation = quaternion_from_euler(0, 0, atan2(point[1], point[0]))
             pose.pose.orientation.x = orientation[0]
             pose.pose.orientation.y = orientation[1]
             pose.pose.orientation.z = orientation[2]
@@ -360,9 +358,7 @@ class APFPlanner:
             finalGoal = self.config["goalPoints"][-1]
             if (
                 self.robotState["awayFromStart"]
-                and math.sqrt(
-                    (currentPos[0] - finalGoal[0]) ** 2 + (currentPos[1] - finalGoal[1]) ** 2
-                )
+                and sqrt((currentPos[0] - finalGoal[0]) ** 2 + (currentPos[1] - finalGoal[1]) ** 2)
                 <= 0.2
             ):
                 self.robotState["goalReached"] = True
@@ -375,10 +371,10 @@ class APFPlanner:
             posCopy = list(currentPos)
             for _ in range(20):
                 forces = self.calculateForces(posCopy, lookaheadPoint)
-                theta = math.atan2(forces[1], forces[0])
+                theta = atan2(forces[1], forces[0])
                 posCopy = [
-                    posCopy[0] + math.cos(theta) * self.config["apfParams"][7],
-                    posCopy[1] + math.sin(theta) * self.config["apfParams"][7],
+                    posCopy[0] + cos(theta) * self.config["apfParams"][7],
+                    posCopy[1] + sin(theta) * self.config["apfParams"][7],
                 ]
                 trajectory.append((posCopy[0], posCopy[1]))
 
