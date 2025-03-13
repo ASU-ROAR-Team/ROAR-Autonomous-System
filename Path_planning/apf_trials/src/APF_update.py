@@ -1,419 +1,395 @@
 #!/usr/bin/env python3
 """
-APF Update Script for Path Planning
-
-This script implements an Artificial Potential Field (APF) that acts
-as a local planner to avoid dynamic obstacles (their positions are unknown)
-
+APF Path Planner with Checkpoint Enhancement
 """
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 import threading
+import math
 import rospy
-from geometry_msgs.msg import Pose, PoseStamped
+from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
-from sympy import symbols, sqrt, cos, sin, atan2
+from sympy import symbols, Expr
 import matplotlib.pyplot as plt
 from roar_msgs.msg import Obstacle
 from matplotlib.patches import Circle
-from matplotlib.lines import Line2D
 from gazebo_msgs.msg import ModelStates
 import pandas as pd
 import numpy as np
 
-# This is the publisher node which publishes a path for the controller
-rospy.init_node("Path_Planning_APF", anonymous=True)
-pub = rospy.Publisher("/Path", Path, queue_size=10)
-path = Path()
-pub1 = rospy.Publisher(
-    "/APF_Des_Pos", Pose, queue_size=10
-)  # Identify the publisher "pub1" to publish on topic "/APF_Des_Pos" to send message of type "Path"
-rate = rospy.Rate(10)
 
-POSMSG = Pose()  # variable to store the current POSITION
-POSITION = [0, 0, 0, 0, 0, 0]  # initialization of the POSITION to be zero
+class APFPlanner:
+    """Main APF planner class"""
 
+    def __init__(self) -> None:
+        """Initializes the instances in the APF code"""
+        rospy.init_node("apfPathPlanner", anonymous=True)
 
-def callback(data: ModelStates) -> None:
-    """
+        # ROS components
+        self.rosComponents: Dict[str, Any] = {
+            "pathPub": rospy.Publisher("/Path", Path, queue_size=10),
+            "modelSub": rospy.Subscriber("/gazebo/model_states", ModelStates, self.modelCallback),
+            "obstacleSub": rospy.Subscriber(
+                rospy.get_param("~obstacleTopic", "obstacle_topic"), Obstacle, self.obstacleCallback
+            ),
+            "rate": rospy.Rate(10),
+        }
 
-    This function feedbacks the ROVER current location
+        # Configuration parameters
+        self.config: Dict[str, Any] = {
+            "checkpoints": [(7.58, 10.874), (0.211, 9.454), (0.83, 19.867), (6.71, 19.515)],
+            "goalPoints": self.loadWaypoints(
+                rospy.get_param("~pathFile", "~/Downloads/real_path.csv")
+            ),
+            "costmap": pd.read_csv(
+                rospy.get_param("~costmapFile", "~/Downloads/total_cost.csv"), header=None
+            ).values,
+            "apfParams": [
+                rospy.get_param("~KATT"),
+                rospy.get_param("~KREP"),
+                rospy.get_param("~QSTAR"),
+                rospy.get_param("~M"),
+                rospy.get_param("~LOOKAHEADDIST"),
+                rospy.get_param("~KGRADIENT"),
+                rospy.get_param("~KENHANCED"),
+                rospy.get_param("~TAU"),
+                rospy.get_param("~CHECKPOINTDIST"),
+            ],
+        }
 
-    Parameters:
-    ----
-    data: this gives the ROVER POSITION and orientation
-    ----
-    Returns:
-    ----
-    None
-    ----
-    """
+        # Robot state management
+        self.robotState: Dict[str, Any] = {
+            "position": [0.0] * 6,
+            "isActive": False,
+            "awayFromStart": False,
+            "currentIndex": 0,
+            "goalReached": False,
+        }
 
-    global POSITION  # pylint: disable=W0603
-    msg = data
+        # APF components
+        self.apfSymbols: Tuple[Expr, ...] = symbols("xRob yRob xGoal yGoal xObs yObs rangeEff")
+        self.apfForces: Dict[str, Expr] = self.initAPFForces()
 
-    POSMSG.position.x = round(msg.pose[1].position.x, 4)
-    POSMSG.position.y = round(msg.pose[1].position.y, 4)
-    POSMSG.position.z = round(msg.pose[1].position.z, 4)
-    POSMSG.orientation.x = round(msg.pose[1].orientation.x, 4)
-    POSMSG.orientation.y = round(msg.pose[1].orientation.y, 4)
-    POSMSG.orientation.z = round(msg.pose[1].orientation.z, 4)
-    POSMSG.orientation.w = round(msg.pose[1].orientation.w, 4)
-    [roll, pitch, yaw] = euler_from_quaternion(
-        (POSMSG.orientation.x, POSMSG.orientation.y, POSMSG.orientation.z, POSMSG.orientation.w)
-    )
-    POSITION = [POSMSG.position.x, POSMSG.position.y, POSMSG.position.z, yaw, pitch, roll]
+        # Obstacle handling
+        self.obstacleData: Dict[str, Any] = {"obstacles": {}, "lock": threading.Lock()}
 
+        # Visualization system
+        self.vizComponents: Dict[str, Any] = self.initVisualization()
 
-SUB = rospy.Subscriber("/gazebo/model_states", ModelStates, callback)
+    def initAPFForces(self) -> Dict[str, Expr]:
+        """Initialize APF force equations"""
+        symbol = self.apfSymbols
+        parameters = self.config["apfParams"]
 
-OBSTACLEDIC: Dict[int, List[float]] = {}  # Dictionary to store obstacle positions and radii
-obstacleLock = threading.Lock()  # Thread lock for OBSTACLEDIC
-FILEPATH = "/home/omar/Downloads/path.csv"
-apfParam = [
-    rospy.get_param("~KATT"),
-    rospy.get_param("~KREP"),
-    rospy.get_param("~QSTAR"),
-    rospy.get_param("~M"),
-]  # [KATT,KREP,QSTAR,M]
+        attVal: Expr = math.sqrt((symbol[0] - symbol[2]) ** 2 + (symbol[1] - symbol[3]) ** 2)
+        attAngle: Expr = math.atan2(symbol[3] - symbol[1], symbol[2] - symbol[0])
 
+        obsDist: Expr = math.sqrt((symbol[0] - symbol[4]) ** 2 + (symbol[1] - symbol[5]) ** 2)
+        repTerm1: Expr = parameters[1] * (
+            (1 / obsDist - 1 / symbol[6]) * (attVal ** parameters[3] / attVal**3)
+        )
+        repTerm2: Expr = (
+            parameters[1]
+            * parameters[3]
+            * ((1 / obsDist - 1 / symbol[6]) ** 2 * attVal ** parameters[3])
+        )
+        repAngle: Expr = math.atan2(symbol[5] - symbol[1], symbol[4] - symbol[0])
 
-def obstacleCallback(data: Obstacle) -> None:
-    """
-    Callback function to update the obstacle position and radius.
+        return {
+            "attX": parameters[0] * attVal * math.cos(attAngle),
+            "attY": parameters[0] * attVal * math.sin(attAngle),
+            "repX": -(repTerm1 + repTerm2) * math.cos(repAngle),
+            "repY": -(repTerm1 + repTerm2) * math.sin(repAngle),
+        }
 
-    Parameters:
-    ----
-    data: Obstacle message containing the obstacle's position and radius.
-    ----
-    Returns:
-    ----
-    None
-    ----
-    """
+    def initVisualization(self) -> Dict[str, Any]:
+        """Initialize visualization components"""
+        fig = plt.figure()
+        axes = fig.add_subplot(111)
+        xMin, xMax = -2, 13
+        yMin, yMax = 7, 22
 
-    # Update the obstacle position and radius
-    obstacleId = data.id.data  # Get obstacle ID
-    radius = data.radius.data
-    influenceRange = apfParam[2] + radius
-    obstacleInfo = [
-        data.position.pose.position.x,
-        data.position.pose.position.y,
-        radius,
-        influenceRange,
-    ]
-    with obstacleLock:
-        # Update the dictionary with the latest obstacle data
-        OBSTACLEDIC[obstacleId] = obstacleInfo
+        pxMin, pyMax = self.realToPixel(xMin, yMin)
+        pxMax, pyMin = self.realToPixel(xMax, yMax)
 
+        costmapRoi = np.flipud(
+            self.config["costmap"][
+                max(0, pyMin) : min(self.config["costmap"].shape[0], pyMax),
+                max(0, pxMin) : min(self.config["costmap"].shape[1], pxMax),
+            ]
+        )
 
-obstacleTopic = rospy.get_param("~obstacle_topic", default="obstacle_topic")
-OBSTSUB = rospy.Subscriber(obstacleTopic, Obstacle, obstacleCallback)
+        return {
+            "figure": fig,
+            "axes": axes,
+            "image": axes.imshow(
+                costmapRoi, cmap="viridis", origin="lower", extent=[xMin, xMax, yMin, yMax]
+            ),
+            "colorbar": plt.colorbar(axes.imshow(costmapRoi), ax=axes),
+            "limits": (xMin, xMax, yMin, yMax),
+        }
 
-rospy.wait_for_message("/gazebo/model_states", ModelStates)
-
-
-# APF Equations
-xRob = symbols("xRob")
-yRob = symbols("yRob")
-xGoal = symbols("xGoal")
-yGoal = symbols("yGoal")
-xObs = symbols("xObs")
-yObs = symbols("yObs")
-rangeEff = symbols("rangeEff")
-
-# Attraction Forces Equations
-attVal = sqrt((xRob - xGoal) ** 2 + (yRob - yGoal) ** 2)
-attAngle = atan2((yGoal - yRob), (xGoal - xRob))
-fxAtt = apfParam[0] * attVal * cos(attAngle)
-fyAtt = apfParam[0] * attVal * sin(attAngle)
-# Repulsion Forces Equations
-distObs = sqrt((xRob - xObs) ** 2 + (yRob - yObs) ** 2)
-repValue1 = apfParam[1] * ((1 / distObs) - (1 / rangeEff)) * (attVal ** apfParam[3] / attVal**3)
-repValue2 = (
-    apfParam[1] * apfParam[3] * (((1 / distObs) - (1 / rangeEff)) ** 2) * (attVal ** apfParam[3])
-)
-repValue = repValue1 + repValue2
-repAngle = atan2((yObs - yRob), (xObs - xRob))
-fxRep = -repValue * cos(repAngle)
-fyRep = -repValue * sin(repAngle)
-# Gradient Forces Equations
-# def gradForce(robCurrentPos, robPreviousPos):
-#     global fxGrad
-#     global fyGrad
-#     grad = (robCurrentPos[5] - robPreviousPos[5]) + (robCurrentPos[4] - robPreviousPos[4])
-#     fxGrad = sym.exp(grad) * cos(robCurrentPos[3])
-#     fyGrad = sym.exp(grad) * sin(robCurrentPos[3])
-
-
-def loadWaypointsFromCSV(filePath: str) -> Tuple[List[Tuple[float, float]], pd.DataFrame]:
-    """
-    Load waypoints from a CSV file using Pandas.
-
-    Parameters:
-    ----
-    file_path: Path to the CSV file containing waypoints.
-    ----
-    Returns:
-    ----
-    waypoints: A list of tuples representing the waypoints in the form [(x1, y1), (x2, y2), ...].
-    ----
-    """
-    # Read the CSV file into a DataFrame
-    dfFunc = pd.read_csv(filePath)
-
-    lookaheadPoints = list(zip(dfFunc["x_world"], dfFunc["y_world"]))
-
-    return lookaheadPoints, dfFunc
-
-
-def dynamicGoal(
-    robotPosition: List[float], goals: List[Tuple[float, float]], lookaheadDistance: float
-) -> Tuple[float, float]:
-    """
-    Calculate the dynamic goal (lookahead point) based on the
-    robot's current position and the waypoints.
-
-    Parameters:
-    ----
-    robotPosition: A tuple containing the robot's current position in the form (x, y).
-    waypoints: A list of tuples representing the path in the form [(x1, y1), (x2, y2), ...].
-    lookaheadDistance: The lookahead distance threshold.
-    ----
-    Returns:
-    ----
-    dynamicGoal: A tuple containing the coordinates of the dynamic goal in the form (x, y).
-    ----
-    """
-    # Find the index of the closest goal point
-    minDist = float("inf")
-    closestIndex = 0
-    for i, goal in enumerate(goals):
-        dist = sqrt((goal[0] - robotPosition[0]) ** 2 + (goal[1] - robotPosition[1]) ** 2)
-        if dist < minDist:
-            minDist = dist
-            closestIndex = i  # Update to the closest goal point
-
-    # Now search forward for the first goal that is `lookaheadDistance` away
-    for j in range(closestIndex, len(goals)):
-        dist = sqrt((goals[j][0] - robotPosition[0]) ** 2 + (goals[j][1] - robotPosition[1]) ** 2)
-        if dist >= lookaheadDistance:
-            return goals[j]  # Return the first valid lookahead point
-
-    return goals[-1]  # If no waypoint is found, return the last waypoint
-
-
-def apfFn(
-    robPos: List[float],
-    goalPos: List[float],
-    obstDict: Dict[int, List[float]],
-) -> List[float]:
-    """
-    This function calculates the total force
-
-    Parameters:
-    ----
-    robPos: gives the ROVER POSITION
-    goalPos: provides the goal POSITION
-    obstDict: provides the obstacle positions and radii
-    apfParam: provides the apf constants
-    ----
-    Returns:
-    ----
-    fxyNet: a list containing the x and y values of the force
-    ----
-    """
-    distGoalVal = float(
-        attVal.subs(
-            [(xRob, robPos[0]), (yRob, robPos[1]), (xGoal, goalPos[0]), (yGoal, goalPos[1])]
-        ).evalf()
-    )
-
-    fxAttVal = fxAtt.subs(
-        [
-            (xRob, robPos[0]),
-            (xGoal, goalPos[0]),
-            (yRob, robPos[1]),
-            (yGoal, goalPos[1]),
-            (attVal, distGoalVal),
+    def modelCallback(self, msg: ModelStates) -> None:
+        """Handle robot state updates"""
+        pose = msg.pose[1]
+        self.robotState["position"] = [
+            pose.position.x,
+            pose.position.y,
+            pose.position.z,
+            *euler_from_quaternion(
+                [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
+            ),
         ]
-    )
-    fyAttVal = fyAtt.subs(
-        [
-            (yRob, robPos[1]),
-            (yGoal, goalPos[1]),
-            (xRob, robPos[0]),
-            (xGoal, goalPos[0]),
-            (attVal, distGoalVal),
-        ]
-    )
-    fxRepTotal = 0
-    fyRepTotal = 0
-    with obstacleLock:
-        for obstInfo in obstDict.values():
-            distObstVal = float(
-                distObs.subs(
-                    [(xRob, robPos[0]), (yRob, robPos[1]), (xObs, obstInfo[0]), (yObs, obstInfo[1])]
-                ).evalf()
+        self.robotState["isActive"] = True
+
+    def obstacleCallback(self, msg: Obstacle) -> None:
+        """Update obstacle information"""
+        with self.obstacleData["lock"]:
+            self.obstacleData["obstacles"][msg.id.data] = [
+                msg.position.pose.position.x,
+                msg.position.pose.position.y,
+                msg.radius.data,
+                self.config["apfParams"][2] + msg.radius.data,
+            ]
+
+    def loadWaypoints(self, filePath: str) -> List[Tuple[float, float]]:
+        """Load waypoints from CSV file"""
+        dataFrame = pd.read_csv(filePath)
+        return list(zip(dataFrame["real_x"], dataFrame["real_y"]))
+
+    def realToPixel(self, x: float, y: float) -> Tuple[int, int]:
+        """Convert real-world coordinates to pixel indices"""
+        return int(208 + 20.2 * x), int(761 - 20.2 * y)
+
+    def calculateGradientForce(self, position: List[float]) -> Tuple[float, float]:
+        """Calculate costmap gradient forces"""
+        xPixel, yPixel = self.realToPixel(position[0], position[1])
+        xGradient, yGradient = 0.0, 0.0
+        radius = int(0.5 * 20.2)
+
+        for xDirection, yDirection in [(radius, 0), (-radius, 0), (0, radius), (0, -radius)]:
+            xPixelNew, yPixelNew = xPixel + xDirection, yPixel - yDirection
+            if (
+                0 <= xPixelNew < self.config["costmap"].shape[1]
+                and 0 <= yPixelNew < self.config["costmap"].shape[0]
+            ):
+                costDiff = (
+                    self.config["costmap"][yPixelNew][xPixelNew]
+                    - self.config["costmap"][yPixel][xPixel]
+                )
+                xGradient -= self.config["apfParams"][5] * costDiff * (1 if xDirection > 0 else -1)
+                yGradient -= self.config["apfParams"][5] * costDiff * (1 if yDirection > 0 else -1)
+        return (xGradient, yGradient)
+
+    def calculateEnhancedAttraction(self, position: List[float]) -> Tuple[float, float]:
+        """Calculate enhanced checkpoint attraction"""
+        xEnhanced, yEnhanced = 0.0, 0.0
+        if self.config["checkpoints"]:
+            xDirection = position[0] - self.config["checkpoints"][0][0]
+            yDirection = position[1] - self.config["checkpoints"][0][1]
+            distance = math.sqrt(xDirection**2 + yDirection**2)
+
+            if distance <= self.config["apfParams"][8]:
+                angle = math.atan2(-yDirection, -xDirection)
+                gain = self.config["apfParams"][6] * self.config["apfParams"][0] * distance
+                xEnhanced = gain * math.cos(angle)
+                yEnhanced = gain * math.sin(angle)
+        return (xEnhanced, yEnhanced)
+
+    def updateCheckpoints(self, position: List[float]) -> None:
+        """Remove reached checkpoints"""
+        if self.config["checkpoints"]:
+            distance = math.sqrt(
+                (position[0] - self.config["checkpoints"][0][0]) ** 2
+                + (position[1] - self.config["checkpoints"][0][1]) ** 2
+            )
+            if distance <= 0.3:
+                rospy.loginfo(f"Reached checkpoint: {self.config['checkpoints'][0]}")
+                self.config["checkpoints"].pop(0)
+
+    def calculateDynamicGoal(self, position: List[float]) -> Tuple[float, float]:
+        """Determine current navigation target"""
+        if not self.robotState["awayFromStart"]:
+            startPoint = self.config["goalPoints"][-1]
+            distance = math.sqrt(
+                (position[0] - startPoint[0]) ** 2 + (position[1] - startPoint[1]) ** 2
+            )
+            if distance >= 1.0:
+                self.robotState["awayFromStart"] = True
+                rospy.loginfo("Robot 1m from start, using full path")
+
+        candidates = (
+            self.config["goalPoints"]
+            if self.robotState["awayFromStart"]
+            else self.config["goalPoints"][:-30]
+        )
+
+        self.robotState["currentIndex"] = min(
+            range(len(candidates)),
+            key=lambda i: math.sqrt(
+                (candidates[i][0] - position[0]) ** 2 + (candidates[i][1] - position[1]) ** 2
+            ),
+        )
+
+        for idx in range(self.robotState["currentIndex"], len(candidates)):
+            if (
+                math.sqrt(
+                    (candidates[idx][0] - position[0]) ** 2
+                    + (candidates[idx][1] - position[1]) ** 2
+                )
+                >= self.config["apfParams"][4]
+            ):
+                return (candidates[idx][0], candidates[idx][1])
+        return (candidates[-1][0], candidates[-1][1])
+
+    def calculateForces(
+        self, position: List[float], goal: Tuple[float, float]
+    ) -> Tuple[float, float]:
+        """Calculate total APF forces"""
+        symbol = self.apfSymbols
+        subs = {
+            symbol[0]: position[0],
+            symbol[1]: position[1],
+            symbol[2]: goal[0],
+            symbol[3]: goal[1],
+        }
+
+        fxAtt = float(self.apfForces["attX"].subs(subs).evalf())
+        fyAtt = float(self.apfForces["attY"].subs(subs).evalf())
+
+        fxEnhanced, fyEnhanced = self.calculateEnhancedAttraction(position)
+
+        fxRep, fyRep = 0.0, 0.0
+        with self.obstacleData["lock"]:
+            for obst in self.obstacleData["obstacles"].values():
+                subs.update({symbol[4]: obst[0], symbol[5]: obst[1], symbol[6]: obst[3]})
+                if math.sqrt((position[0] - obst[0]) ** 2 + (position[1] - obst[1]) ** 2) < obst[3]:
+                    fxRep += float(self.apfForces["repX"].subs(subs).evalf())
+                    fyRep += float(self.apfForces["repY"].subs(subs).evalf())
+
+        fxGrad, fyGrad = self.calculateGradientForce(position)
+
+        return (fxAtt + fxEnhanced + fxRep + fxGrad, fyAtt + fyEnhanced + fyRep + fyGrad)
+
+    def updateVisualization(
+        self, trajectory: List[Tuple[float, float]], lookaheadPoint: Tuple[float, float]
+    ) -> None:
+        """Update real-time visualization"""
+        axes = self.vizComponents["axes"]
+        axes.clear()
+
+        axes.imshow(
+            self.vizComponents["image"].get_array(),
+            cmap="viridis",
+            origin="lower",
+            extent=self.vizComponents["limits"],
+        )
+
+        axes.plot(*zip(*self.config["goalPoints"]), "y-", linewidth=2, label="Global Path")
+
+        axes.plot(
+            self.robotState["position"][0],
+            self.robotState["position"][1],
+            "bo",
+            markersize=8,
+            label="Robot",
+        )
+
+        axes.plot(*zip(*trajectory), "r--", linewidth=2, label="Planned Path")
+
+        axes.scatter(
+            lookaheadPoint[0],
+            lookaheadPoint[1],
+            color="c",
+            marker="*",
+            s=100,
+            label="Lookahead Point",
+        )
+
+        if self.config["checkpoints"]:
+            axes.scatter(
+                *zip(*self.config["checkpoints"]), color="m", marker="s", s=100, label="Checkpoints"
             )
 
-            if distObstVal < obstInfo[3]:
-                fxRepVal = fxRep.subs(
-                    [
-                        (xRob, robPos[0]),
-                        (yRob, robPos[1]),
-                        (xObs, obstInfo[0]),
-                        (yObs, obstInfo[1]),
-                        (xGoal, goalPos[0]),
-                        (yGoal, goalPos[1]),
-                        (distObs, distObstVal),
-                        (attVal, distGoalVal),
-                        (rangeEff, obstInfo[3]),
-                    ]
-                )
+        with self.obstacleData["lock"]:
+            for obst in self.obstacleData["obstacles"].values():
+                axes.add_patch(Circle((obst[0], obst[1]), obst[2], color="red", alpha=0.5))
 
-                fyRepVal = fyRep.subs(
-                    [
-                        (xRob, robPos[0]),
-                        (yRob, robPos[1]),
-                        (xObs, obstInfo[0]),
-                        (yObs, obstInfo[1]),
-                        (xGoal, goalPos[0]),
-                        (yGoal, goalPos[1]),
-                        (distObs, distObstVal),
-                        (attVal, distGoalVal),
-                        (rangeEff, obstInfo[3]),
-                    ]
-                )
-                fxRepTotal += fxRepVal
-                fyRepTotal += fyRepVal
-
-    fxNetVal = fxAttVal + fxRepTotal  # +fxGrad
-    fyNetVal = fyAttVal + fyRepTotal  # +fyGrad
-    fxyNet = [fxNetVal, fyNetVal]
-    return fxyNet
-
-
-#######################################################################################
-
-# parameters to be initialized
-TAU = rospy.get_param("~TAU")
-ROBMASS = rospy.get_param("~ROBMASS")
-plannedTrajectoryx = []
-plannedTrajectoryy = []
-waypoints = []
-goalPoints, df = loadWaypointsFromCSV(FILEPATH)
-LOOKAHEADDISTANCE = 2.0
-
-fig, ax = plt.subplots()
-GOALREACHED = False  # marker for goal
-
-while not rospy.is_shutdown() and not GOALREACHED:
-
-    # initial ROVER POSITION
-    robPos0 = [
-        float(POSITION[0]),
-        float(POSITION[1]),
-        float(POSITION[2]),
-        float(POSITION[3]),
-        float(POSITION[4]),
-        float(POSITION[5]),
-    ]
-    posPrev = [float(POSITION[0]), float(POSITION[1])]
-    dynamicGoalPoint = dynamicGoal(posPrev, goalPoints, LOOKAHEADDISTANCE)
-    GOALPOS = list(dynamicGoalPoint)
-    for m in range(20):  # the loop which caculates the path the ROVER should follow
-        fxyTotal = apfFn(posPrev, GOALPOS, OBSTACLEDIC)
-        fNet = float(sqrt(fxyTotal[0] ** 2 + fxyTotal[1] ** 2))
-        fNetDir = float(atan2(fxyTotal[1], fxyTotal[0]))
-        xDes = posPrev[0] + cos(fNetDir) * TAU
-        yDes = posPrev[1] + sin(fNetDir) * TAU
-        thetaDes = fNetDir
-        robPosDes = [xDes, yDes, thetaDes]
-        waypoints.append((posPrev[0], posPrev[1]))
-        posPrev = [xDes, yDes]
-        distGoal = sqrt((POSITION[0] - GOALPOS[0]) ** 2 + (POSITION[1] - GOALPOS[1]) ** 2)
-        pose = PoseStamped()
-
-        pose.pose.position.x = robPosDes[0]
-        pose.pose.position.y = robPosDes[1]
-        pose.pose.position.z = 0
-        [qx_des, qy_des, qz_des, qw_des] = quaternion_from_euler(0, 0, robPosDes[2])
-        pose.pose.orientation.x = qx_des
-        pose.pose.orientation.y = qy_des
-        pose.pose.orientation.z = qz_des
-        pose.pose.orientation.w = qw_des
-        path.poses.append(pose)
-        if distGoal < 0.1:
-            GOALREACHED = True
-            break
-    else:
-        robPosDes = robPos0
-
-    ax.cla()
-    (robotDot,) = ax.plot([], [], "bo", markersize=5, label="Robot")
-    (plannedPathLine,) = ax.plot([], [], "r--", linewidth=2, label="Planned Path")
-    lookaheadPoint = plt.scatter(
-        GOALPOS[0], GOALPOS[1], color="c", marker="*", label="Lookahead Point", s=100
-    )
-    ax.set_xlabel("X Position")
-    ax.set_ylabel("Y Position")
-    ax.set_title("Live APF Path")
-
-    xValues = np.array(df["x_world"])
-    yValues = np.array(df["y_world"])
-    globalPath = plt.plot(xValues, yValues, "y-", linewidth=2, label="Global Path")
-    goalPoint = ax.plot(
-        goalPoints[-1][0], goalPoints[-1][1], "go", markersize=10, label="Goal Point"
-    )
-
-    # Create legend handles
-    robot_legend = Line2D(
-        [0], [0], marker="o", color="w", markerfacecolor="blue", markersize=8, label="Robot"
-    )
-    planned_path_legend = Line2D(
-        [0], [0], linestyle="--", color="r", linewidth=2, label="Planned Path"
-    )
-    obstacle_legend = Line2D(
-        [0], [0], marker="o", color="w", markerfacecolor="red", markersize=10, label="Obstacle"
-    )
-    goal_legend = Line2D(
-        [0], [0], marker="o", color="w", markerfacecolor="green", markersize=10, label="Goal"
-    )
-    global_path_legend = Line2D(
-        [0], [0], linestyle="-", color="y", linewidth=2, label="Global Path"
-    )
-    lookahead_legend = Line2D(
-        [0], [0], marker="*", color="w", markerfacecolor="c", markersize=10, label="Lookahead Point"
-    )
-
-    # Set legend
-    plt.legend(
-        handles=[
-            robot_legend,
-            planned_path_legend,
-            obstacle_legend,
-            goal_legend,
-            global_path_legend,
-            lookahead_legend,
-        ]
-    )
-
-    ax.grid()
-    plannedTrajectoryx = [wp[0] for wp in waypoints]
-    plannedTrajectoryy = [wp[1] for wp in waypoints]
-    plannedPathLine.set_data(plannedTrajectoryx, plannedTrajectoryy)
-    waypoints = []
-    pub.publish(path)
-    path = Path()
-    robotDot.set_data(POSITION[0], POSITION[1])  # ploting the current ROVER POSITION dynamically
-    for obstPlot in OBSTACLEDIC.values():
-        obstacle = Circle(
-            (obstPlot[0], obstPlot[1]), obstPlot[2], color="red", alpha=0.5, label="Obstacle"
+        axes.plot(
+            self.config["goalPoints"][-1][0],
+            self.config["goalPoints"][-1][1],
+            "go",
+            markersize=10,
+            label="Final Goal",
         )
-        ax.add_patch(obstacle)
-    ax.set_xlim(0, 23)
-    ax.set_ylim(0, 36)
-    ax.set_aspect("equal")
-    plt.pause(0.001)
-    rate.sleep()
+
+        axes.legend(loc="upper left")
+        axes.set_xlabel("X Position (m)")
+        axes.set_ylabel("Y Position (m)")
+        axes.set_title("APF Path Planning Visualization")
+        plt.pause(0.001)
+
+    def publishPath(self, trajectory: List[Tuple[float, float]]) -> None:
+        """Publish planned path for Controller"""
+        pathMsg = Path()
+        pathMsg.header.stamp = rospy.Time.now()
+        pathMsg.header.frame_id = "map"
+
+        for point in trajectory:
+            pose = PoseStamped()
+            pose.pose.position.x = point[0]
+            pose.pose.position.y = point[1]
+            orientation = quaternion_from_euler(0, 0, math.atan2(point[1], point[0]))
+            pose.pose.orientation.x = orientation[0]
+            pose.pose.orientation.y = orientation[1]
+            pose.pose.orientation.z = orientation[2]
+            pose.pose.orientation.w = orientation[3]
+            pathMsg.poses.append(pose)
+
+        self.rosComponents["pathPub"].publish(pathMsg)
+
+    def run(self) -> None:
+        """Main planning loop"""
+        while not rospy.is_shutdown() and not self.robotState["goalReached"]:
+            if not self.robotState["isActive"]:
+                continue
+
+            currentPos = self.robotState["position"][:2]
+            self.updateCheckpoints(currentPos)
+
+            finalGoal = self.config["goalPoints"][-1]
+            if (
+                self.robotState["awayFromStart"]
+                and math.sqrt(
+                    (currentPos[0] - finalGoal[0]) ** 2 + (currentPos[1] - finalGoal[1]) ** 2
+                )
+                <= 0.2
+            ):
+                self.robotState["goalReached"] = True
+                rospy.loginfo("Final goal reached!")
+                break
+
+            lookaheadPoint = self.calculateDynamicGoal(currentPos)
+
+            trajectory: List[Tuple[float, float]] = []
+            posCopy = list(currentPos)
+            for _ in range(20):
+                forces = self.calculateForces(posCopy, lookaheadPoint)
+                theta = math.atan2(forces[1], forces[0])
+                posCopy = [
+                    posCopy[0] + math.cos(theta) * self.config["apfParams"][7],
+                    posCopy[1] + math.sin(theta) * self.config["apfParams"][7],
+                ]
+                trajectory.append((posCopy[0], posCopy[1]))
+
+            self.updateVisualization(trajectory, lookaheadPoint)
+            self.publishPath(trajectory)
+            self.rosComponents["rate"].sleep()
+
+
+if __name__ == "__main__":
+    try:
+        planner = APFPlanner()
+        planner.run()
+    except rospy.ROSInterruptException:
+        pass
