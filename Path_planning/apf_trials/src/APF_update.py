@@ -153,9 +153,9 @@ class APFPlanner:
             ]
 
     def loadWaypoints(self, filePath: str) -> List[Tuple[float, float]]:
-        """Load waypoints from CSV file"""
+        """Load waypoints with explicit float conversion"""
         dataFrame = pd.read_csv(filePath)
-        return list(zip(dataFrame["real_x"], dataFrame["real_y"]))
+        return [(float(row["real_x"]), float(row["real_y"])) for _, row in dataFrame.iterrows()]
 
     def realToPixel(self, x: float, y: float) -> Tuple[int, int]:
         """Convert real-world coordinates to pixel indices"""
@@ -211,7 +211,9 @@ class APFPlanner:
         """Determine current navigation target"""
         if not self.robotState["awayFromStart"]:
             startPoint = self.config["goalPoints"][-1]
-            distance = sqrt((position[0] - startPoint[0]) ** 2 + (position[1] - startPoint[1]) ** 2)
+            distance = math.sqrt(
+                (position[0] - startPoint[0]) ** 2 + (position[1] - startPoint[1]) ** 2
+            )
             if distance >= 1.0:
                 self.robotState["awayFromStart"] = True
                 rospy.loginfo("Robot 1m from start, using full path")
@@ -222,6 +224,13 @@ class APFPlanner:
             else self.config["goalPoints"][:-30]
         )
 
+        # Explicit type conversion for final goal
+        finalGoal: Tuple[float, float] = (float(candidates[-1][0]), float(candidates[-1][1]))
+
+        # Check proximity to final goal
+        if math.sqrt((position[0] - finalGoal[0]) ** 2 + (position[1] - finalGoal[1]) ** 2) < 0.5:
+            return finalGoal
+
         self.robotState["currentIndex"] = min(
             range(len(candidates)),
             key=lambda i: math.sqrt(
@@ -230,15 +239,16 @@ class APFPlanner:
         )
 
         for idx in range(self.robotState["currentIndex"], len(candidates)):
-            if (
-                sqrt(
-                    (candidates[idx][0] - position[0]) ** 2
-                    + (candidates[idx][1] - position[1]) ** 2
-                )
-                >= self.config["apfParams"][4]
-            ):
-                return (candidates[idx][0], candidates[idx][1])
-        return (candidates[-1][0], candidates[-1][0])
+            point = candidates[idx]
+            # Explicit type conversion for intermediate points
+            typedPoint: Tuple[float, float] = (float(point[0]), float(point[1]))
+            distance = math.sqrt(
+                (typedPoint[0] - position[0]) ** 2 + (typedPoint[1] - position[1]) ** 2
+            )
+            if distance >= self.config["apfParams"][4]:
+                return typedPoint
+
+        return finalGoal
 
     def calculateForces(
         self, position: List[float], goal: Tuple[float, float]
