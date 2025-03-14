@@ -1,16 +1,16 @@
 <launch>
-   <node name="optimal_planner" 
-        pkg="heightmap_costmap" 
-        type="a_star.py" 
+   <node name="optimal_planner"
+        pkg="heightmap_costmap"
+        type="a_star.py"
         output="screen">
-        
-    <param name="total_cost_csv" 
+
+    <param name="total_cost_csv"
            value="$(find heightmap_costmap)/total_cost.csv" />
     <param name="resolution" value="0.0495049505"/>
     <param name="origin_x" value="0.0"/>
     <param name="origin_y" value="0.0"/>
-    
-    
+
+
     <!-- Start and via points (pixel coordinates) -->
     <param name="start_x" value="441" />
     <param name="start_y" value="413" />
