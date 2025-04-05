@@ -1,3 +1,46 @@
+/**
+ * @file UV_detector.cpp
+ * @brief Implementation of UV-based object detection and tracking
+ * 
+ * This file contains the implementation of UV-based object detection and tracking
+ * using depth data and Kalman filtering for state estimation.
+ */
+
+// Tracking Parameters
+#define OVERLAP_THRESHOLD 0.51    // Minimum overlap ratio between consecutive frames to consider objects as the same (higher = stricter tracking)
+#define TRACKING_FREQUENCY 30     // Hz - Update rate of the Kalman filter (higher = smoother but more computation)
+#define PROCESS_NOISE 0.4         // Process noise covariance for Kalman filter (higher = more responsive to changes)
+#define PROCESS_NOISE_SCALE 0.0   // Additional scaling factor for process noise (fine-tunes filter responsiveness)
+#define MEASUREMENT_NOISE 0.3     // Measurement noise covariance for Kalman filter (higher = less trust in measurements)
+#define MEASUREMENT_NOISE_SCALE 0.99  // Additional scaling factor for measurement noise (fine-tunes measurement trust)
+
+// Detection Parameters
+#define ROW_DOWNSAMPLE 4          // Factor to downsample rows in depth image (higher = less computation but lower vertical resolution)
+#define COL_SCALE 0.5             // Scale factor for columns in depth image (higher = more detail but more computation)
+#define MIN_DISTANCE 10           // mm - Minimum valid depth value (objects closer are ignored)
+#define MAX_DISTANCE 5000         // mm - Maximum valid depth value (objects further are ignored)
+#define THRESHOLD_POINT 2         // Minimum value for a point to be considered valid in U-map (higher = less noise but may miss weak detections)
+#define THRESHOLD_LINE 2          // Threshold for line detection in U-map (higher = requires stronger evidence)
+#define MIN_LENGTH_LINE 8         // Minimum length for a valid line segment (higher = fewer false positives but may miss small objects)
+#define SHOW_BOUNDING_BOX_U true  // Flag to display bounding boxes in U-map visualization (useful for debugging)
+
+// Camera Parameters
+#define FOCAL_LENGTH_X 383.91     // Camera focal length in x direction (pixels) - affects field of view and object size
+#define FOCAL_LENGTH_Y 383.91     // Camera focal length in y direction (pixels) - affects field of view and object size
+#define PRINCIPAL_POINT_X 318.27  // Principal point x coordinate (pixels) - center of image in x direction
+#define PRINCIPAL_POINT_Y 242.18  // Principal point y coordinate (pixels) - center of image in y direction
+
+// Visualization Parameters
+#define BIRD_VIEW_WIDTH 1000      // Width of the bird's eye view visualization (affects resolution)
+#define BIRD_VIEW_HEIGHT 500      // Height of the bird's eye view visualization (affects resolution)
+#define BIRD_VIEW_SCALE 0.5       // Scale factor for displaying the bird's eye view (higher = more detail but needs more screen space)
+
+// Ground Plane Parameters
+#define GROUND_HEIGHT_MIN 0.2     // Minimum height (m) above ground to consider a point as an obstacle (lower = detects shorter objects but more noise)
+#define GROUND_HEIGHT_MAX 1.7     // Maximum height (m) to consider for obstacles (higher = detects taller objects but may include overhead structures)
+#define GROUND_FIT_THRESHOLD 0.02 // RANSAC threshold (m) for ground plane fitting (lower = stricter plane fit but may miss uneven ground)
+#define REMOVE_GROUND true        // Enable/disable ground plane removal (true = remove ground points, false = keep all points)
+
 #include <opencv2/opencv.hpp>
 #include <math.h>
 #include <vector>
@@ -7,411 +50,698 @@
 using namespace std;
 using namespace cv;
 
-// UVbox
-
+/**
+ * @brief UVbox class implementation
+ * 
+ * Represents a bounding box with tracking information for UV-based detection.
+ */
 UVbox::UVbox()
 {
     this->id = 0;
-    this->toppest_parent_id = 0;
-    this->bb = Rect(Point2f(0, 0), Point2f(0, 0));
+    this->toppestParentId = 0;
+    // Initialize bounding box with zero size at origin
+    this->boundingBox = Rect(Point2f(0, 0), Point2f(0, 0));
 }
 
-UVbox::UVbox(int seg_id, int row, int left, int right)
+/**
+ * @brief Constructor for UVbox with specific parameters
+ * @param segId - Segmentation ID: unique identifier for each detected segment/object
+ * @param row - Row position in the image
+ * @param left - Left boundary of the bounding box
+ * @param right - Right boundary of the bounding box
+ */
+UVbox::UVbox(int segId, int row, int left, int right)
 {
-    this->id = seg_id;
-    this->toppest_parent_id = seg_id;
-    this->bb = Rect(Point2f(left, row), Point2f(right, row));
+    this->id = segId;
+    this->toppestParentId = segId;
+    // Create a bounding box with the given coordinates
+    this->boundingBox = Rect(Point2f(left, row), Point2f(right, row));
 }
 
-UVbox merge_two_UVbox(UVbox father, UVbox son)
+/**
+ * @brief Merges two UVboxes into one
+ * @param father - The parent UVbox to merge into
+ * @param son - The child UVbox to merge
+ * @return The merged UVbox
+ */
+UVbox mergeTwoUVbox(UVbox father, UVbox son)
 {
-    // merge the bounding box
-    int top =       (father.bb.tl().y < son.bb.tl().y)?father.bb.tl().y:son.bb.tl().y;
-    int left =      (father.bb.tl().x < son.bb.tl().x)?father.bb.tl().x:son.bb.tl().x;
-    int bottom =    (father.bb.br().y > son.bb.br().y)?father.bb.br().y:son.bb.br().y;
-    int right =     (father.bb.br().x > son.bb.br().x)?father.bb.br().x:son.bb.br().x;
-    father.bb = Rect(Point2f(left, top), Point2f(right, bottom));
+    // Merge the bounding boxes by finding the minimum and maximum coordinates
+    // tl() returns the top-left point of the rectangle
+    // br() returns the bottom-right point of the rectangle
+    int top = min(father.boundingBox.tl().y, son.boundingBox.tl().y);
+    int left = min(father.boundingBox.tl().x, son.boundingBox.tl().x);
+    int bottom = max(father.boundingBox.br().y, son.boundingBox.br().y);
+    int right = max(father.boundingBox.br().x, son.boundingBox.br().x);
+    // Create a new rectangle that encompasses both boxes
+    father.boundingBox = Rect(Point2f(left, top), Point2f(right, bottom));
     return father;
 }
 
-// UVtracker
-
+/**
+ * @brief UVtracker class implementation
+ * 
+ * Handles object tracking using Kalman filters and bounding box matching.
+ */
 UVtracker::UVtracker()
 {
-    this->overlap_threshold = 0.51;
+    // Threshold for determining if two bounding boxes overlap enough to be considered the same object
+    this->overlapThreshold = OVERLAP_THRESHOLD;
 }
 
-void UVtracker::read_bb(vector<Rect> now_bb)
+/**
+ * @brief Updates the tracker with new bounding boxes
+ * @param currentBoundingBoxes - Vector of current frame's bounding boxes
+ * 
+ * This method maintains three types of data:
+ * 1. Measurement history for trajectory tracking
+ * 2. Kalman filters for state estimation
+ * 3. Bounding box data for overlap detection
+ */
+void UVtracker::readBoundingBoxes(vector<Rect> currentBoundingBoxes)
 {
-    // measurement history
-    this->pre_history = this->now_history;
-    this->now_history.clear();
-    this->now_history.resize(now_bb.size());
-    // kalman filters
-    this->pre_filter = this->now_filter;
-    this->now_filter.clear();
-    this->now_filter.resize(now_bb.size());
-    // bounding box
-    this->pre_bb = this->now_bb;
-    this->now_bb = now_bb;
+    // Update measurement history
+    this->previousHistory = this->currentHistory;
+    this->currentHistory.clear();
+    this->currentHistory.resize(currentBoundingBoxes.size());
+    
+    // Update Kalman filters
+    this->previousFilters = this->currentFilters;
+    this->currentFilters.clear();
+    this->currentFilters.resize(currentBoundingBoxes.size());
+    
+    // Update bounding boxes
+    this->previousBoundingBoxes = this->currentBoundingBoxes;
+    this->currentBoundingBoxes = currentBoundingBoxes;
 }
 
-void UVtracker::check_status()
+/**
+ * @brief Checks the status of tracked objects and updates their states
+ * 
+ * For each current bounding box:
+ * 1. Checks if it overlaps with any previous bounding box
+ * 2. If overlap found, updates the Kalman filter with new measurement
+ * 3. If no overlap, initializes a new Kalman filter for tracking
+ */
+void UVtracker::checkStatus()
 {
-    for(int now_id = 0; now_id < this->now_bb.size(); now_id++)
+    for(int currentId = 0; currentId < this->currentBoundingBoxes.size(); currentId++)
     {
         bool tracked = false;
-        for(int pre_id = 0; pre_id < this->pre_bb.size(); pre_id++)
+        
+        // Calculate center point once
+        float centerX = this->currentBoundingBoxes[currentId].x + 0.5 * this->currentBoundingBoxes[currentId].width;
+        float centerY = this->currentBoundingBoxes[currentId].y + 0.5 * this->currentBoundingBoxes[currentId].height;
+        
+        for(int previousId = 0; previousId < this->previousBoundingBoxes.size(); previousId++)
         {
-            Rect overlap = this->now_bb[now_id] & this->pre_bb[pre_id];
-            if(min(overlap.area() / float(this->now_bb[now_id].area()), overlap.area() / float(this->now_bb[now_id].area())) >= this->overlap_threshold)
+            
+            
+            // Calculate overlap between current and previous bounding boxes
+            Rect overlap = this->currentBoundingBoxes[currentId] & this->previousBoundingBoxes[previousId];
+            float overlapRatio = overlap.area() / float(this->currentBoundingBoxes[currentId].area());
+            if(overlapRatio >= this->overlapThreshold)
             {
                 tracked = true;
-                // add current detection to history
-                this->now_history[now_id] = this->pre_history[pre_id];
-                this->now_history[now_id].push_back(Point2f(this->now_bb[now_id].x + 0.5 * this->now_bb[now_id].width, this->now_bb[now_id].y + 0.5 * this->now_bb[now_id].height));
-                // add measurement to previous filter
-                this->now_filter[now_id] = this->pre_filter[pre_id];
-                MatrixXd z(4,1); // measurement
-                z << this->now_bb[now_id].x + 0.5 * this->now_bb[now_id].width, this->now_bb[now_id].y + 0.5 * this->now_bb[now_id].height, this->now_bb[now_id].width, this->now_bb[now_id].height;
-                MatrixXd u(1,1); // input
-                u << 0;
-                // run the filter 
-                this->now_filter[now_id].estimate(z, u);
+                
+                // Add current detection to history
+                this->currentHistory[currentId] = this->previousHistory[previousId];
+                this->currentHistory[currentId].push_back(Point2f(centerX, centerY));
+                
+                // Add measurement to previous filter
+                this->currentFilters[currentId] = this->previousFilters[previousId];
+                MatrixXd measurement(4,1);
+                measurement << centerX,
+                             centerY,
+                             this->currentBoundingBoxes[currentId].width,
+                             this->currentBoundingBoxes[currentId].height;
+                MatrixXd controlInput(1,1);
+                controlInput << 0;
+                
+                // Run the filter
+                this->currentFilters[currentId].estimate(measurement, controlInput);
                 break;
             }
         }
         if(!tracked)
         {
-            // add current detection to history
-            this->now_history[now_id].push_back(Point2f(this->now_bb[now_id].x + 0.5 * this->now_bb[now_id].width, this->now_bb[now_id].y + 0.5 * this->now_bb[now_id].height));
-            // initialize filter
-            int f = 30; // Hz
-            double ts = 1.0 / f; // s
+            // Add current detection to history
+            this->currentHistory[currentId].push_back(Point2f(centerX, centerY));
             
-            // model for center filter
-            double e_p = 0.4;
-            double e_ps = 0.0;
-            double e_m = 0.3;
-            double e_ms = 0.99;
-            MatrixXd A(6, 6);
-            A <<    1, 0, ts, 0, 0, 0, 
-                    0, 1, 0, ts, 0, 0,
-                    0, 0, 1, 0,  0, 0,
-                    0, 0, 0, 1,  0, 0,
-                    0, 0, 0, 0,  1, 0,
-                    0, 0, 0, 0,  0, 1; 
-            MatrixXd B(6, 1);
-            B <<    0, 0, 0, 0, 0, 0;
-            MatrixXd H(4, 6);
-            H <<    1, 0, 0, 0, 0, 0,
-                    0, 1, 0, 0, 0, 0,
-                    0, 0, 0, 0, 1, 0,
-                    0, 0, 0, 0, 0, 1;
-            MatrixXd P = MatrixXd::Identity(6, 6) * e_m;
-            P(4,4) = e_ms; P(5,5) = e_ms;
-            MatrixXd Q = MatrixXd::Identity(6, 6) * e_p;
-            Q(4,4) = e_ps; Q(5,5) = e_ps;
-            MatrixXd R = MatrixXd::Identity(4, 4) * e_m;
+            // Initialize filter
+            int frequency = TRACKING_FREQUENCY; // Hz
+            double timeStep = 1.0 / frequency; // s
+            
+            // Model for center filter
+            double processNoise = PROCESS_NOISE;
+            double processNoiseScale = PROCESS_NOISE_SCALE;
+            double measurementNoise = MEASUREMENT_NOISE;
+            double measurementNoiseScale = MEASUREMENT_NOISE_SCALE;
+            
+            MatrixXd stateMatrix(6, 6);
+            stateMatrix << 1, 0, timeStep, 0, 0, 0, 
+                          0, 1, 0, timeStep, 0, 0,
+                          0, 0, 1, 0, 0, 0,
+                          0, 0, 0, 1, 0, 0,
+                          0, 0, 0, 0, 1, 0,
+                          0, 0, 0, 0, 0, 1;
+            
+            MatrixXd inputMatrix(6, 1);
+            inputMatrix << 0, 0, 0, 0, 0, 0;
+            
+            MatrixXd observationMatrix(4, 6);
+            observationMatrix << 1, 0, 0, 0, 0, 0,
+                               0, 1, 0, 0, 0, 0,
+                               0, 0, 0, 0, 1, 0,
+                               0, 0, 0, 0, 0, 1;
+            
+            MatrixXd uncertainty = MatrixXd::Identity(6, 6) * measurementNoise;
+            uncertainty(4,4) = measurementNoiseScale;
+            uncertainty(5,5) = measurementNoiseScale;
+            
+            MatrixXd processNoiseMatrix = MatrixXd::Identity(6, 6) * processNoise;
+            processNoiseMatrix(4,4) = processNoiseScale;
+            processNoiseMatrix(5,5) = processNoiseScale;
+            
+            MatrixXd measurementNoiseMatrix = MatrixXd::Identity(4, 4) * measurementNoise;
 
-            // filter initialization
+            // Filter initialization
             MatrixXd states(6,1);
-            states << this->now_bb[now_id].x + 0.5 * this->now_bb[now_id].width, this->now_bb[now_id].y + 0.5 * this->now_bb[now_id].height, 0, 0, this->now_bb[now_id].width, this->now_bb[now_id].height;
-            kalman_filter my_filter;
+            states << centerX,
+                     centerY,
+                     0, 0,
+                     this->currentBoundingBoxes[currentId].width,
+                     this->currentBoundingBoxes[currentId].height;
             
-            this->now_filter[now_id].setup(states,
-                            A,
-                            B,
-                            H,
-                            P,
-                            Q,
-                            R);
+            this->currentFilters[currentId].setup(states,
+                                               stateMatrix,
+                                               inputMatrix,
+                                               observationMatrix,
+                                               uncertainty,
+                                               processNoiseMatrix,
+                                               measurementNoiseMatrix);
         }
     }
 }
 
-// UVdetector
-
+/**
+ * @brief UVdetector class implementation
+ * 
+ * Main class for UV-based object detection using depth data.
+ */
 UVdetector::UVdetector()
 {
-    this->row_downsample = 4;
-    this->col_scale = 0.5;
-    this->min_dist = 10;
-    this->max_dist = 5000;
-    this->threshold_point = 2;
-    this->threshold_line = 2;
-    this->min_length_line = 8;
-    this->show_bounding_box_U = true;
-    this->fx = 383.91;
-    this->fy = 383.91;
-    this->px = 318.27;
-    this->py = 242.18;
+    // Image processing parameters
+    this->rowDownsample = ROW_DOWNSAMPLE;
+    this->colScale = COL_SCALE;
+    this->minDistance = MIN_DISTANCE;
+    this->maxDistance = MAX_DISTANCE;
+    this->thresholdPoint = THRESHOLD_POINT;
+    this->thresholdLine = THRESHOLD_LINE;
+    this->minLengthLine = MIN_LENGTH_LINE;
+    this->showBoundingBoxU = SHOW_BOUNDING_BOX_U;
+    
+    // Camera calibration parameters
+    this->focalLengthX = FOCAL_LENGTH_X;
+    this->focalLengthY = FOCAL_LENGTH_Y;
+    this->principalPointX = PRINCIPAL_POINT_X;
+    this->principalPointY = PRINCIPAL_POINT_Y;
+
+    // Ground plane parameters
+    this->groundHeightMin = GROUND_HEIGHT_MIN;
+    this->groundHeightMax = GROUND_HEIGHT_MAX;
+    this->groundFitThreshold = GROUND_FIT_THRESHOLD;
+    this->removeGround = REMOVE_GROUND;
 }
 
-void UVdetector::readdata(Mat depth)
+/**
+ * @brief Reads depth data from the camera
+ * @param depth - Input depth image
+ */
+void UVdetector::readData(Mat depth)
 {
     this->depth = depth;
 }
 
-// 
-
-void UVdetector::extract_U_map()
+/**
+ * @brief Fits ground plane using RANSAC on depth data
+ * 
+ * Uses organized point cloud data to fit a plane to ground points.
+ * Points are converted from depth to 3D coordinates using camera parameters.
+ */
+void UVdetector::fitGroundPlane()
 {
-    // rescale depth map
-    Mat depth_rescale;
-    resize(this->depth, depth_rescale, Size(),this->col_scale , 1);
-    Mat depth_low_res_temp = Mat::zeros(depth_rescale.rows, depth_rescale.cols, CV_8UC1);
+    if (!this->removeGround) return;
 
-    // construct the mask
-    Rect mask_depth;
-    uint8_t histSize = this->depth.rows / this->row_downsample;
-    uint8_t bin_width = ceil((this->max_dist - this->min_dist) / float(histSize));
-    // initialize U map
-    this->U_map = Mat::zeros(histSize, depth_rescale.cols, CV_8UC1);
-    for(int col = 0; col < depth_rescale.cols; col++)
-    {
-        for(int row = 0; row < depth_rescale.rows; row++)
-        {
-            if(depth_rescale.at<unsigned short>(row, col) > this->min_dist && depth_rescale.at<unsigned short>(row, col) < this->max_dist)
-            {
-                uint8_t bin_index = (depth_rescale.at<unsigned short>(row, col) - this->min_dist) / bin_width;
-                depth_low_res_temp.at<uchar>(row, col) = bin_index;
-                if(this->U_map.at<uchar>(bin_index, col) < 255)
-                {
-                    this->U_map.at<uchar>(bin_index, col) ++;
+    // Initialize ground mask
+    this->groundMask = Mat::zeros(this->depth.rows, this->depth.cols, CV_8UC1);
+    
+    // Convert depth to 3D points
+    vector<Point3f> points;
+    vector<Point2i> pixels;  // Keep track of pixel coordinates
+    
+    for(int row = 0; row < this->depth.rows; row++) {
+        for(int col = 0; col < this->depth.cols; col++) {
+            float d = this->depth.at<unsigned short>(row, col);
+            if(d > this->minDistance && d < this->maxDistance) {
+                // Convert depth to 3D point
+                float x = (col - this->principalPointX) * d / this->focalLengthX;
+                float y = (row - this->principalPointY) * d / this->focalLengthY;
+                float z = d;
+                points.push_back(Point3f(x, y, z));
+                pixels.push_back(Point2i(col, row));
+            }
+        }
+    }
+
+    if(points.size() < 3) return;  // Need at least 3 points for plane fitting
+
+    // RANSAC parameters
+    int iterations = 100;
+    float bestScore = 0;
+    Vec4f bestPlane;
+    
+    // RANSAC iterations
+    for(int iter = 0; iter < iterations; iter++) {
+        // Randomly select 3 points
+        vector<Point3f> sample;
+        vector<int> indices;
+        for(int i = 0; i < 3; i++) {
+            int idx;
+            do {
+                idx = rand() % points.size();
+            } while(find(indices.begin(), indices.end(), idx) != indices.end());
+            indices.push_back(idx);
+            sample.push_back(points[idx]);
+        }
+        
+        // Fit plane to three points
+        Point3f v1 = sample[1] - sample[0];
+        Point3f v2 = sample[2] - sample[0];
+        Point3f normal = v1.cross(v2);
+        float d = -normal.dot(sample[0]);
+        Vec4f plane(normal.x, normal.y, normal.z, d);
+        
+        // Count inliers
+        float score = 0;
+        for(const Point3f& pt : points) {
+            float dist = abs(plane[0]*pt.x + plane[1]*pt.y + plane[2]*pt.z + plane[3]) / 
+                        sqrt(plane[0]*plane[0] + plane[1]*plane[1] + plane[2]*plane[2]);
+            if(dist < this->groundFitThreshold) {
+                score++;
+            }
+        }
+        
+        // Update best plane
+        if(score > bestScore) {
+            bestScore = score;
+            bestPlane = plane;
+        }
+    }
+    
+    this->groundPlane = bestPlane;
+    
+    // Create ground mask
+    for(size_t i = 0; i < points.size(); i++) {
+        const Point3f& pt = points[i];
+        float dist = abs(bestPlane[0]*pt.x + bestPlane[1]*pt.y + bestPlane[2]*pt.z + bestPlane[3]) / 
+                    sqrt(bestPlane[0]*bestPlane[0] + bestPlane[1]*bestPlane[1] + bestPlane[2]*bestPlane[2]);
+        
+        if(dist < this->groundFitThreshold) {
+            this->groundMask.at<uchar>(pixels[i].y, pixels[i].x) = 255;
+        }
+    }
+}
+
+/**
+ * @brief Removes ground points from depth image
+ * 
+ * Uses the fitted ground plane to remove points that are likely ground.
+ * Also applies height constraints from the paper.
+ */
+void UVdetector::removeGroundPoints()
+{
+    if (!this->removeGround) return;
+    
+    Mat depthNoGround = this->depth.clone();
+    
+    for(int row = 0; row < this->depth.rows; row++) {
+        for(int col = 0; col < this->depth.cols; col++) {
+            if(this->groundMask.at<uchar>(row, col) > 0) {
+                // Point is part of ground plane
+                depthNoGround.at<unsigned short>(row, col) = 0;
+                continue;
+            }
+            
+            float d = this->depth.at<unsigned short>(row, col);
+            if(d > this->minDistance && d < this->maxDistance) {
+                // Convert to 3D point
+                float x = (col - this->principalPointX) * d / this->focalLengthX;
+                float y = (row - this->principalPointY) * d / this->focalLengthY;
+                float z = d;
+                
+                // Calculate height above ground plane
+                float height = abs(this->groundPlane[0]*x + this->groundPlane[1]*y + 
+                                 this->groundPlane[2]*z + this->groundPlane[3]) / 
+                             sqrt(this->groundPlane[0]*this->groundPlane[0] + 
+                                  this->groundPlane[1]*this->groundPlane[1] + 
+                                  this->groundPlane[2]*this->groundPlane[2]);
+                
+                // Apply height constraints
+                if(height < this->groundHeightMin || height > this->groundHeightMax) {
+                    depthNoGround.at<unsigned short>(row, col) = 0;
                 }
             }
         }
     }
-    this->depth_low_res = depth_low_res_temp;
-
-    // smooth the U map
-    GaussianBlur(this->U_map, this->U_map, Size(5,9), 3, 10);
+    
+    this->depth = depthNoGround;
 }
 
-void UVdetector::extract_bb()
+/**
+ * @brief Extracts the U-map from depth data
+ * 
+ * The U-map is a 2D representation where:
+ * - Rows represent depth bins
+ * - Columns represent image columns
+ * - Values represent the number of points in each bin
+ */
+void UVdetector::extractUMap()
 {
-    // initialize a mask
-    vector<vector<int> > mask(this->U_map.rows, vector<int>(this->U_map.cols, 0));
-    // initialize parameters
-    int u_min = this->threshold_point * this->row_downsample;
-    int sum_line = 0;
-    int max_line = 0;
-    int length_line = 0;
-    int seg_id = 0;
-    vector<UVbox> UVboxes;
-    for(int row = 0; row < this->U_map.rows; row++)
+    // Rescale depth map
+    Mat depthRescale;
+    resize(this->depth, depthRescale, Size(), this->colScale, 1);
+    Mat depthLowResTemp = Mat::zeros(depthRescale.rows, depthRescale.cols, CV_8UC1);
+
+    // Construct the mask
+    Rect maskDepth;
+    uint8_t histSize = this->depth.rows / this->rowDownsample;
+    uint8_t binWidth = ceil((this->maxDistance - this->minDistance) / float(histSize));
+    
+    // Initialize U map
+    this->uMap = Mat::zeros(histSize, depthRescale.cols, CV_8UC1);
+    
+    for(int col = 0; col < depthRescale.cols; col++)
     {
-        for(int col = 0; col < this->U_map.cols; col++)
+        for(int row = 0; row < depthRescale.rows; row++)
         {
-            // is a point of interest
-            if(this->U_map.at<uchar>(row,col) >= u_min)
+            if(depthRescale.at<unsigned short>(row, col) > this->minDistance && 
+               depthRescale.at<unsigned short>(row, col) < this->maxDistance)
             {
-                // update current line info
-                length_line++;
-                sum_line += this->U_map.at<uchar>(row,col);
-                max_line = (this->U_map.at<uchar>(row,col) > max_line)?this->U_map.at<uchar>(row,col):max_line;
-            }
-            // is not or is end of row
-            if(this->U_map.at<uchar>(row,col) < u_min || col == this->U_map.cols - 1)
-            {
-                // is end of the row
-                col = (col == this->U_map.cols - 1)? col + 1:col;
-                // is good line candidate (length and sum)
-                if(length_line > this->min_length_line && sum_line > this->threshold_line * max_line)
+                uint8_t binIndex = (depthRescale.at<unsigned short>(row, col) - this->minDistance) / binWidth;
+                depthLowResTemp.at<uchar>(row, col) = binIndex;
+                if(this->uMap.at<uchar>(binIndex, col) < 255)
                 {
-                    seg_id++;
-                    UVboxes.push_back(UVbox(seg_id, row, col - length_line, col - 1));
-                    // overwrite the mask with segementation id
-                    for(int c = col - length_line; c < col - 1; c++)
+                    this->uMap.at<uchar>(binIndex, col)++;
+                }
+            }
+        }
+    }
+    this->depthLowRes = depthLowResTemp;
+
+    // Smooth the U map
+    GaussianBlur(this->uMap, this->uMap, Size(5,9), 3, 10);
+}
+
+/**
+ * @brief Extracts bounding boxes from the U-map
+ * 
+ * This method:
+ * 1. Scans the U-map row by row
+ * 2. Identifies continuous segments of interest
+ * 3. Merges segments vertically to form complete objects
+ * 4. Filters out small or invalid detections
+ */
+void UVdetector::extractBoundingBoxes()
+{
+    // Initialize a mask
+    vector<vector<int>> mask(this->uMap.rows, vector<int>(this->uMap.cols, 0));
+    
+    // Initialize parameters
+    int uMin = this->thresholdPoint * this->rowDownsample;
+    int sumLine = 0;
+    int maxLine = 0;
+    int lengthLine = 0;
+    int segmentId = 0;
+    vector<UVbox> uvBoxes;
+    
+    for(int row = 0; row < this->uMap.rows; row++)
+    {
+        for(int col = 0; col < this->uMap.cols; col++)
+        {
+            // Check if point is of interest
+            if(this->uMap.at<uchar>(row,col) >= uMin)
+            {
+                // Update current line info
+                lengthLine++;
+                sumLine += this->uMap.at<uchar>(row,col);
+                maxLine = max(this->uMap.at<uchar>(row,col), maxLine);
+            }
+            
+            // Check if not of interest or end of row
+            if(this->uMap.at<uchar>(row,col) < uMin || col == this->uMap.cols - 1)
+            {
+                // Handle end of row
+                col = (col == this->uMap.cols - 1) ? col + 1 : col;
+                
+                // Check if good line candidate (length and sum)
+                if(lengthLine > this->minLengthLine && sumLine > this->thresholdLine * maxLine)
+                {
+                    segmentId++;
+                    uvBoxes.push_back(UVbox(segmentId, row, col - lengthLine, col - 1));
+                    
+                    // Update mask with segmentation id
+                    for(int c = col - lengthLine; c < col - 1; c++)
                     {
-                        mask[row][c] = seg_id;
+                        mask[row][c] = segmentId;
                     }
-                    // when current row is not first row, we need to merge neighbour segementation
+                    
+                    // Merge neighbor segmentation if not first row
                     if(row != 0)
                     {
-                        // merge all parents
-                        for(int c = col - length_line; c < col - 1; c++)
+                        for(int c = col - lengthLine; c < col - 1; c++)
                         {
                             if(mask[row - 1][c] != 0)
                             {
-                                if(UVboxes[mask[row - 1][c] - 1].toppest_parent_id < UVboxes.back().toppest_parent_id)
+                                if(uvBoxes[mask[row - 1][c] - 1].toppestParentId < uvBoxes.back().toppestParentId)
                                 {
-                                    UVboxes.back().toppest_parent_id = UVboxes[mask[row - 1][c] - 1].toppest_parent_id;
+                                    uvBoxes.back().toppestParentId = uvBoxes[mask[row - 1][c] - 1].toppestParentId;
                                 }
                                 else
                                 {
-                                    int temp = UVboxes[mask[row - 1][c] - 1].toppest_parent_id;
-                                    for(int b = 0; b < UVboxes.size(); b++)
+                                    int temp = uvBoxes[mask[row - 1][c] - 1].toppestParentId;
+                                    for(int b = 0; b < uvBoxes.size(); b++)
                                     {
-                                        UVboxes[b].toppest_parent_id = (UVboxes[b].toppest_parent_id == temp)?UVboxes.back().toppest_parent_id:UVboxes[b].toppest_parent_id;
+                                        uvBoxes[b].toppestParentId = (uvBoxes[b].toppestParentId == temp) ? 
+                                                                    uvBoxes.back().toppestParentId : 
+                                                                    uvBoxes[b].toppestParentId;
                                     }
                                 }
                             }
                         }
                     }
                 }
-                sum_line = 0;
-                max_line = 0;
-                length_line = 0;
+                // Reset line parameters
+                lengthLine = 0;
+                sumLine = 0;
+                maxLine = 0;
             }
         }
     }
     
-    // group lines into boxes
-    this->bounding_box_U.clear();
-    // merge boxes with same toppest parent
-    for(int b = 0; b < UVboxes.size(); b++)
-    {
-        if(UVboxes[b].id == UVboxes[b].toppest_parent_id)
-        {
-            for(int s = b + 1; s < UVboxes.size(); s++)
-            {
-                if(UVboxes[s].toppest_parent_id == UVboxes[b].id)
-                {
-                    UVboxes[b] = merge_two_UVbox(UVboxes[b], UVboxes[s]);
-
-                }
-            }
-            // check box's size
-            if(UVboxes[b].bb.area() >= 25)
-            {
-                this->bounding_box_U.push_back(UVboxes[b].bb);
-            }
-        }
-    }
+    // Store the detected boxes
+    this->boundingBoxes = uvBoxes;
 }
 
+/**
+ * @brief Main detection pipeline
+ * 
+ * Executes the complete detection process:
+ * 1. Fits and removes ground plane
+ * 2. Extracts U-map from depth data
+ * 3. Extracts bounding boxes from U-map
+ * 4. Converts to bird's eye view
+ */
 void UVdetector::detect()
 {
-    // extract U map from depth
-    this->extract_U_map();
+    // Fit and remove ground plane
+    this->fitGroundPlane();
+    this->removeGroundPoints();
 
-    // extract bounding box from U map
-    this->extract_bb();
+    // Extract U map from depth
+    this->extractUMap();
 
-    // extract bounding box
-    this->extract_bird_view();
+    // Extract bounding box from U map
+    this->extractBoundingBoxes();
 
-    // extract object's height
-    // this->extract_height();
+    // Extract bounding box
+    this->extractBirdView();
 }
 
-void UVdetector::display_depth()
+/**
+ * @brief Displays the depth image
+ */
+void UVdetector::displayDepth()
 {
     cvtColor(this->depth, this->depth, CV_GRAY2RGB);
     imshow("Depth", this->depth);
     waitKey(1);
 }
 
-void UVdetector::display_U_map()
+/**
+ * @brief Displays the U-map with bounding boxes
+ */
+void UVdetector::displayUMap()
 {
-    // visualize with bounding box
-    if(this->show_bounding_box_U)
+    // Visualize with bounding box
+    if(this->showBoundingBoxU)
     {
-        this->U_map = this->U_map * 10;
-        cvtColor(this->U_map, this->U_map, CV_GRAY2RGB);
-        for(int b = 0; b < this->bounding_box_U.size(); b++)
+        this->uMap = this->uMap * 10;
+        cvtColor(this->uMap, this->uMap, CV_GRAY2RGB);
+        for(int b = 0; b < this->boundingBoxes.size(); b++)
         {
-            Rect final_bb = Rect(this->bounding_box_U[b].tl(),Size(this->bounding_box_U[b].width, 2 * this->bounding_box_U[b].height));
-            rectangle(this->U_map, final_bb, Scalar(0, 0, 255), 1, 8, 0);
-            circle(this->U_map, Point2f(this->bounding_box_U[b].tl().x + 0.5 * this->bounding_box_U[b].width, this->bounding_box_U[b].br().y ), 2, Scalar(0, 0, 255), 5, 8, 0);
+            Rect finalBoundingBox = Rect(this->boundingBoxes[b].boundingBox.tl(),
+                                       Size(this->boundingBoxes[b].boundingBox.width, 
+                                           2 * this->boundingBoxes[b].boundingBox.height));
+            rectangle(this->uMap, finalBoundingBox, Scalar(0, 0, 255), 1, 8, 0);
+            circle(this->uMap, 
+                  Point2f(this->boundingBoxes[b].boundingBox.tl().x + 0.5 * this->boundingBoxes[b].boundingBox.width, 
+                         this->boundingBoxes[b].boundingBox.br().y), 
+                  2, Scalar(0, 0, 255), 5, 8, 0);
         }
-    } 
+    }
     
-    imshow("U map", this->U_map);
+    imshow("U map", this->uMap);
     waitKey(1);
 }
 
-void UVdetector::extract_bird_view()
+/**
+ * @brief Converts detected boxes to bird's eye view
+ * 
+ * This method:
+ * 1. Projects 2D image coordinates to 3D world coordinates
+ * 2. Creates a top-down view of the detected objects
+ */
+void UVdetector::extractBirdView()
 {
-    // extract bounding boxes in bird's view
-    uint8_t histSize = this->depth.rows / this->row_downsample;
-    uint8_t bin_width = ceil((this->max_dist - this->min_dist) / float(histSize));
-    this->bounding_box_B.clear();
-    this->bounding_box_B.resize(this->bounding_box_U.size());
+    // Extract bounding boxes in bird's view
+    uint8_t histSize = this->depth.rows / this->rowDownsample;
+    uint8_t binWidth = ceil((this->maxDistance - this->minDistance) / float(histSize));
+    this->boundingBoxesB.clear();
+    this->boundingBoxesB.resize(this->boundingBoxes.size());
 
-    for(int b = 0; b < this->bounding_box_U.size(); b++)
+    for(int b = 0; b < this->boundingBoxes.size(); b++)
     {
-        // U_map bounding box -> Bird's view bounding box conversion
-        float bb_depth = this->bounding_box_U[b].br().y * bin_width / 10;
-        float bb_width = bb_depth * this->bounding_box_U[b].width / this->fx;
-        float bb_height = this->bounding_box_U[b].height * bin_width / 10;
-        float bb_x = bb_depth * (this->bounding_box_U[b].tl().x / this->col_scale - this->px) / this->fx;
-        float bb_y = bb_depth - 0.5 * bb_height;
-        this->bounding_box_B[b] = Rect(bb_x, bb_y, bb_width, bb_height);
+        // U map bounding box -> Bird's view bounding box conversion
+        float bbDepth = this->boundingBoxes[b].boundingBox.br().y * binWidth / 10;
+        float bbWidth = bbDepth * this->boundingBoxes[b].boundingBox.width / this->focalLengthX;
+        float bbHeight = this->boundingBoxes[b].boundingBox.height * binWidth / 10;
+        float bbX = bbDepth * (this->boundingBoxes[b].boundingBox.tl().x / this->colScale - this->principalPointX) / this->focalLengthX;
+        float bbY = bbDepth - 0.5 * bbHeight;
+        this->boundingBoxesB[b] = Rect(bbX, bbY, bbWidth, bbHeight);
     }
 
-    // initialize the bird's view
-    this->bird_view = Mat::zeros(500, 1000, CV_8UC1);
-    cvtColor(this->bird_view, this->bird_view, CV_GRAY2RGB);
+    // Initialize the bird's view
+    this->birdView = Mat::zeros(BIRD_VIEW_HEIGHT, BIRD_VIEW_WIDTH, CV_8UC1);
+    cvtColor(this->birdView, this->birdView, CV_GRAY2RGB);
 }
 
-void UVdetector::display_bird_view()
+/**
+ * @brief Displays the bird's eye view with detected objects
+ */
+void UVdetector::displayBirdView()
 {
-    // center point
-    Point2f center = Point2f(this->bird_view.cols / 2, this->bird_view.rows);
-    Point2f left_end_to_center = Point2f( this->bird_view.rows * (0 - this->px) / this->fx, -this->bird_view.rows);
-    Point2f right_end_to_center = Point2f( this->bird_view.rows * (this->depth.cols - this->px) / this->fx, -this->bird_view.rows);
+    // Center point
+    Point2f center = Point2f(this->birdView.cols / 2, this->birdView.rows);
+    Point2f leftEndToCenter = Point2f(this->birdView.rows * (0 - this->principalPointX) / this->focalLengthX, -this->birdView.rows);
+    Point2f rightEndToCenter = Point2f(this->birdView.rows * (this->depth.cols - this->principalPointX) / this->focalLengthX, -this->birdView.rows);
 
-    // draw the two side lines
-    line(this->bird_view, center, center + left_end_to_center, Scalar(0, 255, 0), 3, 8, 0);
-    line(this->bird_view, center, center + right_end_to_center, Scalar(0, 255, 0), 3, 8, 0);
+    // Draw the two side lines
+    line(this->birdView, center, center + leftEndToCenter, Scalar(0, 255, 0), 3, 8, 0);
+    line(this->birdView, center, center + rightEndToCenter, Scalar(0, 255, 0), 3, 8, 0);
 
-    for(int b = 0; b < this->bounding_box_U.size(); b++)
+    for(int b = 0; b < this->boundingBoxes.size(); b++)
     {
-        // change coordinates
-        Rect final_bb = this->bounding_box_B[b];
-        final_bb.y = center.y - final_bb.y - final_bb.height;
-        final_bb.x = final_bb.x + center.x; 
-        // draw center 
-        Point2f bb_center = Point2f(final_bb.x + 0.5 * final_bb.width, final_bb.y + 0.5 * final_bb.height);
-        rectangle(this->bird_view, final_bb, Scalar(0, 0, 255), 3, 8, 0);
-        circle(this->bird_view, bb_center, 3, Scalar(0, 0, 255), 5, 8, 0);
+        // Change coordinates
+        Rect finalBoundingBox = this->boundingBoxesB[b];
+        finalBoundingBox.y = center.y - finalBoundingBox.y - finalBoundingBox.height;
+        finalBoundingBox.x = finalBoundingBox.x + center.x;
+        
+        // Draw center
+        Point2f bbCenter = Point2f(finalBoundingBox.x + 0.5 * finalBoundingBox.width, 
+                                  finalBoundingBox.y + 0.5 * finalBoundingBox.height);
+        rectangle(this->birdView, finalBoundingBox, Scalar(0, 0, 255), 3, 8, 0);
+        circle(this->birdView, bbCenter, 3, Scalar(0, 0, 255), 5, 8, 0);
     }
 
-    // show
-    resize(this->bird_view, this->bird_view, Size(), 0.5, 0.5);
-    imshow("Bird's View", this->bird_view);
+    // Show
+    resize(this->birdView, this->birdView, Size(), BIRD_VIEW_SCALE, BIRD_VIEW_SCALE);
+    imshow("Bird's View", this->birdView);
     waitKey(1);
 }
 
-void UVdetector::add_tracking_result()
+/**
+ * @brief Adds tracking results to the bird's eye view
+ * 
+ * This method:
+ * 1. Projects tracked object positions to bird's eye view
+ * 2. Draws estimated positions and velocities
+ * 3. Shows object trajectories
+ */
+void UVdetector::addTrackingResult()
 {
-    Point2f center = Point2f(this->bird_view.cols / 2, this->bird_view.rows);
-    for(int b = 0; b < this->tracker.now_bb.size(); b++)
+    Point2f center = Point2f(this->birdView.cols / 2, this->birdView.rows);
+    for(int b = 0; b < this->tracker.currentBoundingBoxes.size(); b++)
     {
-        // change coordinates
-        Point2f estimated_center = Point2f(this->tracker.now_filter[b].output(0), this->tracker.now_filter[b].output(1));
-        estimated_center.y = center.y - estimated_center.y;
-        estimated_center.x = estimated_center.x + center.x; 
-        // draw center 
-        circle(this->bird_view, estimated_center, 5, Scalar(0, 255, 0), 5, 8, 0);
-        // draw bounding box
-        Point2f bb_size = Point2f(this->tracker.now_filter[b].output(4), this->tracker.now_filter[b].output(5));
-        rectangle(this->bird_view, Rect(estimated_center - 0.5 * bb_size, estimated_center + 0.5 * bb_size), Scalar(0, 255, 0), 3, 8, 0);
-        // draw velocity
-        Point2f velocity = Point2f(this->tracker.now_filter[b].output(2), this->tracker.now_filter[b].output(3));
+        // Change coordinates
+        Point2f estimatedCenter = Point2f(this->tracker.currentFilters[b].output(0), 
+                                        this->tracker.currentFilters[b].output(1));
+        estimatedCenter.y = center.y - estimatedCenter.y;
+        estimatedCenter.x = estimatedCenter.x + center.x;
+        
+        // Draw center
+        circle(this->birdView, estimatedCenter, 5, Scalar(0, 255, 0), 5, 8, 0);
+        
+        // Draw bounding box
+        Point2f bbSize = Point2f(this->tracker.currentFilters[b].output(4), 
+                                this->tracker.currentFilters[b].output(5));
+        rectangle(this->birdView, 
+                 Rect(estimatedCenter - 0.5 * bbSize, estimatedCenter + 0.5 * bbSize), 
+                 Scalar(0, 255, 0), 3, 8, 0);
+        
+        // Draw velocity
+        Point2f velocity = Point2f(this->tracker.currentFilters[b].output(2), 
+                                 this->tracker.currentFilters[b].output(3));
         velocity.y = -velocity.y;
-        line(this->bird_view, estimated_center, estimated_center + velocity, Scalar(255, 255, 255), 3, 8, 0);
-        for(int h = 1; h < this->tracker.now_history[b].size(); h++)
+        line(this->birdView, estimatedCenter, estimatedCenter + velocity, 
+             Scalar(255, 255, 255), 3, 8, 0);
+        
+        for(int h = 1; h < this->tracker.currentHistory[b].size(); h++)
         {
-            // trajectory
-            Point2f start = this->tracker.now_history[b][h - 1];
+            // Trajectory
+            Point2f start = this->tracker.currentHistory[b][h - 1];
             start.y = center.y - start.y;
             start.x = start.x + center.x;
-            Point2f end = this->tracker.now_history[b][h];
+            Point2f end = this->tracker.currentHistory[b][h];
             end.y = center.y - end.y;
             end.x = end.x + center.x;
-            line(this->bird_view, start, end, Scalar(0, 0, 255), 3, 8, 0);
+            line(this->birdView, start, end, Scalar(0, 0, 255), 3, 8, 0);
         }
     }
 }
 
+/**
+ * @brief Main tracking pipeline
+ * 
+ * Executes the complete tracking process:
+ * 1. Updates tracker with new bounding boxes
+ * 2. Checks object status and updates filters
+ * 3. Adds tracking results to visualization
+ */
 void UVdetector::track()
 {
-    this->tracker.read_bb(this->bounding_box_B);
-    this->tracker.check_status();
-    this->add_tracking_result();
+    this->tracker.readBoundingBoxes(this->boundingBoxesB);
+    this->tracker.checkStatus();
+    this->addTrackingResult();
 }
 
