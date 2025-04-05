@@ -28,7 +28,7 @@ using namespace cv;
 using namespace std;
 
 /**
- * @brief Main detector class that handles ROS integration and UV detection pipeline
+ * @brief ROS node wrapper for UV detection
  * 
  * This class manages:
  * - ROS topic subscriptions and publications
@@ -36,7 +36,7 @@ using namespace std;
  * - UV detection and tracking pipeline
  * - Visualization of results
  */
-class my_detector
+class UvDetectorNode
 {  
 	public:  
         /**
@@ -46,12 +46,12 @@ class my_detector
          * - Image transport subscriber for depth images
          * - Publisher for visualization markers
          */
-		my_detector()  
+		UvDetectorNode()  
 		{  
-			image_transport::ImageTransport it(nh);
+			image_transport::ImageTransport it(nodeHandle);
 			//Topic subscribed 
-			depsub = it.subscribe("/camera/aligned_depth_to_color/image_raw", 1, &my_detector::run, this);
-			marker_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker", 1);
+			depthSub = it.subscribe("/camera/aligned_depth_to_color/image_raw", 1, &UvDetectorNode::run, this);
+			markerPub = nodeHandle.advertise<visualization_msgs::Marker>("visualization_marker", 1);
 		}  
 
         /**
@@ -68,36 +68,44 @@ class my_detector
     void run(const sensor_msgs::ImageConstPtr& msg)  
 		{  
 			// Convert ROS image message to OpenCV format
-			cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1);
-			cv::Mat depth = cv_ptr->image;
+			cv_bridge::CvImagePtr cvPtr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+			cv::Mat depth = cvPtr->image;
 
 			// Run detection pipeline
-			this->uv_detector.readdata(depth);
-			this->uv_detector.detect();
-			this->uv_detector.track();
+			this->uvDetector.readData(depth);
+			this->uvDetector.detect();
+			this->uvDetector.track();
 
 			// Update visualizations
-			this->uv_detector.display_depth();
-			this->uv_detector.display_U_map();
-			this->uv_detector.display_bird_view();
+			this->uvDetector.displayDepth();
+			this->uvDetector.displayUMap();
+			this->uvDetector.displayBirdView();
 
 			// Output detection results
-			cout << this->uv_detector.bounding_box_B.size() << endl;
+			cout << this->uvDetector.boundingBoxB.size() << endl;
 
 			// Process detections for RViz visualization
-			for(int i = 0; i < this->uv_detector.bounding_box_B.size(); i++)
+			for(int i = 0; i < this->uvDetector.boundingBoxB.size(); i++)
 			{
-				Point2f obs_center = Point2f(this->uv_detector.bounding_box_B[i].x + this->uv_detector.bounding_box_B[i].width,
-											this->uv_detector.bounding_box_B[i].y + this->uv_detector.bounding_box_B[i].height);
-				cout << obs_center << endl;
+				// Calculate 2D center point of the bounding box
+				Point2f center2D = Point2f(this->uvDetector.boundingBoxB[i].x + this->uvDetector.boundingBoxB[i].width/2,
+										this->uvDetector.boundingBoxB[i].y + this->uvDetector.boundingBoxB[i].height/2);
+				
+				// Get depth value at the center point
+				float depthValue = depth.at<uint16_t>(center2D.y, center2D.x) / 1000.0f; // Convert from mm to meters
+				
+				// Create 3D point (x, y, z)
+				Point3f obsCenter3D(center2D.x, center2D.y, depthValue);
+				
+				cout << "3D Center Point: " << obsCenter3D << endl;
 			}
 		}
 
 	private:  
-		ros::NodeHandle nh;   		        // ROS node handle
-    	image_transport::Subscriber depsub;	// Subscriber for depth images
-		UVdetector uv_detector;              // UV detector instance
-		ros::Publisher marker_pub;           // Publisher for visualization markers
+		ros::NodeHandle nodeHandle;   		        ///< ROS node handle
+    	image_transport::Subscriber depthSub;	    ///< Subscriber for depth images
+		UVdetector uvDetector;                      ///< UV detector instance
+		ros::Publisher markerPub;                   ///< Publisher for visualization markers
 };
 
 /**
@@ -112,7 +120,7 @@ int main(int argc, char **argv)
 	ros::init(argc, argv, "my_realsense_recorder");  
 
 	// Create detector instance
-	my_detector SAPObject; 
+	UvDetectorNode sapObject; 
 
 	// Spin ROS event loop
 	ros::spin();  

@@ -153,6 +153,8 @@ void UVdetector::readdata(Mat depth)
     this->depth = depth;
 }
 
+// 
+
 void UVdetector::extract_U_map()
 {
     // rescale depth map

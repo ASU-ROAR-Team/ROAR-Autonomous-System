@@ -7,7 +7,6 @@
  * The filter is used for tracking objects in the UV detection system.
  */
 
-#include <Eigen/Dense>
 #include "kalman_filter.h"
 #include <iostream>
 
@@ -110,10 +109,10 @@ void KalmanFilter::estimate(MatrixXd measurement, MatrixXd controlInput)
 /**
  * @brief Get the current value of a specific state
  * 
- * @param state_index Index of the state to retrieve
+ * @param stateIndex Index of the state to retrieve
  * @return Current value of the specified state
  */
-double KalmanFilter::output(int state_index)
+double KalmanFilter::output(int stateIndex)
 {
     if (!isInitialized)
     {
@@ -121,11 +120,11 @@ double KalmanFilter::output(int state_index)
         return 0.0;
     }
 
-    if (state_index < 0 || state_index >= states.rows())
+    if (stateIndex < 0 || stateIndex >= states.rows())
     {
         std::cout << "Invalid state index!" << std::endl;
         return 0.0;
     }
 
-    return states(state_index, 0);
-}
+    return states(stateIndex, 0);
+} 

@@ -6,40 +6,72 @@
 using Eigen::MatrixXd;
 using namespace std;
 
-class kalman_filter
+/**
+ * @brief Implementation of a Kalman Filter
+ * 
+ * This class implements a standard Kalman Filter for state estimation.
+ * It supports:
+ * - State prediction and update
+ * - Process and measurement noise handling
+ * - Dynamic system modeling
+ * - State observation and control input
+ */
+class KalmanFilter
 {
     private:
     // members
-    bool is_initialized;
-    MatrixXd states;
-    MatrixXd A; // state matrix
-    MatrixXd B; // input matrix
-    MatrixXd H; // observation matrix
-    MatrixXd P; // uncertianty
-    MatrixXd Q; // process noise
-    MatrixXd R; // obsevation noise
+    bool isInitialized;     ///< Flag indicating if the filter is initialized
+    MatrixXd states;        ///< Current state vector
+    MatrixXd stateMatrix;   ///< State transition matrix (A)
+    MatrixXd inputMatrix;   ///< Control input matrix (B)
+    MatrixXd obsMatrix;     ///< Observation matrix (H)
+    MatrixXd uncertainty;   ///< State uncertainty covariance (P)
+    MatrixXd processNoise;  ///< Process noise covariance (Q)
+    MatrixXd obsNoise;      ///< Observation noise covariance (R)
 
     public:
-    // constructor
-    kalman_filter();
+    /**
+     * @brief Default constructor
+     */
+    KalmanFilter();
 
-    // set up the filter
-    void setup( MatrixXd states,
-                MatrixXd A,
-                MatrixXd B,
-                MatrixXd H,
-                MatrixXd P,
-                MatrixXd Q,
-                MatrixXd R);
+    /**
+     * @brief Set up the Kalman Filter with initial parameters
+     * @param states Initial state vector
+     * @param stateMatrix State transition matrix
+     * @param inputMatrix Control input matrix
+     * @param obsMatrix Observation matrix
+     * @param uncertainty Initial state uncertainty
+     * @param processNoise Process noise covariance
+     * @param obsNoise Observation noise covariance
+     */
+    void setup(MatrixXd states,
+                MatrixXd stateMatrix,
+                MatrixXd inputMatrix,
+                MatrixXd obsMatrix,
+                MatrixXd uncertainty,
+                MatrixXd processNoise,
+                MatrixXd obsNoise);
 
-    // set A (sometimes sampling time will differ)
-    void setA(MatrixXd A);
+    /**
+     * @brief Update the state transition matrix
+     * @param stateMatrix New state transition matrix
+     */
+    void setStateMatrix(MatrixXd stateMatrix);
 
-    // state estimate
-    void estimate(MatrixXd z, MatrixXd u);
+    /**
+     * @brief Perform state estimation step
+     * @param measurement Current measurement vector
+     * @param controlInput Current control input vector
+     */
+    void estimate(MatrixXd measurement, MatrixXd controlInput);
 
-    // read output from the state
-    double output(int state_index);
+    /**
+     * @brief Get the current value of a specific state
+     * @param stateIndex Index of the state to retrieve
+     * @return Current value of the specified state
+     */
+    double getState(int stateIndex);
 };
 
 #endif

@@ -9,80 +9,107 @@
 using namespace std;
 using namespace cv;
 
+/**
+ * @brief Class representing a UV detection box
+ * 
+ * This class stores information about a detected object including:
+ * - Unique identifier
+ * - Parent relationship
+ * - Bounding box coordinates
+ */
 class UVbox
 {
     public:
     // members
-    int id; // its id
-    int toppest_parent_id; // its toppest parent's id
-    Rect bb; // bounding box
+    int id;                 ///< Unique identifier for the box
+    int toppestParentId;    ///< ID of the highest parent in the hierarchy
+    Rect boundingBox;       ///< Bounding box coordinates
 
     // default constructor
     UVbox();
     // constructor for new line
-    UVbox(int seg_id, int row, int left, int right);
+    UVbox(int segId, int row, int left, int right);
 };
 
+/**
+ * @brief Class for tracking UV detections over time
+ * 
+ * This class manages:
+ * - Previous and current bounding boxes
+ * - Detection history
+ * - Kalman filters for tracking
+ * - Overlap threshold for tracking validation
+ */
 class UVtracker
 {
     public:
     // members
-    vector<Rect> pre_bb; // bounding box information
-    vector<Rect> now_bb; 
-    vector<vector<Point2f> > pre_history; // thehistory of previous detection
-    vector<vector<Point2f> > now_history; 
-    vector<kalman_filter> pre_filter; // states includes x, y, vx, vy, width, depth
-    vector<kalman_filter> now_filter;
-    float overlap_threshold; // threshold to determind tracked or not
+    vector<Rect> previousBoundingBoxes;     ///< Previous frame's bounding boxes
+    vector<Rect> currentBoundingBoxes;      ///< Current frame's bounding boxes
+    vector<vector<Point2f>> previousHistory;///< History of previous detections
+    vector<vector<Point2f>> currentHistory; ///< History of current detections
+    vector<kalman_filter> previousFilters;  ///< Kalman filters for previous states
+    vector<kalman_filter> currentFilters;   ///< Kalman filters for current states
+    float overlapThreshold;                 ///< Threshold for tracking validation
 
     // constructor
     UVtracker();
 
     // read new bounding box information
-    void read_bb(vector<Rect> now_bb);
+    void readBoundingBoxes(vector<Rect> currentBoundingBoxes);
 
     // check tracking status
-    void check_status();
+    void checkStatus();
 };
 
+/**
+ * @brief Main UV detection class
+ * 
+ * This class implements the core UV detection algorithm including:
+ * - Depth map processing
+ * - U-map extraction
+ * - Bounding box detection
+ * - Bird's eye view transformation
+ * - Object tracking
+ */
 class UVdetector
 {
     public:
     // members
-    Mat depth; // depth map
-    Mat depth_low_res; // depth map with low resolution
-    Mat U_map; // U map
-    int min_dist; // lower bound of range of interest
-    int max_dist; // upper bound of range of interest
-    int row_downsample; // ratio (depth map's height / U map's height)
-    float col_scale; // scale factor in horizontal direction
-    float threshold_point; // threshold of point of interest
-    float threshold_line; // threshold of line of interest
-    int min_length_line; // min value of line's length
-    bool show_bounding_box_U; // show bounding box or not
-    vector<Rect> bounding_box_U; // extracted bounding boxes on U map
-    vector<Rect> bounding_box_B; // bunding boxes on the bird's view map
-    float fx; // focal length
-    float fy;
-    float px; // principle point
-    float py;
-    Mat bird_view; // bird's view map 
-    UVtracker tracker; // tracker in bird's view map
+    Mat depth;              ///< Input depth map
+    Mat depthLowRes;        ///< Low resolution depth map
+    Mat uMap;               ///< U-map representation
+    int minDistance;        ///< Minimum distance of interest
+    int maxDistance;        ///< Maximum distance of interest
+    int rowDownsample;      ///< Height ratio (depth/U-map)
+    float colScale;         ///< Horizontal scale factor
+    float thresholdPoint;   ///< Point of interest threshold
+    float thresholdLine;    ///< Line of interest threshold
+    int minLineLength;      ///< Minimum line length
+    bool showBoundingBoxU;  ///< Flag to show U-map bounding boxes
+    vector<Rect> boundingBoxU;  ///< Bounding boxes on U-map
+    vector<Rect> boundingBoxB;  ///< Bounding boxes on bird's view
+    float fx;               ///< Focal length x
+    float fy;               ///< Focal length y
+    float px;               ///< Principal point x
+    float py;               ///< Principal point y
+    Mat birdView;           ///< Bird's eye view map
+    UVtracker tracker;      ///< Object tracker
 
     // constructor
     UVdetector();
 
     // read data
-    void readdata(Mat depth);
+    void readData(Mat depth);
 
     // extract U map
-    void extract_U_map();
+    void extractUMap();
 
     // extract bounding box
-    void extract_bb();
+    void extractBoundingBoxes();
 
     // extract bird's view map
-    void extract_bird_view();
+    void extractBirdView();
 
     // detect
     void detect();
@@ -94,18 +121,24 @@ class UVdetector
     void output();
 
     // display depth
-    void display_depth();
+    void displayDepth();
 
     // display U map
-    void display_U_map();
+    void displayUMap();
 
     // add tracking result to bird's view map
-    void add_tracking_result();
+    void addTrackingResult();
 
     // display bird's view map
-    void display_bird_view();
+    void displayBirdView();
 };
 
-UVbox merge_two_UVbox(UVbox father, UVbox son);
+/**
+ * @brief Merges two UV boxes
+ * @param father Parent UV box
+ * @param son Child UV box
+ * @return Merged UV box
+ */
+UVbox mergeTwoUVbox(UVbox father, UVbox son);
 
 #endif
