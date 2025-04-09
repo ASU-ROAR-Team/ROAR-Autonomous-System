@@ -51,6 +51,7 @@ class my_detector
 			image_transport::ImageTransport it(nh);
 			//Topic subscribed 
 			depsub = it.subscribe("/camera/aligned_depth_to_color/image_raw", 1, &my_detector::run, this);
+			// depsub = it.subscribe("/zed2i/zed_node/depth/depth_registered", 1, &my_detector::run, this);
 			marker_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker", 1);
 		}  
 

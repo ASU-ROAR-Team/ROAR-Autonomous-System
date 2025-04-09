@@ -52,6 +52,7 @@ class UVdetector
     Mat depth; // depth map
     Mat depth_low_res; // depth map with low resolution
     Mat U_map; // U map
+    Mat groundMask; // mask of ground
     int min_dist; // lower bound of range of interest
     int max_dist; // upper bound of range of interest
     int row_downsample; // ratio (depth map's height / U map's height)
@@ -66,6 +67,12 @@ class UVdetector
     float fy;
     float px; // principle point
     float py;
+    Vec4f groundPlane; // ground plane parameters
+    float groundHeightMin; // min height of ground
+    float groundHeightMax; // max height of ground
+    float groundFitThreshold; // threshold of ground fitting
+    bool removeGround; // remove ground or not
+
     Mat bird_view; // bird's view map 
     UVtracker tracker; // tracker in bird's view map
 
@@ -74,6 +81,12 @@ class UVdetector
 
     // read data
     void readdata(Mat depth);
+
+    // Fit ground plane
+    void fitGroundPlane();
+
+    // Remove ground points
+    void removeGroundPoints();
 
     // extract U map
     void extract_U_map();

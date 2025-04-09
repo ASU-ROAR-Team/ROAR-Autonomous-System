@@ -39,7 +39,7 @@
 #define GROUND_HEIGHT_MIN 0.2     // Minimum height (m) above ground to consider a point as an obstacle (lower = detects shorter objects but more noise)
 #define GROUND_HEIGHT_MAX 1.7     // Maximum height (m) to consider for obstacles (higher = detects taller objects but may include overhead structures)
 #define GROUND_FIT_THRESHOLD 0.02 // RANSAC threshold (m) for ground plane fitting (lower = stricter plane fit but may miss uneven ground)
-#define REMOVE_GROUND true        // Enable/disable ground plane removal (true = remove ground points, false = keep all points)
+#define REMOVE_GROUND false        // Enable/disable ground plane removal (true = remove ground points, false = keep all points)
 
 
 #include <opencv2/opencv.hpp>
@@ -178,6 +178,7 @@ void UVtracker::check_status()
 
 UVdetector::UVdetector()
 {
+    // Image processing parameters
     this->row_downsample = ROW_DOWNSAMPLE;
     this->col_scale = COL_SCALE;
     this->min_dist = MIN_DISTANCE;
@@ -186,10 +187,18 @@ UVdetector::UVdetector()
     this->threshold_line = THRESHOLD_LINE;
     this->min_length_line = MIN_LENGTH_LINE;
     this->show_bounding_box_U = SHOW_BOUNDING_BOX_U;
+
+    // Camera calibration parameters
     this->fx = FOCAL_LENGTH_X;
     this->fy = FOCAL_LENGTH_Y;
     this->px = PRINCIPAL_POINT_X;
     this->py = PRINCIPAL_POINT_Y;
+
+    // Ground plane parameters
+    this->groundHeightMin = GROUND_HEIGHT_MIN;
+    this->groundHeightMax = GROUND_HEIGHT_MAX;
+    this->groundFitThreshold = GROUND_FIT_THRESHOLD;
+    this->removeGround = REMOVE_GROUND;
 }
 
 void UVdetector::readdata(Mat depth)
@@ -197,6 +206,142 @@ void UVdetector::readdata(Mat depth)
     this->depth = depth;
 }
 
+/**
+ * @brief Fits ground plane using RANSAC on depth data
+ * 
+ * Uses organized point cloud data to fit a plane to ground points.
+ * Points are converted from depth to 3D coordinates using camera parameters.
+ */
+ void UVdetector::fitGroundPlane()
+ {
+     if (!this->removeGround) return;
+ 
+     // Initialize ground mask
+     this->groundMask = Mat::zeros(this->depth.rows, this->depth.cols, CV_8UC1);
+     
+     // Convert depth to 3D points
+     vector<Point3f> points;
+     vector<Point2i> pixels;  // Keep track of pixel coordinates
+     
+     for(int row = 0; row < this->depth.rows; row++) {
+         for(int col = 0; col < this->depth.cols; col++) {
+             float d = this->depth.at<unsigned short>(row, col);
+             if(d > this->min_dist && d < this->max_dist) {
+                 // Convert depth to 3D point
+                 float x = (col - this->px) * d / this->fx;
+                 float y = (row - this->py) * d / this->fy;
+                 float z = d;
+                 points.push_back(Point3f(x, y, z));
+                 pixels.push_back(Point2i(col, row));
+             }
+         }
+     }
+ 
+     if(points.size() < 3) return;  // Need at least 3 points for plane fitting
+ 
+     // RANSAC parameters
+     int iterations = 100;
+     float bestScore = 0;
+     Vec4f bestPlane;
+     
+     // RANSAC iterations
+     for(int iter = 0; iter < iterations; iter++) {
+         // Randomly select 3 points
+         vector<Point3f> sample;
+         vector<int> indices;
+         for(int i = 0; i < 3; i++) {
+             int idx;
+             do {
+                 idx = rand() % points.size();
+             } while(find(indices.begin(), indices.end(), idx) != indices.end());
+             indices.push_back(idx);
+             sample.push_back(points[idx]);
+         }
+         
+         // Fit plane to three points
+         Point3f v1 = sample[1] - sample[0];
+         Point3f v2 = sample[2] - sample[0];
+         Point3f normal = v1.cross(v2);
+         float d = -normal.dot(sample[0]);
+         Vec4f plane(normal.x, normal.y, normal.z, d);
+         
+         // Count inliers
+         float score = 0;
+         for(const Point3f& pt : points) {
+             float dist = abs(plane[0]*pt.x + plane[1]*pt.y + plane[2]*pt.z + plane[3]) / 
+                         sqrt(plane[0]*plane[0] + plane[1]*plane[1] + plane[2]*plane[2]);
+             if(dist < this->groundFitThreshold) {
+                 score++;
+             }
+         }
+         
+         // Update best plane
+         if(score > bestScore) {
+             bestScore = score;
+             bestPlane = plane;
+         }
+     }
+     
+     this->groundPlane = bestPlane;
+     
+     // Create ground mask
+     for(size_t i = 0; i < points.size(); i++) {
+         const Point3f& pt = points[i];
+         float dist = abs(bestPlane[0]*pt.x + bestPlane[1]*pt.y + bestPlane[2]*pt.z + bestPlane[3]) / 
+                     sqrt(bestPlane[0]*bestPlane[0] + bestPlane[1]*bestPlane[1] + bestPlane[2]*bestPlane[2]);
+         
+         if(dist < this->groundFitThreshold) {
+             this->groundMask.at<uchar>(pixels[i].y, pixels[i].x) = 255;
+         }
+     }
+ }
+ 
+ /**
+  * @brief Removes ground points from depth image
+  * 
+  * Uses the fitted ground plane to remove points that are likely ground.
+  * Also applies height constraints from the paper.
+  */
+ void UVdetector::removeGroundPoints()
+ {
+     if (!this->removeGround) return;
+     
+     Mat depthNoGround = this->depth.clone();
+     
+     for(int row = 0; row < this->depth.rows; row++) {
+         for(int col = 0; col < this->depth.cols; col++) {
+             if(this->groundMask.at<uchar>(row, col) > 0) {
+                 // Point is part of ground plane
+                 depthNoGround.at<unsigned short>(row, col) = 0;
+                 continue;
+             }
+             
+             float d = this->depth.at<unsigned short>(row, col);
+             if(d > this->min_dist && d < this->max_dist) {
+                 // Convert to 3D point
+                 float x = (col - this->px) * d / this->fx;
+                 float y = (row - this->py) * d / this->fy;
+                 float z = d;
+                 
+                 // Calculate height above ground plane
+                 float height = abs(this->groundPlane[0]*x + this->groundPlane[1]*y + 
+                                  this->groundPlane[2]*z + this->groundPlane[3]) / 
+                              sqrt(this->groundPlane[0]*this->groundPlane[0] + 
+                                   this->groundPlane[1]*this->groundPlane[1] + 
+                                   this->groundPlane[2]*this->groundPlane[2]);
+                 
+                 // Apply height constraints
+                 if(height < this->groundHeightMin || height > this->groundHeightMax) {
+                     depthNoGround.at<unsigned short>(row, col) = 0;
+                 }
+             }
+         }
+     }
+     
+     this->depth = depthNoGround;
+ }
+
+ 
 void UVdetector::extract_U_map()
 {
     // rescale depth map
@@ -326,6 +471,10 @@ void UVdetector::extract_bb()
 
 void UVdetector::detect()
 {
+    // Fit and remove ground plane
+    this->fitGroundPlane();
+    this->removeGroundPoints();
+
     // extract U map from depth
     this->extract_U_map();
 
@@ -342,6 +491,14 @@ void UVdetector::detect()
 void UVdetector::display_depth()
 {
     cvtColor(this->depth, this->depth, cv::COLOR_GRAY2RGB);
+    for(int now_id = 0; now_id < this->tracker.now_bb.size(); now_id++)
+    {
+        // draw bounding box
+        rectangle(this->depth, this->tracker.now_bb[now_id], Scalar(0, 0, 255), 1, 8, 0);
+        // draw center 
+        Point2f bb_center = Point2f(this->tracker.now_bb[now_id].x + 0.5 * this->tracker.now_bb[now_id].width, this->tracker.now_bb[now_id].y + 0.5 *this->tracker.now_bb[now_id].height);
+        circle(this->depth, bb_center, 3, Scalar(0, 0, 255), 5, 8, 0);
+    }
     imshow("Depth", this->depth);
     waitKey(1);
 }
