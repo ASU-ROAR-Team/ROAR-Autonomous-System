@@ -1,27 +1,33 @@
 #include "ros/ros.h"
-#include "ROAR-Msgs-main/landmark"
-#include "ROAR-Msgs-main/LandmarksArray"
-#include "nav_msgs/Odometry"
+#include "roar_msgs/Landmark.h"
+#include "roar_msgs/LandmarkArray.h"
+#include "nav_msgs/Odometry.h"
+#include <vector>
 
 class ROV{
 
-    public:
+  public:
     float x, y, z;
-    float landmarks[15][3];
+    std::vector<roar_msgs::Landmark> ROVlandmarks;
 
 };
 
 ROV rov;
 
-void landmarkCallback(const roar_msgs::landmark_poses::ConstPtr& landmark_poses) {
+void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 
     //Calculate the rover position
     //Rover's position: P
-	//Landmark TRUE position: rov.landmarks
-	//Landmark RELATIVE position: landmark_poses
+	  //Landmark TRUE position: rov.landmarks
+	  //Landmark RELATIVE position: landmark_poses
 
     //we should put the landmark id instead of the 0
-    float P[3] = [rov.landmarks[0] - landmark_poses.x, rov.landmarks[0] - landmark_poses.y, rov.landmarks[0] - landmark_poses.z];
+    float P[3] = {
+      rov.ROVlandmarks[landmark_poses->id].pose.pose.position.x - landmark_poses->pose.pose.position.x,
+      rov.ROVlandmarks[landmark_poses->id].pose.pose.position.y - landmark_poses->pose.pose.position.y,
+      rov.ROVlandmarks[landmark_poses->id].pose.pose.position.z - landmark_poses->pose.pose.position.z
+    };
+    ROS_INFO("The Rovers True Position: x: %f | y: %f | z: %f", P[0] ,P[1] ,P[2]);
 
   }
 
@@ -31,23 +37,27 @@ void roverCallback(const nav_msgs::Odometry::ConstPtr& Odometry) {
     rov.x = Odometry->pose.pose.position.x;
     rov.y = Odometry->pose.pose.position.y;
     rov.z = Odometry->pose.pose.position.z;
+    ROS_INFO("[+] Recieved the rover position!");
 
   }
 
-void trueLandmarkCallback(const roar_msgs::LandmarksArray::constPtr& LandmarksArray){
+void trueLandmarkCallback(const roar_msgs::LandmarkArray::ConstPtr& msg){
 
-    //Set the landmarks
-    rov.landmarks = LandmarksArray;
+  //Set the landmarks
+  rov.ROVlandmarks = msg->landmarks;
+  ROS_INFO("\n[+] Recieved the Landmarks!\n");
+  std::cout << msg->landmarks[0].id << std::endl;
 
 }
 
+
 int main(int argc, char **argv) {
     
-    ros::init(argc, argv, "ekf");
+    ros::init(argc, argv, "LandmarkLocalization");
     
-    ros::NodeHandle landmarkPoses;
-    ros::NodeHandle landmarkTruePoses;
-    ros::NodeHandle roverPose;
+    ros::NodeHandle landmarkPoses; //node to update the pose
+    ros::NodeHandle landmarkTruePoses; //node to set the true poses
+    ros::NodeHandle roverPose; //node to get rover pose "The estimated"
   
     ros::Subscriber landmarkSub = landmarkPoses.subscribe("landmarkPoses", 1000, landmarkCallback);
     ros::Subscriber trueLandmarkSub = landmarkTruePoses.subscribe("landmarkPoses", 1000, trueLandmarkCallback);
