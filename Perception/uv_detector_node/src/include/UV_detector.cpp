@@ -490,16 +490,113 @@ void UVdetector::detect()
 
 void UVdetector::display_depth()
 {
-    cvtColor(this->depth, this->depth, cv::COLOR_GRAY2RGB);
-    for(int now_id = 0; now_id < this->tracker.now_bb.size(); now_id++)
-    {
-        // draw bounding box
-        rectangle(this->depth, this->tracker.now_bb[now_id], Scalar(0, 0, 255), 1, 8, 0);
-        // draw center 
-        Point2f bb_center = Point2f(this->tracker.now_bb[now_id].x + 0.5 * this->tracker.now_bb[now_id].width, this->tracker.now_bb[now_id].y + 0.5 *this->tracker.now_bb[now_id].height);
-        circle(this->depth, bb_center, 3, Scalar(0, 0, 255), 5, 8, 0);
+    // 1. Create a displayable image (8-bit BGR)
+    Mat depthDisplay;
+    Mat depth8U;
+
+    // Check input depth type and convert to 8-bit for display
+    if (this->depth.type() == CV_16UC1) {
+         // Scale valid depth range [min_dist, max_dist] to [0, 255]
+         double scaleFactor = 255.0 / (this->max_dist - this->min_dist);
+         // Apply scaling, handling invalid ranges
+         if (this->max_dist > this->min_dist) {
+            this->depth.convertTo(depth8U, CV_8UC1, scaleFactor, -this->min_dist * scaleFactor);
+         } else {
+             // Avoid division by zero if min/max dist are bad
+             this->depth.convertTo(depth8U, CV_8UC1); // Simple conversion, might not look good
+         }
+         // Set pixels originally outside the valid range or zero to black (0)
+         depth8U.setTo(0, (this->depth < this->min_dist) | (this->depth > this->max_dist) | (this->depth == 0));
+    } else if(this->depth.type() == CV_8UC1) {
+        // If already 8-bit, clone it
+        depth8U = this->depth.clone();
+    } else {
+        // Handle unexpected types
+        cerr << "Warning: Unexpected depth image type (" << this->depth.type() << ") in display_depth(). Displaying black image." << endl;
+        depth8U = Mat::zeros(this->depth.rows, this->depth.cols, CV_8UC1);
     }
-    imshow("Depth", this->depth);
+
+    // Convert the 8-bit grayscale image to BGR for drawing colored boxes
+    // You might prefer a colormap for better depth perception
+    cvtColor(depth8U, depthDisplay, COLOR_GRAY2BGR);
+    // Example: applyColorMap(depth8U, depthDisplay, COLORMAP_JET);
+    // If using colormap, you might want to keep invalid pixels black:
+    // if (depthDisplay.channels() == 3) { // Ensure it's color after colormap
+    //    depthDisplay.setTo(Scalar(0,0,0), depth8U == 0);
+    // }
+
+    // 2. Loop through tracked objects (using Kalman filter estimates)
+    for (int i = 0; i < this->tracker.now_filter.size(); ++i)
+    {
+        // Add a check here if your Kalman filter class has it:
+        // if (!this->tracker.now_filter[i].is_initialized()) continue;
+
+        // 3. Get estimated state in bird's eye view coords from Kalman filter
+        // IMPORTANT: Confirm these state vector indices are correct for YOUR filter!
+        // Assuming State: [Xc, Zc, Vxc, Vzc, Width_X, Depth_Z]
+        // Xc = Center X (metric, perpendicular to camera axis)
+        // Zc = Center Z (metric, depth along camera axis)
+        // Width_X = Metric width (in X dimension)
+        float Xc = this->tracker.now_filter[i].output(0);
+        float Zc = this->tracker.now_filter[i].output(1);
+        float W_x = this->tracker.now_filter[i].output(4);
+        // float D_z = this->tracker.now_filter[i].output(5); // Metric depth extent - not used directly for 2D box height here
+
+        // Basic check for valid depth (prevent division by zero/small numbers)
+        // Adjust the threshold (e.g., 1.0mm or 0.001m depending on units)
+        if (Zc < 1.0f) {
+            continue;
+        }
+
+        // 4. Project the 3D Center Point (Xc, Y=0, Zc) to 2D Image Point (uc, vc)
+        // Assuming Y=0 (object base on ground relative to camera) for projection simplicity
+        float Y_base = 0.0f;
+        float uc = this->fx * (Xc / Zc) + this->px;
+        // Projecting Y=0 puts the vertical center at the principal point height (py)
+        float vc = this->fy * (Y_base / Zc) + this->py;
+
+        // 5. Estimate Pixel Width and Height for the 2D Box
+        // Pixel width approx = focal_length_x * (Metric Width / Metric Depth)
+        float w_pix = this->fx * (W_x / Zc);
+
+        // Estimate Pixel Height based on pixel width and an assumed aspect ratio
+        // *** TUNE THIS ASPECT RATIO based on typical objects you detect ***
+        // e.g., 1.0 for square-ish, 1.5-2.0 for people (taller), 0.5-0.8 for cars (wider)
+        float aspect_ratio = 1.8f; // Example: Assume objects are generally taller than wide
+        float h_pix = w_pix * aspect_ratio;
+
+        // --- Alternative: Fixed size boxes ---
+        // float fixed_size = 40.0f; // Size in pixels
+        // w_pix = fixed_size;
+        // h_pix = fixed_size;
+        // --- End Alternative ---
+
+        // 6. Calculate Top-Left (tl) and Bottom-Right (br) pixel coordinates for the 2D box
+        // Centering the box around the projected point (uc, vc)
+        float tl_u = uc - w_pix / 2.0f;
+        float tl_v = vc - h_pix / 2.0f;
+        float br_u = uc + w_pix / 2.0f;
+        float br_v = vc + h_pix / 2.0f;
+
+        // 7. Clip coordinates to image boundaries
+        tl_u = std::max(0.0f, tl_u);
+        tl_v = std::max(0.0f, tl_v);
+        br_u = std::min((float)depthDisplay.cols - 1.0f, br_u);
+        br_v = std::min((float)depthDisplay.rows - 1.0f, br_v);
+
+        // 8. Ensure box has valid dimensions (width > 0, height > 0) before drawing
+         if (br_u > tl_u && br_v > tl_v) {
+             // Draw the 2D rectangle on the color display image
+             rectangle(depthDisplay,
+                       Point(cvRound(tl_u), cvRound(tl_v)), // Top-left corner
+                       Point(cvRound(br_u), cvRound(br_v)), // Bottom-right corner
+                       Scalar(0, 255, 0), // Color (Green)
+                       2);                // Thickness
+         }
+    }
+
+    // 9. Show the final image with depth visualization and 2D boxes
+    imshow("Depth", depthDisplay);
     waitKey(1);
 }
 
