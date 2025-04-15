@@ -21,12 +21,13 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 	  //Landmark TRUE position: rov.landmarks
 	  //Landmark RELATIVE position: landmark_poses
 
-    //we should put the landmark id instead of the 0
-    float P[3] = {
-      rov.ROVlandmarks[landmark_poses->id].pose.pose.position.x - landmark_poses->pose.pose.position.x,
-      rov.ROVlandmarks[landmark_poses->id].pose.pose.position.y - landmark_poses->pose.pose.position.y,
-      rov.ROVlandmarks[landmark_poses->id].pose.pose.position.z - landmark_poses->pose.pose.position.z
-    };
+    float P[3];
+    if(rov.ROVlandmarks.size() > 0){
+      P[0] = rov.ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.x - landmark_poses->pose.pose.position.x;
+      P[1] = rov.ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.y - landmark_poses->pose.pose.position.y;
+      P[2] = rov.ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.z - landmark_poses->pose.pose.position.z;
+    }
+  
     ROS_INFO("The Rovers True Position: x: %f | y: %f | z: %f", P[0] ,P[1] ,P[2]);
 
   }
@@ -45,8 +46,7 @@ void trueLandmarkCallback(const roar_msgs::LandmarkArray::ConstPtr& msg){
 
   //Set the landmarks
   rov.ROVlandmarks = msg->landmarks;
-  ROS_INFO("\n[+] Recieved the Landmarks!\n");
-  std::cout << msg->landmarks[0].id << std::endl;
+  ROS_INFO("[+] Recieved the Landmarks!\n");
 
 }
 
@@ -55,12 +55,12 @@ int main(int argc, char **argv) {
     
     ros::init(argc, argv, "LandmarkLocalization");
     
-    ros::NodeHandle landmarkPoses; //node to update the pose
     ros::NodeHandle landmarkTruePoses; //node to set the true poses
+    ros::NodeHandle landmarkPoses; //node to update the pose
     ros::NodeHandle roverPose; //node to get rover pose "The estimated"
   
+    ros::Subscriber trueLandmarkSub = landmarkTruePoses.subscribe("landmarkTruePoses", 1000, trueLandmarkCallback);
     ros::Subscriber landmarkSub = landmarkPoses.subscribe("landmarkPoses", 1000, landmarkCallback);
-    ros::Subscriber trueLandmarkSub = landmarkTruePoses.subscribe("landmarkPoses", 1000, trueLandmarkCallback);
     ros::Subscriber roverSub = roverPose.subscribe("Landmarks", 1000, roverCallback);
     
     ros::Rate rate(33);
