@@ -1,0 +1,6 @@
+Obtacle_publisher:
+ # obstacle data
+  obstacle_x: 2
+  obstacle_y: 8
+  obstacle_radius: 1
+  obstacle_id: 1
