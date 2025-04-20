@@ -28,16 +28,16 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
       P[2] = rov.ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.z - landmark_poses->pose.pose.position.z;
     }
   
-    ROS_INFO("The Rovers True Position: x: %f | y: %f | z: %f", P[0] ,P[1] ,P[2]);
+    ROS_INFO("The Rovers True Position: x: %f | y: %f | z: %f", P[0] ,P[1] ,P[2]); //estimate of Rover from LL
 
   }
 
 void roverCallback(const nav_msgs::Odometry::ConstPtr& Odometry) {
 
     //update rovers pose
-    rov.x = Odometry->pose.pose.position.x;
-    rov.y = Odometry->pose.pose.position.y;
-    rov.z = Odometry->pose.pose.position.z;
+    rov.x = Odometry->pose.pose.position.x; //state space x[7]
+    rov.y = Odometry->pose.pose.position.y; //state space x[8]
+    rov.z = Odometry->pose.pose.position.z; //state space x[9]
     ROS_INFO("[+] Recieved the rover position!");
 
   }
@@ -71,3 +71,5 @@ int main(int argc, char **argv) {
     
     return 0;
 }
+
+//UKF
