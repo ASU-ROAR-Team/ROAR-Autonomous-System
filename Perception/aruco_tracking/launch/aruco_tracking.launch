@@ -1,0 +1,5 @@
+<launch>
+    <node name="arucoTrackingNode" pkg="aruco_tracking" type="arucoTrackingNode.py" output="screen">
+        <rosparam command="load" file="$(find aruco_tracking)/config/arucoConfig.yaml" />
+    </node>
+</launch>

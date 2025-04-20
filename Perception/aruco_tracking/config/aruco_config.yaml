@@ -1,0 +1,6 @@
+# ROS parameters for the ArUco tracking node
+cameraTopic: "/camera/color/image_raw"  # Mandatory
+cameraInfoTopic: "/camera/color/camera_info"  # Mandatory
+arucoDictType: "DICT_5X5_100"          # Optional (default: DICT_5X5_100)
+visualize: True                         # Optional (default: True)
+showRejected: False                     # Optional (default: False)
