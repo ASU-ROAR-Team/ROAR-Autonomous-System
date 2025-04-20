@@ -50,8 +50,8 @@ class my_detector
 		{  
 			image_transport::ImageTransport it(nh);
 			//Topic subscribed 
-			depsub = it.subscribe("/camera/aligned_depth_to_color/image_raw", 1, &my_detector::run, this);
-			// depsub = it.subscribe("/zed2i/zed_node/depth/depth_registered", 1, &my_detector::run, this);
+			// depsub = it.subscribe("/camera/aligned_depth_to_color/image_raw", 1, &my_detector::run, this);
+			depsub = it.subscribe("/zed2i/zed_node/depth/depth_registered", 1, &my_detector::run, this);
 			marker_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker", 1);
 		}  
 
@@ -69,8 +69,29 @@ class my_detector
     void run(const sensor_msgs::ImageConstPtr& msg)  
 		{  
 			// Convert ROS image message to OpenCV format
-			cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+			//Realsense
+			//cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+			
+			// ZED 2i
+			cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
+			
 			cv::Mat depth = cv_ptr->image;
+
+			// Check if zed camera
+			if(depth.type() == CV_32FC1)
+			{
+				depth.convertTo(depth, CV_16UC1, 1000.0);
+			}
+			 // Check if RealSense camera
+			else if(depth.type() == CV_16UC1)
+			{
+				// Do nothing
+			}
+			else
+			{
+				cerr << "Unsupported depth image type: " << depth.type() << endl;
+				return;
+			}
 
 			// Run detection pipeline
 			this->uv_detector.readdata(depth);
