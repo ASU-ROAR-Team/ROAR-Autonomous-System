@@ -9,8 +9,9 @@ from can_msgs.msg import Frame
 from sensor_msgs.msg import Imu, NavSatFix
 from std_msgs.msg import String
 from roar_msgs.msg import EncoderStamped
-from roscan import ImuParser, GpsParser, EncoderParser, TestParser
+from roscan import ImuParser, GpsParser, EncoderParser, TestParser, KeyboardControlParser
 import rospy
+from geometry_msgs.msg import Twist
 
 
 class RosCanBridge:
@@ -43,6 +44,8 @@ class RosCanBridge:
         self.gpsPub = rospy.Publisher("gpsData", NavSatFix, queue_size=10)
         self.encoderPub = rospy.Publisher("encoderData", EncoderStamped, queue_size=10)
         self.testPub = rospy.Publisher("testCanData", String, queue_size=10)
+
+        self.can_Pub = rospy.Publisher("/sent_messages", Frame, queue_size=10)
         # Initialize CAN frame parsers
         self.parsers = {
             0x001: EncoderParser(),
@@ -53,7 +56,8 @@ class RosCanBridge:
         }
 
         # Subscribe to CAN frames from socketcan_bridge
-        self.canSub = rospy.Subscriber("receivedMessages", Frame, self.canFrameCallback)
+        self.canSub = rospy.Subscriber("/recieved_messages", Frame, self.canFrameCallback)
+        self.keyboardControlSub = rospy.Subscriber("/cmd_vel", Twist, self.keyboardControlCallback)
 
     def canFrameCallback(self, msg: Frame) -> None:
         """Callback for processing CAN frames
@@ -117,6 +121,25 @@ class RosCanBridge:
             testMsg = String()
             testMsg.data = str(data)
             self.testPub.publish(testMsg)
+
+    def keyboardControlCallback(self, msg: Twist) -> None:
+        """Callback for processing keyboard control messages.
+
+        Parameters
+        ----------
+        msg : Twist
+            ROS keyboard twist teleop command message.
+
+        Returns
+        -------
+        None
+        """
+        parser = KeyboardControlParser()
+        canFrame = parser.parse(msg)
+        if canFrame:
+            self.can_Pub.publish(canFrame)
+        else:
+            rospy.logerr("Failed to parse keyboard control message into CAN frame.")
 
 
 if __name__ == "__main__":
