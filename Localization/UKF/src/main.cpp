@@ -7,6 +7,8 @@
 #include <vector>
 #include "roar_msgs/Landmark.h"
 #include "roar_msgs/LandmarkArray.h"
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
 
 using namespace std;
 
@@ -27,7 +29,9 @@ bool new_measurement_received = false; // Flag for new measurement
 bool initial_measurement = true; // Flag for initial measurement
 double lat0 = 0.0; // Initial latitude
 double lon0 = 0.0; // Initial longitude
-double yaw = 0.0; 
+double yaw = 0.0;
+double pitch = 0.0; 
+double roll = 0.0;
 vector<roar_msgs::Landmark> ROVlandmarks;
 
 // Initialize Sigma Points and UKF
@@ -108,9 +112,14 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
     std_msgs::Float64MultiArray state_msg;
 
-    yaw = msg->orientation.z;
-    yaw = yaw * PI / 180.0;
-    ukf.bno_callback(yaw);
+    tf::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf::Matrix3x3 m(quat);
+    m.getRPY(roll, pitch, yaw);
+    // (yaw = msg->orientation.z;)
+    // yaw = yaw * PI / 180.0;
+    // pitch = msg->orientation.y; //????????????
+    // pitch = pitch * PI / 180.0;  //???????????
+    ukf.bno_callback(roll, pitch, yaw);
 
     // Publish state message
     state_msg.data = {ukf.x_post[0], ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[4], ukf.x_post[5], ukf.x_post[6], ukf.x_post[7], ukf.x_post[8]};

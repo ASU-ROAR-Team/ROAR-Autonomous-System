@@ -740,9 +740,9 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     P_post.row(8) = P.row(8);
 }
 
-void UKF::bno_callback(double yaw)
+void UKF::bno_callback(double roll, double pitch ,double yaw)
 {
-    Quaternion q(0,0,yaw);
+    Quaternion q(roll, pitch, yaw);
     x_post(0) = q.s;
     x_post(1) = q.v_1;
     x_post(2) = q.v_2;
@@ -772,7 +772,8 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
         Z_sigma.col(i) << Z_sigma.col(i)(0), Z_sigma.col(i)(1), Z_sigma.col(i)(2), Z_sigma.col(i)(3), Z_sigma.col(i)(4), Z_sigma.col(i)(5), Z_sigma.col(i)(6),
                         Z_sigma.col(i)(7), Z_sigma.col(i)(8), Z_sigma.col(i)(9), Z_sigma.col(i)(10),
                         X_sigma.col(i)(7),
-                        X_sigma.col(i)(8);
+                        X_sigma.col(i)(8),
+                        Z_sigma.col(i)(13);
     }
     
     std::tie(z, S) = unscented_transform(Z_sigma, sigma_points.Wm, sigma_points.Wc, R);

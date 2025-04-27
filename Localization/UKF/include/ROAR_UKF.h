@@ -150,7 +150,7 @@ public:
 	void encoder_callback(Eigen::VectorXd w, double dt, double yaw);
 	void imu_callback(Eigen::VectorXd z_measurement, double dt);
 	void gps_callback(Eigen::VectorXd z_measurement, double lon0, double lat0);
-	void bno_callback(double yaw);
+	void bno_callback(double roll, double pitch, double yaw);
 	void LL_Callback( Eigen::VectorXd z_measurement);
 
 };
