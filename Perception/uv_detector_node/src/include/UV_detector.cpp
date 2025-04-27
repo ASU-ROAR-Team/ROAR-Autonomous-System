@@ -6,6 +6,8 @@
  * using depth data and Kalman filtering for state estimation.
  */
 
+/*I am trying to use the zed2i camera instead of the intel realsense one, but their default height x width px are different, is this code specific to a certain height x width or a certain aspect ratio, if so show me where */
+
 // Tracking Parameters
 #define OVERLAP_THRESHOLD 0.51    // Minimum overlap ratio between consecutive frames to consider objects as the same (higher = stricter tracking)
 #define TRACKING_FREQUENCY 30     // Hz - Update rate of the Kalman filter (higher = smoother but more computation)
