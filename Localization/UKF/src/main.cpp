@@ -24,7 +24,8 @@ const float kappa = 0.1;
 ros::Time encoder_prev_time_stamp; // Timestamp for encoder
 ros::Time imu_prev_time_stamp; // Timestamp for IMU
 ros::Time gps_prev_time_stamp; // Timestamp for GPS
-double dt = 0.0; // Time step
+double dt_encoder = 0.0; // encoder time step
+double dt_imu = 0.0; //IMU time step
 bool new_measurement_received = false; // Flag for new measurement
 bool initial_measurement = true; // Flag for initial measurement
 double lat0 = 0.0; // Initial latitude
@@ -63,12 +64,12 @@ void encoderCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
 
     // Calculate time difference
     ros::Time encoder_current_time_stamp = msg->header.stamp;
-    dt = (encoder_current_time_stamp - encoder_prev_time_stamp).toSec();
+    dt_encoder = (encoder_current_time_stamp - encoder_prev_time_stamp).toSec();
     // Store encoder measurements
     encoder_measurement[0] = (msg->vector.x)* 0.1047;
     encoder_measurement[1] = (msg->vector.y)* 0.1047;
     // Call UKF encoder callback function
-    ukf.encoder_callback(encoder_measurement, dt,yaw);
+    ukf.encoder_callback(encoder_measurement, dt_encoder,yaw);
     // Update encoder_prev_time_stamp
     encoder_prev_time_stamp = encoder_current_time_stamp;
     
@@ -104,8 +105,29 @@ void gpsCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
 // Callback function for IMU data
 void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
-    yaw = msg->orientation.z;
-    yaw = yaw * PI / 180.0;
+    // yaw = msg->orientation.z;
+    // yaw = yaw * PI / 180.0;
+    if (imu_prev_time_stamp.isZero()) 
+    {
+        imu_prev_time_stamp = msg->header.stamp; // Initialize encoder_prev_time_stamp
+        return;
+    }
+
+    // Calculate time difference
+    ros::Time imu_current_time_stamp = msg->header.stamp;
+    dt_imu = (imu_current_time_stamp - imu_prev_time_stamp).toSec();
+    std_msgs::Float64MultiArray state_msg;
+
+    tf::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf::Matrix3x3 m(quat);
+    m.getRPY(roll, pitch, yaw);
+
+    ukf.imu_callback(z_measurement, dt_imu);
+    imu_prev_time_stamp = imu_current_time_stamp;
+
+    // Publish state message
+    state_msg.data = {ukf.x_post[0], ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[4], ukf.x_post[5], ukf.x_post[6], ukf.x_post[7], ukf.x_post[8]};
+    state_publisher.publish(state_msg);
 }
 
 void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
