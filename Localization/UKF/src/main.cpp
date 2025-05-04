@@ -118,8 +118,8 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     dt_imu = (imu_current_time_stamp - imu_prev_time_stamp).toSec();
     std_msgs::Float64MultiArray state_msg;
 
-    tf::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
-    tf::Matrix3x3 m(quat);
+    tf2::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
 
     ukf.imu_callback(z_measurement, dt_imu);
@@ -134,8 +134,8 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
     std_msgs::Float64MultiArray state_msg;
 
-    tf::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
-    tf::Matrix3x3 m(quat);
+    tf2::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
     // (yaw = msg->orientation.z;)
     // yaw = yaw * PI / 180.0;
