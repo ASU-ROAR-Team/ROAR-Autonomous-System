@@ -6,27 +6,12 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   pcl_ros
   pcl_conversions
-  geometry_msgs
-  std_msgs
-  message_generation
 )
 
 find_package(PCL REQUIRED)
 
-add_message_files(
-  FILES
-  ClusterInfo.msg
-  ClusterInfoArray.msg
-)
-
-generate_messages(
-  DEPENDENCIES
-  geometry_msgs
-  std_msgs
-)
-
 catkin_package(
-  CATKIN_DEPENDS roscpp sensor_msgs pcl_ros pcl_conversions geometry_msgs std_msgs message_runtime
+  CATKIN_DEPENDS roscpp sensor_msgs pcl_ros pcl_conversions
 )
 
 include_directories(
