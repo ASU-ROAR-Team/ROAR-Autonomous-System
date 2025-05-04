@@ -11,6 +11,10 @@
 #include <pcl/filters/extract_indices.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/filters/uniform_sampling.h>
+#include <pcl/common/centroid.h>
+#include <pcl/common/geometry.h>
+#include <zed_obstacle_detector/Obstacle.h>
+#include <zed_obstacle_detector/ObstacleArray.h>
 #include <chrono>
 
 // Default parameters
@@ -33,6 +37,7 @@ ros::Publisher pub_filtered;
 ros::Publisher pub_no_ground;
 ros::Publisher pub_clusters;
 ros::Publisher pub_closest_point;
+ros::Publisher pub_obstacle_array;
 
 void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 {
@@ -242,6 +247,50 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     output_closest.header = input->header;
     pub_closest_point.publish(output_closest);
 
+    // After clustering, create ObstacleArray message
+    zed_obstacle_detector::ObstacleArray obstacle_array;
+    obstacle_array.header = input->header;
+    obstacle_array.obstacles.resize(cluster_indices.size());
+
+    for (size_t i = 0; i < cluster_indices.size(); ++i)
+    {
+        // Calculate cluster centroid and radius
+        pcl::PointCloud<pcl::PointXYZ> cluster_cloud;
+        for (const auto& idx : cluster_indices[i].indices)
+        {
+            cluster_cloud.push_back(cloud_no_ground->points[idx]);
+        }
+
+        // Calculate centroid
+        Eigen::Vector4f centroid;
+        pcl::compute3DCentroid(cluster_cloud, centroid);
+
+        // Calculate radius (maximum distance from centroid to any point)
+        float max_radius = 0.0f;
+        for (const auto& point : cluster_cloud)
+        {
+            float dist = pcl::geometry::distance(point, pcl::PointXYZ(centroid[0], centroid[1], centroid[2]));
+            if (dist > max_radius)
+            {
+                max_radius = dist;
+            }
+        }
+
+        // Create obstacle message
+        zed_obstacle_detector::Obstacle& obstacle = obstacle_array.obstacles[i];
+        obstacle.header = input->header;
+        obstacle.position.header = input->header;
+        obstacle.position.pose.position.x = centroid[0];
+        obstacle.position.pose.position.y = centroid[1];
+        obstacle.position.pose.position.z = centroid[2];
+        obstacle.position.pose.orientation.w = 1.0;  // No rotation
+        obstacle.radius.data = max_radius;
+        obstacle.id.data = i;
+    }
+
+    // Publish obstacle array
+    pub_obstacle_array.publish(obstacle_array);
+
     auto end_total = std::chrono::high_resolution_clock::now();
     auto total_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_total - start_total);
     ROS_INFO("Total processing time: %ld ms", total_time.count());
@@ -270,6 +319,14 @@ int main(int argc, char** argv)
     pub_no_ground = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/pc_no_ground", 1);
     pub_clusters = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/total_clusters", 1);
     pub_closest_point = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/cluster_closest_point", 1);
+    pub_obstacle_array = nh.advertise<zed_obstacle_detector::ObstacleArray>("/zed_obstacle/obstacle_array", 1);
+
+    // Create a timer for publishing obstacles
+    ros::Timer timer = nh.createTimer(ros::Duration(0.1), [](ros::TimerEvent&){
+        // Create a new obstacle message
+        zed_obstacle_detector::Obstacle obstacle;
+        
+    });
 
     ROS_INFO("ZED Obstacle Detector initialized for camera: %s", camera_name.c_str());
     ros::spin();
