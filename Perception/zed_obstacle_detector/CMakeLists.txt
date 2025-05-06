@@ -6,12 +6,13 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   pcl_ros
   pcl_conversions
+  roar_msgs
 )
 
 find_package(PCL REQUIRED)
 
 catkin_package(
-  CATKIN_DEPENDS roscpp sensor_msgs pcl_ros pcl_conversions
+  CATKIN_DEPENDS roscpp sensor_msgs roar_msgs pcl_ros pcl_conversions
 )
 
 include_directories(
