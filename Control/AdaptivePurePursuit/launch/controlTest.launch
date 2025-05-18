@@ -1,6 +1,6 @@
 <launch>
 <include file="$(find roar_simulation)/launch/mars_yard_24.launch" />
-<rosparam command="load" file="$(find AdaptivePurePursuit)/config/params.yaml" />
-<node name="controller" pkg="AdaptivePurePursuit" type="AdaptiveLd.py" output="screen" />
-<node name="path" pkg="AdaptivePurePursuit" type="pathTest.py" />
+<rosparam command="load" file="$(find adaptive_pure_pursuit)/config/params.yaml" />
+<node name="controller" pkg="adaptive_pure_pursuit" type="AdaptiveLd.py" output="screen" />
+<node name="path" pkg="adaptive_pure_pursuit" type="pathTest.py" />
 </launch>

@@ -1,0 +1,13 @@
+costmap_parameters:
+  resolution: 0.1  # meters per pixel
+  margin: 2.0  # meters of margin around the path
+  path_width: 0.5  # meters wide path
+  gradient_width: 1.0  # meters gradient
+  max_cost: 255  # maximum cost value
+  min_cost: 0  # minimum cost value
+  gradient_cost: 50  # maximum gradient cost
+
+input_output:
+  input_path: "straight_line_path.csv"
+  output_costmap: "path_costmap.csv"
+  output_params: "costmap_params.txt" 

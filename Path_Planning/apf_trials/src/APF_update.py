@@ -11,7 +11,7 @@ from nav_msgs.msg import Path
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from sympy import symbols, sqrt, cos, sin, atan2, Expr
 import matplotlib.pyplot as plt
-from roar_msgs.msg import Obstacle
+from roar_msgs.msg import Obstacle, ObstacleArray
 from matplotlib.patches import Circle
 from gazebo_msgs.msg import ModelStates
 import pandas as pd
@@ -23,37 +23,37 @@ class APFPlanner:
 
     def __init__(self) -> None:
         """Initializes the instances in the APF code"""
-        rospy.init_node("apfPathPlanner", anonymous=True)
+        rospy.init_node("apfPathPlanner")
 
         # ROS components
         self.rosComponents: Dict[str, Any] = {
             "pathPub": rospy.Publisher("/Path", Path, queue_size=10),
             "modelSub": rospy.Subscriber("/gazebo/model_states", ModelStates, self.modelCallback),
             "obstacleSub": rospy.Subscriber(
-                rospy.get_param("~obstacleTopic", "obstacle_topic"), Obstacle, self.obstacleCallback
+                rospy.get_param("~obstacleTopic", "obstacle_topic"), ObstacleArray, self.obstacleCallback
             ),
             "rate": rospy.Rate(10),
         }
 
         # Configuration parameters
         self.config: Dict[str, Any] = {
-            "checkpoints": [(7.58, 10.874), (0.211, 9.454), (0.83, 19.867), (6.71, 19.515)],
+            "checkpoints": rospy.get_param("/Paths/checkpoints"),
             "goalPoints": self.loadWaypoints(
-                rospy.get_param("~pathFile", "~/Downloads/real_path.csv")
+                rospy.get_param("/Paths/pathFile", "/home/dopebiscuit/roar/roar_ws/src/heightmap_costmap/Results/straight_line_path.csv")
             ),
             "costmap": pd.read_csv(
-                rospy.get_param("~costmapFile", "~/Downloads/total_cost.csv"), header=None
+                rospy.get_param("/Paths/costmapFile", "/home/dopebiscuit/roar/roar_ws/src/heightmap_costmap/Results/path_costmap.csv"), header=None
             ).values,
             "apfParams": [
-                rospy.get_param("~KATT"),
-                rospy.get_param("~KREP"),
-                rospy.get_param("~QSTAR"),
-                rospy.get_param("~M"),
-                rospy.get_param("~LOOKAHEADDIST"),
-                rospy.get_param("~KGRADIENT"),
-                rospy.get_param("~KENHANCED"),
-                rospy.get_param("~TAU"),
-                rospy.get_param("~CHECKPOINTDIST"),
+                rospy.get_param("~KATT",4),
+                rospy.get_param("~KREP",100),
+                rospy.get_param("~QSTAR",0.5),
+                rospy.get_param("~M",1),
+                rospy.get_param("~LOOKAHEADDIST",2),
+                rospy.get_param("~KGRADIENT",0.1),
+                rospy.get_param("~KENHANCED",60),
+                rospy.get_param("~TAU",0.1),
+                rospy.get_param("~CHECKPOINTDIST",1.8),
             ],
         }
 
@@ -71,7 +71,7 @@ class APFPlanner:
         self.apfForces: Dict[str, Expr] = self.initAPFForces()
 
         # Obstacle handling
-        self.obstacleData: Dict[str, Any] = {"obstacles": {}, "lock": threading.Lock()}
+        self.obstacleData: Dict[str, Any] = {"obstacles": [], "lock": threading.Lock()}
 
         # Visualization system
         self.vizComponents: Dict[str, Any] = self.initVisualization()
@@ -131,124 +131,188 @@ class APFPlanner:
 
     def modelCallback(self, msg: ModelStates) -> None:
         """Handle robot state updates"""
-        pose = msg.pose[1]
-        self.robotState["position"] = [
-            pose.position.x,
-            pose.position.y,
-            pose.position.z,
-            *euler_from_quaternion(
-                [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
-            ),
-        ]
-        self.robotState["isActive"] = True
-
-    def obstacleCallback(self, msg: Obstacle) -> None:
-        """Update obstacle information"""
-        with self.obstacleData["lock"]:
-            self.obstacleData["obstacles"][msg.id.data] = [
-                msg.position.pose.position.x,
-                msg.position.pose.position.y,
-                msg.radius.data,
-                self.config["apfParams"][2] + msg.radius.data,
+        if len(msg.pose) > 1:
+            pose = msg.pose[1]
+            self.robotState["position"] = [
+                pose.position.x,
+                pose.position.y,
+                pose.position.z,
+                *euler_from_quaternion(
+                    [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
+                ),
             ]
+            self.robotState["isActive"] = True
+        else:
+             rospy.logwarn("Robot model not found in ModelStates message.")
+             self.robotState["isActive"] = False
+
+    def obstacleCallback(self, msg: ObstacleArray) -> None:
+        """Update obstacle information from an ObstacleArray message."""
+        with self.obstacleData["lock"]:
+            currentObstacles = []
+            for obstacle in msg.obstacles:
+                obstacleX = obstacle.position.pose.position.x
+                obstacleY = obstacle.position.pose.position.y
+                obsRadius = obstacle.radius.data
+                currentObstacles.append([obstacleX, obstacleY, obsRadius])
+            self.obstacleData["obstacles"] = currentObstacles
 
     def loadWaypoints(self, filePath: str) -> List[Tuple[float, float]]:
         """Load waypoints with explicit float conversion"""
-        dataFrame = pd.read_csv(filePath)
-        return [(float(row["real_x"]), float(row["real_y"])) for _, row in dataFrame.iterrows()]
+        try:
+            dataFrame = pd.read_csv(filePath)
+            if "real_x" not in dataFrame.columns or "real_y" not in dataFrame.columns:
+                rospy.logerr(f"Waypoint file {filePath} must contain 'real_x' and 'real_y' columns.")
+                return []
+            return [tuple(row) for row in dataFrame.values]
+
+        except FileNotFoundError:
+            rospy.logerr(f"Waypoint file not found: {filePath}")
+            return []
+        except Exception as e:
+            rospy.logerr(f"Error loading waypoints from {filePath}: {e}")
+            return []
 
     def realToPixel(self, x: float, y: float) -> Tuple[int, int]:
         """Convert real-world coordinates to pixel indices"""
-        return int(208 + 20.2 * x), int(761 - 20.2 * y)
+        # pixel_x = int(208 + 20.2 * x)
+        # pixel_y = int(761 - 20.2 * y)
+        costmap_shape = self.config["costmap"].shape
+        
+        # Define workspace bounds (matching visualization limits)
+        x_min, x_max = -2, 13
+        y_min, y_max = 7, 22
+        
+        # Calculate scaling factors
+        x_scale = costmap_shape[1] / (x_max - x_min)
+        y_scale = costmap_shape[0] / (y_max - y_min)
+        
+        # Convert to pixel coordinates
+        pixel_x = int((x - x_min) * x_scale)
+        pixel_y = int((y_max - y) * y_scale)  # Flip y-axis since pixel coordinates are top-down
+        
+        return pixel_x, pixel_y
 
     def calculateGradientForce(self, position: List[float]) -> Tuple[float, float]:
         """Calculate costmap gradient forces"""
         xPixel, yPixel = self.realToPixel(position[0], position[1])
         xGradient, yGradient = 0.0, 0.0
-        radius = int(0.5 * 20.2)
+        sampling_radius_pixels = int(0.5 * 20.2)
 
-        for xDirection, yDirection in [(radius, 0), (-radius, 0), (0, radius), (0, -radius)]:
-            xPixelNew, yPixelNew = xPixel + xDirection, yPixel - yDirection
-            if (
-                0 <= xPixelNew < self.config["costmap"].shape[1]
-                and 0 <= yPixelNew < self.config["costmap"].shape[0]
-            ):
-                costDiff = (
-                    self.config["costmap"][yPixelNew][xPixelNew]
-                    - self.config["costmap"][yPixel][xPixel]
-                )
-                xGradient -= self.config["apfParams"][5] * costDiff * (1 if xDirection > 0 else -1)
-                yGradient -= self.config["apfParams"][5] * costDiff * (1 if yDirection > 0 else -1)
+        costmap_shape = self.config["costmap"].shape
+        costmap = self.config["costmap"]
+        k_gradient = self.config["apfParams"][5]
+
+        if not (0 <= yPixel < costmap_shape[0] and 0 <= xPixel < costmap_shape[1]):
+            rospy.logwarn("Robot position outside costmap bounds, gradient force is zero.")
+            return (0.0, 0.0)
+
+        current_cost = costmap[yPixel][xPixel]
+
+        directions = [(sampling_radius_pixels, 0), (-sampling_radius_pixels, 0), (0, sampling_radius_pixels), (0, -sampling_radius_pixels)]
+
+        for dx_pixel, dy_pixel in directions:
+            xPixelNew = xPixel + dx_pixel
+            yPixelNew = yPixel + dy_pixel
+
+            if 0 <= yPixelNew < costmap_shape[0] and 0 <= xPixelNew < costmap_shape[1]:
+                new_cost = costmap[yPixelNew][xPixelNew]
+                costDiff = new_cost - current_cost
+
+                if dx_pixel != 0:
+                    xGradient -= k_gradient * costDiff * (1 if dx_pixel < 0 else -1)
+                if dy_pixel != 0:
+                     yGradient -= k_gradient * costDiff * (1 if dy_pixel > 0 else -1)
+
         return (xGradient, yGradient)
 
     def calculateEnhancedAttraction(self, position: List[float]) -> Tuple[float, float]:
         """Calculate enhanced checkpoint attraction"""
         xEnhanced, yEnhanced = 0.0, 0.0
         if self.config["checkpoints"]:
-            xDirection = position[0] - self.config["checkpoints"][0][0]
-            yDirection = position[1] - self.config["checkpoints"][0][1]
-            distance = sqrt(xDirection**2 + yDirection**2)
+            checkpoint = self.config["checkpoints"][0]
+            xDirection = position[0] - checkpoint[0]
+            yDirection = position[1] - checkpoint[1]
+            distance = math.sqrt(xDirection**2 + yDirection**2)
 
-            if distance <= self.config["apfParams"][8]:
-                angle = atan2(-yDirection, -xDirection)
-                gain = self.config["apfParams"][6] * self.config["apfParams"][0] * distance
-                xEnhanced = gain * cos(angle)
-                yEnhanced = gain * sin(angle)
+            checkpoint_dist_threshold = self.config["apfParams"][8]
+            k_enhanced = self.config["apfParams"][6]
+            k_att = self.config["apfParams"][0]
+
+            if distance <= checkpoint_dist_threshold:
+                angle = math.atan2(checkpoint[1] - position[1], checkpoint[0] - position[0])
+                gain = k_enhanced * k_att * (checkpoint_dist_threshold - distance)
+                xEnhanced = gain * math.cos(angle)
+                yEnhanced = gain * math.sin(angle)
         return (xEnhanced, yEnhanced)
 
     def updateCheckpoints(self, position: List[float]) -> None:
         """Remove reached checkpoints"""
         if self.config["checkpoints"]:
-            distance = sqrt(
+            distance = math.sqrt(
                 (position[0] - self.config["checkpoints"][0][0]) ** 2
                 + (position[1] - self.config["checkpoints"][0][1]) ** 2
             )
-            if distance <= 0.3:
+            if distance <= 0.5:
                 rospy.loginfo(f"Reached checkpoint: {self.config['checkpoints'][0]}")
                 self.config["checkpoints"].pop(0)
+                if not self.config["checkpoints"]:
+                    rospy.loginfo("All checkpoints reached.")
 
     def calculateDynamicGoal(self, position: List[float]) -> Tuple[float, float]:
-        """Determine current navigation target"""
+        """Determine current navigation target (lookahead point)"""
         if not self.robotState["awayFromStart"]:
             startPoint = self.config["goalPoints"][-1]
-            distance = math.sqrt(
+            distance_from_start = math.sqrt(
                 (position[0] - startPoint[0]) ** 2 + (position[1] - startPoint[1]) ** 2
             )
-            if distance >= 1.0:
+            if distance_from_start >= 1.0:
                 self.robotState["awayFromStart"] = True
-                rospy.loginfo("Robot 1m from start, using full path")
+                rospy.loginfo("Robot is 1m from start, using the full path.")
 
         candidates = (
             self.config["goalPoints"]
             if self.robotState["awayFromStart"]
-            else self.config["goalPoints"][:-30]
+            else self.config["goalPoints"][:max(1, len(self.config["goalPoints"]) - 30)]
         )
 
-        # Explicit type conversion for final goal
-        finalGoal: Tuple[float, float] = (float(candidates[-1][0]), float(candidates[-1][1]))
+        if not candidates:
+            rospy.logwarn("No candidate goal points available.")
+            return (position[0], position[1])
 
-        # Check proximity to final goal
-        if math.sqrt((position[0] - finalGoal[0]) ** 2 + (position[1] - finalGoal[1]) ** 2) < 0.5:
-            return finalGoal
+        full_final_goal = self.config["goalPoints"][-1]
+        distance_to_full_final_goal = math.sqrt((position[0] - full_final_goal[0]) ** 2 + (position[1] - full_final_goal[1]) ** 2)
+        if distance_to_full_final_goal < 0.5:
+             rospy.loginfo("Close to the final global goal.")
+             self.robotState["goalReached"] = True
+             return full_final_goal
 
-        self.robotState["currentIndex"] = min(
-            range(len(candidates)),
-            key=lambda i: math.sqrt(
-                (candidates[i][0] - position[0]) ** 2 + (candidates[i][1] - position[1]) ** 2
-            ),
-        )
+
+        start_search_index = max(0, self.robotState["currentIndex"] - 5)
+        closest_index = start_search_index
+        min_distance = float('inf')
+
+        for i in range(start_search_index, len(candidates)):
+            point = candidates[i]
+            distance = math.sqrt((point[0] - position[0])**2 + (point[1] - position[1])**2)
+            if distance < min_distance:
+                min_distance = distance
+                closest_index = i
+
+        self.robotState["currentIndex"] = closest_index
+
+        lookahead_dist = self.config["apfParams"][4]
 
         for idx in range(self.robotState["currentIndex"], len(candidates)):
             point = candidates[idx]
-            # Explicit type conversion for intermediate points
             typedPoint: Tuple[float, float] = (float(point[0]), float(point[1]))
-            distance = math.sqrt(
+            distance_from_robot = math.sqrt(
                 (typedPoint[0] - position[0]) ** 2 + (typedPoint[1] - position[1]) ** 2
             )
-            if distance >= self.config["apfParams"][4]:
+            if distance_from_robot >= lookahead_dist:
                 return typedPoint
 
-        return finalGoal
+        return (float(candidates[-1][0]), float(candidates[-1][1]))
 
     def calculateForces(
         self, position: List[float], goal: Tuple[float, float]
@@ -269,20 +333,40 @@ class APFPlanner:
 
         fxRep, fyRep = 0.0, 0.0
         with self.obstacleData["lock"]:
-            for obst in self.obstacleData["obstacles"].values():
-                subs.update({symbol[4]: obst[0], symbol[5]: obst[1], symbol[6]: obst[3]})
-                if sqrt((position[0] - obst[0]) ** 2 + (position[1] - obst[1]) ** 2) < obst[3]:
-                    fxRep += float(self.apfForces["repX"].subs(subs).evalf())
-                    fyRep += float(self.apfForces["repY"].subs(subs).evalf())
+            for obst in self.obstacleData["obstacles"]:
+                obstX = obst[0]
+                obstY = obst[1]
+                obstRadius = obst[2]
+                rangeEff = self.config["apfParams"][2] + obstRadius
+
+                distanceToObs = math.sqrt((position[0] - obstX) ** 2 + (position[1] - obstY) ** 2)
+
+                if 0 < distanceToObs < rangeEff:
+                    obstacleSubs = {
+                        symbol[4]: obstX,
+                        symbol[5]: obstY,
+                        symbol[6]: rangeEff
+                    }
+                    full_subs = {**subs, **obstacleSubs}
+
+                    fxRep += float(self.apfForces["repX"].subs(full_subs).evalf())
+                    fyRep += float(self.apfForces["repY"].subs(full_subs).evalf())
 
         fxGrad, fyGrad = self.calculateGradientForce(position)
 
-        return (fxAtt + fxEnhanced + fxRep + fxGrad, fyAtt + fyEnhanced + fyRep + fyGrad)
+        total_fx = fxAtt + fxEnhanced + fxRep + fxGrad
+        total_fy = fyAtt + fyEnhanced + fyRep + fyGrad
+
+        return (total_fx, total_fy)
 
     def updateVisualization(
         self, trajectory: List[Tuple[float, float]], lookaheadPoint: Tuple[float, float]
     ) -> None:
         """Update real-time visualization"""
+        if not hasattr(self.vizComponents["axes"], 'lines'):
+             rospy.logwarn("Visualization axes not properly initialized.")
+             return
+
         axes = self.vizComponents["axes"]
         axes.clear()
 
@@ -293,7 +377,8 @@ class APFPlanner:
             extent=self.vizComponents["limits"],
         )
 
-        axes.plot(*zip(*self.config["goalPoints"]), "y-", linewidth=2, label="Global Path")
+        if self.config["goalPoints"]:
+            axes.plot(*zip(*self.config["goalPoints"]), "y-", linewidth=2, label="Global Path")
 
         axes.plot(
             self.robotState["position"][0],
@@ -303,7 +388,8 @@ class APFPlanner:
             label="Robot",
         )
 
-        axes.plot(*zip(*trajectory), "r--", linewidth=2, label="Planned Path")
+        if trajectory:
+             axes.plot(*zip(*trajectory), "r--", linewidth=2, label="Planned Path")
 
         axes.scatter(
             lookaheadPoint[0],
@@ -320,21 +406,30 @@ class APFPlanner:
             )
 
         with self.obstacleData["lock"]:
-            for obst in self.obstacleData["obstacles"].values():
-                axes.add_patch(Circle((obst[0], obst[1]), obst[2], color="red", alpha=0.5))
+            for obst in self.obstacleData["obstacles"]:
+                 obstacllesX = obst[0]
+                 obstaclesY = obst[1]
+                 obstcalesRadius = obst[2]
+                 axes.add_patch(Circle((obstacllesX, obstaclesY), obstcalesRadius, color="red", alpha=0.5))
 
-        axes.plot(
-            self.config["goalPoints"][-1][0],
-            self.config["goalPoints"][-1][1],
-            "go",
-            markersize=10,
-            label="Final Goal",
-        )
+        if self.config["goalPoints"]:
+             final_goal = self.config["goalPoints"][-1]
+             axes.plot(
+                final_goal[0],
+                final_goal[1],
+                "go",
+                markersize=10,
+                label="Final Goal",
+             )
 
         axes.legend(loc="upper left")
         axes.set_xlabel("X Position (m)")
         axes.set_ylabel("Y Position (m)")
         axes.set_title("APF Path Planning Visualization")
+        axes.set_xlim(self.vizComponents["limits"][0], self.vizComponents["limits"][1])
+        axes.set_ylim(self.vizComponents["limits"][2], self.vizComponents["limits"][3])
+        plt.grid(True)
+        plt.draw()
         plt.pause(0.001)
 
     def publishPath(self, trajectory: List[Tuple[float, float]]) -> None:
@@ -343,11 +438,32 @@ class APFPlanner:
         pathMsg.header.stamp = rospy.Time.now()
         pathMsg.header.frame_id = "map"
 
+        if not trajectory:
+             rospy.logwarn("No trajectory planned to publish.")
+             return
+
         for point in trajectory:
             pose = PoseStamped()
+            pose.header = pathMsg.header
             pose.pose.position.x = point[0]
             pose.pose.position.y = point[1]
-            orientation = quaternion_from_euler(0, 0, atan2(point[1], point[0]))
+
+            angle = 0.0
+            if len(trajectory) > 1:
+                 current_index = trajectory.index(point)
+                 if current_index < len(trajectory) - 1:
+                      next_point = trajectory[current_index + 1]
+                      angle = math.atan2(next_point[1] - point[1], next_point[0] - point[0])
+                 elif current_index > 0:
+                       prev_point = trajectory[current_index - 1]
+                       angle = math.atan2(point[1] - prev_point[1], point[0] - prev_point[0])
+                 else:
+                       angle = self.robotState["position"][5]
+
+            else:
+                 angle = self.robotState["position"][5]
+
+            orientation = quaternion_from_euler(0, 0, angle)
             pose.pose.orientation.x = orientation[0]
             pose.pose.orientation.y = orientation[1]
             pose.pose.orientation.z = orientation[2]
@@ -358,22 +474,28 @@ class APFPlanner:
 
     def run(self) -> None:
         """Main planning loop"""
-        while not rospy.is_shutdown() and not self.robotState["goalReached"]:
+        rospy.loginfo("APF Path Planner started.")
+        while not rospy.is_shutdown():
             if not self.robotState["isActive"]:
+                rospy.logdebug("Robot state not active, waiting for data...")
+                self.rosComponents["rate"].sleep()
                 continue
 
             currentPos = self.robotState["position"][:2]
+
+            finalGoal = self.config["goalPoints"][-1] if self.config["goalPoints"] else None
+            if finalGoal and math.sqrt((currentPos[0] - finalGoal[0]) ** 2 + (currentPos[1] - finalGoal[1]) ** 2) <= 0.5:
+                 self.robotState["goalReached"] = True
+                 rospy.loginfo("Final goal reached!")
+                 break
+
             self.updateCheckpoints(currentPos)
 
-            finalGoal = self.config["goalPoints"][-1]
-            if (
-                self.robotState["awayFromStart"]
-                and sqrt((currentPos[0] - finalGoal[0]) ** 2 + (currentPos[1] - finalGoal[1]) ** 2)
-                <= 0.2
-            ):
-                self.robotState["goalReached"] = True
-                rospy.loginfo("Final goal reached!")
-                break
+            if not self.config["goalPoints"]:
+                 rospy.logwarn("No goal points loaded. Planner cannot operate.")
+                 self.rosComponents["rate"].sleep()
+                 continue
+
 
             lookaheadPoint = self.calculateDynamicGoal(currentPos)
 
@@ -381,16 +503,21 @@ class APFPlanner:
             posCopy = list(currentPos)
             for _ in range(20):
                 forces = self.calculateForces(posCopy, lookaheadPoint)
-                theta = atan2(forces[1], forces[0])
-                posCopy = [
-                    posCopy[0] + cos(theta) * self.config["apfParams"][7],
-                    posCopy[1] + sin(theta) * self.config["apfParams"][7],
-                ]
-                trajectory.append((posCopy[0], posCopy[1]))
+                force_magnitude = math.sqrt(forces[0]**2 + forces[1]**2)
+                if force_magnitude > 1e-6:
+                    theta = math.atan2(forces[1], forces[0])
+                    step_distance = self.config["apfParams"][7]
+                    posCopy[0] += math.cos(theta) * step_distance
+                    posCopy[1] += math.sin(theta) * step_distance
+                    trajectory.append((posCopy[0], posCopy[1]))
+                else:
+                     trajectory.append((posCopy[0], posCopy[1]))
 
             self.updateVisualization(trajectory, lookaheadPoint)
             self.publishPath(trajectory)
             self.rosComponents["rate"].sleep()
+
+        rospy.loginfo("APF Path Planner shutting down.")
 
 
 if __name__ == "__main__":

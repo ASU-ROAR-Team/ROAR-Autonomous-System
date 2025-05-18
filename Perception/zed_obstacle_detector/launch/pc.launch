@@ -1,0 +1,4 @@
+<launch>
+	<node name="PC_Detector" pkg="zed_obstacle_detector" type="zed_obstacle_detector_node" output="screen">
+	</node>
+</launch>
