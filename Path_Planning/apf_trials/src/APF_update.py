@@ -132,7 +132,7 @@ class APFPlanner:
     def modelCallback(self, msg: ModelStates) -> None:
         """Handle robot state updates"""
         if len(msg.pose) > 1:
-            pose = msg.pose[1]
+            pose = msg.pose[2]
             self.robotState["position"] = [
                 pose.position.x,
                 pose.position.y,
@@ -202,7 +202,8 @@ class APFPlanner:
         costmap_shape = self.config["costmap"].shape
         costmap = self.config["costmap"]
         k_gradient = self.config["apfParams"][5]
-
+        print("xPixel, yPixel (calculateGradientForce): ", xPixel, yPixel)
+        print("costmap_shape (calculateGradientForce): ", costmap_shape)
         if not (0 <= yPixel < costmap_shape[0] and 0 <= xPixel < costmap_shape[1]):
             rospy.logwarn("Robot position outside costmap bounds, gradient force is zero.")
             return (0.0, 0.0)
@@ -329,8 +330,9 @@ class APFPlanner:
         fxAtt = float(self.apfForces["attX"].subs(subs).evalf())
         fyAtt = float(self.apfForces["attY"].subs(subs).evalf())
 
+        print("position (calculateForces): ", position)
         fxEnhanced, fyEnhanced = self.calculateEnhancedAttraction(position)
-
+        print("fxEnhanced, fyEnhanced (calculateForces): ", fxEnhanced, fyEnhanced)
         fxRep, fyRep = 0.0, 0.0
         with self.obstacleData["lock"]:
             for obst in self.obstacleData["obstacles"]:
@@ -353,7 +355,7 @@ class APFPlanner:
                     fyRep += float(self.apfForces["repY"].subs(full_subs).evalf())
 
         fxGrad, fyGrad = self.calculateGradientForce(position)
-
+        print("fxGrad, fyGrad (calculateForces): ", fxGrad, fyGrad)
         total_fx = fxAtt + fxEnhanced + fxRep + fxGrad
         total_fy = fyAtt + fyEnhanced + fyRep + fyGrad
 
@@ -501,6 +503,7 @@ class APFPlanner:
 
             trajectory: List[Tuple[float, float]] = []
             posCopy = list(currentPos)
+            print(posCopy)
             for _ in range(20):
                 forces = self.calculateForces(posCopy, lookaheadPoint)
                 force_magnitude = math.sqrt(forces[0]**2 + forces[1]**2)

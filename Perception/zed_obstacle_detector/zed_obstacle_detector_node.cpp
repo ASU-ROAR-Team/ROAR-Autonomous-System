@@ -63,7 +63,7 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     pcl::PassThrough<pcl::PointXYZ> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
-    pass.setFilterLimits(0.0, 2.0);
+    pass.setFilterLimits(0.0, 3.5);
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
     pass.filter(*cloud_filtered);
     auto end_passthrough = std::chrono::high_resolution_clock::now();
@@ -130,7 +130,7 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         seg.setModelType(pcl::SACMODEL_PLANE);
         seg.setMethodType(pcl::SAC_RANSAC);
         seg.setDistanceThreshold(0.05);
-        seg.setAxis(Eigen::Vector3f(0.0, 1.0, 0.0));
+        seg.setAxis(Eigen::Vector3f(0.0, 0.0, 1.0));
         seg.setEpsAngle(deg2rad(10.0));
         seg.setMaxIterations(1000);
 
@@ -314,7 +314,8 @@ int main(int argc, char** argv)
     private_nh.param<bool>("enable_ground_filtering", enable_ground_filtering, false);
     
     // Construct the point cloud topic name
-    std::string point_cloud_topic = "/" + camera_name + "/zed_node/point_cloud/cloud_registered";
+    // std::string point_cloud_topic = "/" + camera_name + "/zed_node/point_cloud/cloud_registered";
+    std::string point_cloud_topic = "/camera/depth/points";
     ROS_INFO("Subscribing to point cloud topic: %s", point_cloud_topic.c_str());
     ROS_INFO("Ground filtering: %s", enable_ground_filtering ? "enabled" : "disabled");
 

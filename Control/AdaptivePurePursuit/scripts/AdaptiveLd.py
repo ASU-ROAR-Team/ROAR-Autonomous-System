@@ -136,9 +136,9 @@ class Control:
         """
         pose = msg
 
-        self.currentPosition[0] = pose.pose[1].position.x
-        self.currentPosition[1] = pose.pose[1].position.y
-        orientation = pose.pose[1].orientation
+        self.currentPosition[0] = pose.pose[2].position.x
+        self.currentPosition[1] = pose.pose[2].position.y
+        orientation = pose.pose[2].orientation
         orientationList = [orientation.x, orientation.y, orientation.z, orientation.w]
         _, _, yaw = euler_from_quaternion(orientationList)
         self.currentPosition[2] = yaw
