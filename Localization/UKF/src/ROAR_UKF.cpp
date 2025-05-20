@@ -1,4 +1,5 @@
 ﻿#include "ROAR_UKF.h"
+#include "WGS84toCartesian.hpp"
 #include <iostream>
 using namespace std;
 ROVER::ROVER()
@@ -683,21 +684,38 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
 
     // Pass sigmas into f(x) for wheel odometry
+    std::array<double, 2> WGS84Reference{lon0, lat0};
+    std::array<double, 2> result{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
+    std::cout << "lon0: " << lon0 << " | lat0: " << lat0 << endl;
+    std::cout << "lon: " << z_measurement[10] << " | lat: " << z_measurement[9] << endl;
+    std::cout << "x: " << result[0] << " | y: " << result[1] << endl;
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
     {
-        double lat = lat0 + (180 / PI) * (sigmas.col(i)(7) / 6378137);
-        double lon = lon0 + (180 / PI) * (sigmas.col(i)(8) / 6378137) / cos(lat0 * PI /180.0);
+        std::array<double, 2> result2{wgs84::fromCartesian(WGS84Reference, {sigmas.col(i)(7), sigmas.col(i)(8)})};
+        //double lat = lat0 + (180 / PI) * (sigmas.col(i)(7) / 6378137);
+        //double lon = lon0 + (180 / PI) * (sigmas.col(i)(8) / 6378137) / cos(lat0 * PI /180.0);
+        double lon = result2[0];
+        double lat = result2[1];
+        std::cout << "i: " << i << " | x: " << sigmas.col(i)(7) << " | y: " << sigmas.col(i)(8) << " | lat: " << lat << " | lon: " << lon << endl;
 
         Z_sigma.col(i) << Z_sigma.col(i)(0), Z_sigma.col(i)(1), Z_sigma.col(i)(2), Z_sigma.col(i)(3), Z_sigma.col(i)(4), Z_sigma.col(i)(5), Z_sigma.col(i)(6),
                         Z_sigma.col(i)(7), Z_sigma.col(i)(8), lat, lon, Z_sigma.col(i)(11), Z_sigma.col(i)(12), Z_sigma.col(i)(13);
 
-    }
+        //X_sigma.col(i) << X_sigma.col(i)(0),X_sigma.col(i)(1),X_sigma.col(i)(2),X_sigma.col(i)(3), 
+        //                X_sigma.col(i)(4), X_sigma.col(i)(5), X_sigma.col(i)(6),
+        //                sigmas.col(i)(7), sigmas.col(i)(8);
 
+    }
     std::tie(z, S) = unscented_transform(Z_sigma,
         sigma_points.Wm,
         sigma_points.Wc,
         R);
-
+    /*
+    std::tie(x_hat, P) = unscented_transform(X_sigma,
+        sigma_points.Wm,
+        sigma_points.Wc,
+        Q);
+    */
     z_prior(9) = z(9);
     z_prior(10) = z(10);
 
@@ -709,11 +727,11 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     	/***
     	Update step of UKF with Quaternion + Angular Velocity model i.e state space is:
         
-        	x = [q0 q1 q2 q3 omega_x omega_y omega_z].T
-            	z = [z_gyro z_acc z_mag].T
+        	x = [q0 q1 q2 q3 omega_x omega_y omega_z x y].T
+            	z = [z_gyro z_acc z_mag z_gps].T
                 
                 	Inputs:
-                    	z_measurement: Sensor measurements from gyroscope, accelerometer and magnetometer
+                    	z_measurement: Sensor measurements from gyroscope, accelerometer, magnetometer and GPS
                         	***/
 
     // Compute cross covariance
@@ -728,6 +746,7 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
 
     // Update state estimate
     x_hat = x_hat + K * (z_measurement - z_prior); // x_hat is defined in constructor for as a temp vector (overwriting x_post)
+    std::cout << z_measurement - z_prior << endl;
 
     // Update covariance
     P = P_prior - K * S_prior * K.transpose();
@@ -738,6 +757,8 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     P_post.col(8) = P.col(8);
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
+
+    std::cout << x_hat.tail(2) << endl;
 }
 
 void UKF::bno_callback(double roll, double pitch ,double yaw)
@@ -751,7 +772,7 @@ void UKF::bno_callback(double roll, double pitch ,double yaw)
 
 void UKF::LL_Callback( Eigen::VectorXd z_measurement){
     
-    //inputs: X and Y positions of the rover from Landmark function
+    //inputs: X and Y absolute positions of the rover 
 
     Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
 
@@ -761,8 +782,8 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
 
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
     {
-        double dx = X0 - x_post(7); // Check wherther x post or hat
-        double dy = Y0 - x_post(8); // Check whether x post or hat
+        double dx = X0 - x_post(7); 
+        double dy = Y0 - x_post(8);
         double X = dx + sigmas.col(i)(7); //from state space model
         double Y = dy + sigmas.col(i)(8); //from state space model
         
