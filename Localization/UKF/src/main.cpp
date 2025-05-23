@@ -3,6 +3,8 @@
 #include <ros/ros.h>
 #include <geometry_msgs/Vector3Stamped.h>
 #include <sensor_msgs/Imu.h>
+#include <sensor_msgs/NavSatFix.h>
+#include <nav_msgs/Odometry.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <vector>
 #include "roar_msgs/Landmark.h"
@@ -40,8 +42,8 @@ MerwedSigmaPoints sigma_points(n_state_dim, alpha, beta_, kappa); // Initialize 
 UKF ukf(sigma_points); // Initialize UKF
 
 // Define ROS subscribers
-ros::Subscriber imu_sub; // IMU subscriber
 ros::Subscriber encoder_sub; // Encoder subscriber
+ros::Subscriber imu_sub; // IMU subscriber
 ros::Subscriber gps_sub; // GPS subscriber
 ros::Subscriber trueLandmarkSub; // Landmarks true position subscriber
 ros::Subscriber landmarkSub; // Landmark subscriber
@@ -53,8 +55,9 @@ ros::Publisher state_publisher; // State publisher
 // Callback function for encoder data
 void encoderCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
 {
-    std_msgs::Float64MultiArray state_msg;
-
+    std::cout << "encoooder" << endl;
+    nav_msgs::Odometry state_msg;
+    
     // Check if encoder_prev_time_stamp is zero
     if (encoder_prev_time_stamp.isZero()) 
     {
@@ -74,31 +77,49 @@ void encoderCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
     encoder_prev_time_stamp = encoder_current_time_stamp;
     
     // Publish state message
-    state_msg.data = {ukf.x_post[0], ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[4], ukf.x_post[5], ukf.x_post[6], ukf.x_post[7], ukf.x_post[8]};
+    state_msg.pose.pose.orientation.x = ukf.x_post[0];
+    state_msg.pose.pose.orientation.y = ukf.x_post[1];
+    state_msg.pose.pose.orientation.z = ukf.x_post[2];
+    state_msg.pose.pose.orientation.w = ukf.x_post[3];
+    state_msg.twist.twist.angular.x = ukf.x_post[4];
+    state_msg.twist.twist.angular.y = ukf.x_post[5];
+    state_msg.twist.twist.angular.z = ukf.x_post[6];
+    state_msg.pose.pose.position.x = ukf.x_post[7];
+    state_msg.pose.pose.position.y = ukf.x_post[8];
     state_publisher.publish(state_msg);
+    
 }
 
 // Callback function for GPS data
-void gpsCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
+void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 {
-    std_msgs::Float64MultiArray state_msg;
+    std::cout << "GPS UPDATE" << endl;
+    nav_msgs::Odometry state_msg;
 
     if (initial_measurement == true)
     {
-        lat0 = msg->vector.x; // Initialize lat0
-        lon0 = msg->vector.y; // Initialize lon0
+        lat0 = msg->latitude; // Initialize lat0
+        lon0 = msg->longitude; // Initialize lon0
         initial_measurement = false;
     }
 
     // Store GPS measurements
-    z_measurement[9] = msg->vector.x;
-    z_measurement[10] = msg->vector.y;
+    z_measurement[9] = msg->latitude;
+    z_measurement[10] = msg->longitude;
 
     // Call UKF GPS callback function
     ukf.gps_callback(z_measurement, lon0, lat0);
 
     // Publish state message
-    state_msg.data = {ukf.x_post[0], ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[4], ukf.x_post[5], ukf.x_post[6], ukf.x_post[7], ukf.x_post[8]};
+    state_msg.pose.pose.orientation.x = ukf.x_post[0];
+    state_msg.pose.pose.orientation.y = ukf.x_post[1];
+    state_msg.pose.pose.orientation.z = ukf.x_post[2];
+    state_msg.pose.pose.orientation.w = ukf.x_post[3];
+    state_msg.twist.twist.angular.x = ukf.x_post[4];
+    state_msg.twist.twist.angular.y = ukf.x_post[5];
+    state_msg.twist.twist.angular.z = ukf.x_post[6];
+    state_msg.pose.pose.position.x = ukf.x_post[7];
+    state_msg.pose.pose.position.y = ukf.x_post[8];
     state_publisher.publish(state_msg);
 }
 
@@ -116,10 +137,10 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     // Calculate time difference
     ros::Time imu_current_time_stamp = msg->header.stamp;
     dt_imu = (imu_current_time_stamp - imu_prev_time_stamp).toSec();
-    std_msgs::Float64MultiArray state_msg;
+    nav_msgs::Odometry state_msg;
 
-    tf::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
-    tf::Matrix3x3 m(quat);
+    tf2::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
 
     z_measurement[0] = msg->angular_velocity.x;
@@ -133,16 +154,24 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     imu_prev_time_stamp = imu_current_time_stamp;
 
     // Publish state message
-    state_msg.data = {ukf.x_post[0], ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[4], ukf.x_post[5], ukf.x_post[6], ukf.x_post[7], ukf.x_post[8]};
+    state_msg.pose.pose.orientation.x = ukf.x_post[0];
+    state_msg.pose.pose.orientation.y = ukf.x_post[1];
+    state_msg.pose.pose.orientation.z = ukf.x_post[2];
+    state_msg.pose.pose.orientation.w = ukf.x_post[3];
+    state_msg.twist.twist.angular.x = ukf.x_post[4];
+    state_msg.twist.twist.angular.y = ukf.x_post[5];
+    state_msg.twist.twist.angular.z = ukf.x_post[6];
+    state_msg.pose.pose.position.x = ukf.x_post[7];
+    state_msg.pose.pose.position.y = ukf.x_post[8];
     state_publisher.publish(state_msg);
 }
 
 void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
-    std_msgs::Float64MultiArray state_msg;
+    nav_msgs::Odometry state_msg;
 
-    tf::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
-    tf::Matrix3x3 m(quat);
+    tf2::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
     // (yaw = msg->orientation.z;)
     // yaw = yaw * PI / 180.0;
@@ -151,7 +180,15 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     ukf.bno_callback(roll, pitch, yaw);
 
     // Publish state message
-    state_msg.data = {ukf.x_post[0], ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[4], ukf.x_post[5], ukf.x_post[6], ukf.x_post[7], ukf.x_post[8]};
+    state_msg.pose.pose.orientation.x = ukf.x_post[0];
+    state_msg.pose.pose.orientation.y = ukf.x_post[1];
+    state_msg.pose.pose.orientation.z = ukf.x_post[2];
+    state_msg.pose.pose.orientation.w = ukf.x_post[3];
+    state_msg.twist.twist.angular.x = ukf.x_post[4];
+    state_msg.twist.twist.angular.y = ukf.x_post[5];
+    state_msg.twist.twist.angular.z = ukf.x_post[6];
+    state_msg.pose.pose.position.x = ukf.x_post[7];
+    state_msg.pose.pose.position.y = ukf.x_post[8];
     state_publisher.publish(state_msg);
 }
 
@@ -165,7 +202,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 
     //Calculate the rover position
     //Rover's position: P
-	//Landmark TRUE position: rov.landmarks
+	//Landmark TRUE position: ROVlandmarks
 	//Landmark RELATIVE position: landmark_poses
 
     if(ROVlandmarks.size() > 0){
@@ -185,15 +222,16 @@ int main(int argc, char **argv)
     ros::NodeHandle nh; // Create ROS node handle
     
     // Initialize ROS subscribers
-    imu_sub = nh.subscribe("/sensors/imu", 1000, bnoCallback);
-    encoder_sub = nh.subscribe("/sensors/encoders", 1000, encoderCallback);
-    gps_sub = nh.subscribe("/sensors/gps", 1000, gpsCallback);
+    gps_sub = nh.subscribe("/gps", 100000000, gpsCallback);
+    imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
+    encoder_sub = nh.subscribe("/joint_states", 100000000, encoderCallback);
+    
   
-    trueLandmarkSub = nh.subscribe("landmarkTruePoses", 1000, trueLandmarkCallback);
-    landmarkSub = nh.subscribe("landmarkPoses", 1000, landmarkCallback);
+    trueLandmarkSub = nh.subscribe("/landmarkTruePoses", 1000, trueLandmarkCallback);
+    landmarkSub = nh.subscribe("/landmarkPoses", 1000, landmarkCallback);
 
     // Initialize ROS publisher
-    state_publisher = nh.advertise<std_msgs::Float64MultiArray>("/filtered_state", 1000);
+    state_publisher = nh.advertise<nav_msgs::Odometry>("/filtered_state", 1000);
     ros::Rate loop_rate(10); // Set loop rate
 
     // Main ROS loop
