@@ -122,7 +122,14 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     tf::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
 
-    ukf.imu_callback(z_measurement, dt_imu);
+    z_measurement[0] = msg->angular_velocity.x;
+    z_measurement[1] = msg->angular_velocity.y;
+    z_measurement[2] = msg->angular_velocity.z;
+    z_measurement[3] = msg->linear_acceleration.x;
+    z_measurement[4] = msg->linear_acceleration.y;
+    z_measurement[5] = msg->linear_acceleration.z;
+
+    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu);
     imu_prev_time_stamp = imu_current_time_stamp;
 
     // Publish state message

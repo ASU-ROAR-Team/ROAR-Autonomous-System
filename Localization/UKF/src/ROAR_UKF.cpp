@@ -352,7 +352,12 @@ Eigen::VectorXd UKF::process_model(Eigen::VectorXd x, Eigen::VectorXd w, double 
     x_pred_sigma(6) = x(6);
 
     //position
-    float yaw = atan2(2 * (x(0) * x(3) + x(1) * x(2)), (1 - 2 * (x(2) * x(2) + x(3) * x(3))));
+    //float yaw = atan2(2 * (x(0) * x(3) + x(1) * x(2)), (1 - 2 * (x(2) * x(2) + x(3) * x(3))));
+    float roll, pitch, yaw;
+    tf::Quaternion quat (x(0), x(1), x(2), x(3));
+    tf::Matrix3x3 m(quat);
+    m.getRPY(roll, pitch, yaw);
+
     // Update position based on linear and angular velocities
     // cout << "yaw: " << yaw << endl;
 
@@ -542,7 +547,7 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw)
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
 }
-void UKF::imu_callback(Eigen::VectorXd z_measurement, double dt)
+void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt)
 {
         /***
     Predict with wheel odometry process model
@@ -557,8 +562,6 @@ void UKF::imu_callback(Eigen::VectorXd z_measurement, double dt)
         X_sigma.col(i)(4) = sigmas.col(i)(4);
         X_sigma.col(i)(5) = sigmas.col(i)(5);
         X_sigma.col(i)(6) = sigmas.col(i)(6);
-        X_sigma.col(i)(7) = sigmas.col(i)(7);
-        X_sigma.col(i)(8) = sigmas.col(i)(8);
 
         // considern changing this quaternion into UnitQuaternion
         UnitQuaternion attitude(sigmas.col(i)(0),
@@ -579,6 +582,31 @@ void UKF::imu_callback(Eigen::VectorXd z_measurement, double dt)
         X_sigma.col(i)(1) = attitude.v_1;
         X_sigma.col(i)(2) = attitude.v_2;
         X_sigma.col(i)(3) = attitude.v_3;
+
+
+        //position
+        float roll, pitch, yaw;
+        tf::Quaternion quat (sigmas.col(i)(0),
+        sigmas.col(i)(1),
+        sigmas.col(i)(2),
+        sigmas.col(i)(3));
+
+        tf::Matrix3x3 m(quat);
+        m.getRPY(roll, pitch, yaw);
+
+        ROVER rover;    
+        rover.calculate_wheel_change(w, dt);
+        //position
+        // Update x and y positions
+        double linear_velocity = rover.rover_speeds(0);
+
+        // Calculate change in x and y positions
+        double dx = linear_velocity * cos(yaw) * dt;
+        double dy = linear_velocity * sin(yaw) * dt;
+
+        // Update x and y positions
+        X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
+        X_sigma.col(i)(8) = sigmas.col(i)(8) + dy;
     }
 
     // Compute unscented mean and covariance
@@ -660,17 +688,19 @@ void UKF::imu_callback(Eigen::VectorXd z_measurement, double dt)
 	    Eigen::MatrixXd K = T * S.inverse();
 
 	    // Update state estimate
-	    x_hat = x_hat + K * (z_measurement - z_prior); // x_hat is defined in constructor for as a temp vector (overwriting x_post)
+            x_hat = x_hat + K * (z_measurement - z_prior); // x_hat is defined in constructor for as a temp vector (overwriting x_post)
 
-	    // Update covariance
-	    P = P_prior - K * S_prior * K.transpose();
+            // Update covariance
+            P = P_prior - K * S_prior * K.transpose();
 
-	    // Save posterior
-	    x_post.head(4) = x_hat.head(4);
-        x_post(4) = z_measurement(0);
-        x_post(5) = z_measurement(1);
-        x_post(6) = z_measurement(2);
-	    P_post.topLeftCorner(7,7) = P.topLeftCorner(7,7);
+            // Save posterior
+            x_post.head(4) = x_hat.head(4);
+            x_post(4) = z_measurement(0);
+            x_post(5) = z_measurement(1);
+            x_post(6) = z_measurement(2);
+            x_post(7) = x_hat(7);
+            x_post(8) = x_hat(8);
+            P_post= P;
 }
 
 void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
