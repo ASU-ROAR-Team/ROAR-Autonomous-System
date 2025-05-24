@@ -1,0 +1,46 @@
+{
+    "taskName": "example",
+    "nodes": [
+      {
+        "nodeName": "talkerr",
+        "launchCmd": "rosrun supervisor test_talker.py",
+        "params": {"update_rate": 10.0},
+        "args": ["--verbose"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "listener",
+        "launchCmd": "rosrun supervisor test_listener.py",
+        "params": {"update_rate": 10.0},
+        "dependencies": ["talker"],
+        "resourceLimits": {
+          "maxCpu": 75.0,
+          "maxMem": 1024,
+          "timeout": 10.0
+        }
+      }
+    ],
+    "controllers": [
+      {
+        "controllerName": "primary_nav",
+        "enableTopic": "/navigation/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop",
+        "requiredModules": ["talker", "listener"]
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      }
+    ]
+  }

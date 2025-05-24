@@ -1,0 +1,3 @@
+[submodule "Dependencies/cpu_monitor"]
+	path = Dependencies/cpu_monitor
+	url = https://github.com/alspitz/cpu_monitor
