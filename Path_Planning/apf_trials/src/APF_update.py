@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APF Path Planner with Checkpoint Enhancement
+APF Path Planner with Checkpoint Enhancement and ObstacleArray support
 """
 from typing import List, Dict, Tuple, Any
 import threading
@@ -11,26 +11,36 @@ from nav_msgs.msg import Path
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from sympy import symbols, sqrt, cos, sin, atan2, Expr
 import matplotlib.pyplot as plt
-from roar_msgs.msg import Obstacle
-from matplotlib.patches import Circle
+from roar_msgs.msg import ObstacleArray
 from gazebo_msgs.msg import ModelStates
 import pandas as pd
 import numpy as np
+from matplotlib.patches import Circle
+import tf2_ros
+import tf2_geometry_msgs 
 
 
 class APFPlanner:
     """Main APF planner class"""
 
     def __init__(self) -> None:
-        """Initializes the instances in the APF code"""
         rospy.init_node("apfPathPlanner", anonymous=True)
+
+        # TF setup
+        self.tfBuffer   = tf2_ros.Buffer(rospy.Duration(15.0))  # keep 15s of history
+        self.tfListener = tf2_ros.TransformListener(self.tfBuffer)
+        # target frame for all transforms
+        self.target_frame = rospy.get_param("~targetFrame", "world")
 
         # ROS components
         self.rosComponents: Dict[str, Any] = {
             "pathPub": rospy.Publisher("/Path", Path, queue_size=10),
             "modelSub": rospy.Subscriber("/gazebo/model_states", ModelStates, self.modelCallback),
-            "obstacleSub": rospy.Subscriber(
-                rospy.get_param("~obstacleTopic", "obstacle_topic"), Obstacle, self.obstacleCallback
+            "obstacleArraySub": rospy.Subscriber(
+                rospy.get_param("~obstacleArrayTopic", "/zed_obstacle/obstacle_array"),
+                ObstacleArray,
+                self.obstacleArrayCallback,
+                queue_size=1
             ),
             "rate": rospy.Rate(10),
         }
@@ -39,10 +49,10 @@ class APFPlanner:
         self.config: Dict[str, Any] = {
             "checkpoints": [(7.58, 10.874), (0.211, 9.454), (0.83, 19.867), (6.71, 19.515)],
             "goalPoints": self.loadWaypoints(
-                rospy.get_param("~pathFile", "~/Downloads/real_path.csv")
+                rospy.get_param("~pathFile", "~/Results/real_path.csv")
             ),
             "costmap": pd.read_csv(
-                rospy.get_param("~costmapFile", "~/Downloads/total_cost.csv"), header=None
+                rospy.get_param("~costmapFile", "~/Results/total_cost.csv"), header=None
             ).values,
             "apfParams": [
                 rospy.get_param("~KATT"),
@@ -55,6 +65,8 @@ class APFPlanner:
                 rospy.get_param("~TAU"),
                 rospy.get_param("~CHECKPOINTDIST"),
             ],
+            # extra buffer around each obstacle for safety (meters)
+            "safetyRadius": rospy.get_param("~safetyRadius", 0),
         }
 
         # Robot state management
@@ -136,21 +148,39 @@ class APFPlanner:
             pose.position.x,
             pose.position.y,
             pose.position.z,
-            *euler_from_quaternion(
-                [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
-            ),
+            *euler_from_quaternion([
+                pose.orientation.x,
+                pose.orientation.y,
+                pose.orientation.z,
+                pose.orientation.w
+            ]),
         ]
         self.robotState["isActive"] = True
 
-    def obstacleCallback(self, msg: Obstacle) -> None:
-        """Update obstacle information"""
+    def obstacleArrayCallback(self, msg: ObstacleArray) -> None:
         with self.obstacleData["lock"]:
-            self.obstacleData["obstacles"][msg.id.data] = [
-                msg.position.pose.position.x,
-                msg.position.pose.position.y,
-                msg.radius.data,
-                self.config["apfParams"][2] + msg.radius.data,
-            ]
+            self.obstacleData["obstacles"].clear()
+            Qstar  = self.config["apfParams"][2]
+            #buffer = self.config.get("safetyRadius", 0.0)
+
+            for obs in msg.obstacles:
+                ps = PoseStamped()
+                ps.header = obs.position.header
+                ps.pose   = obs.position.pose
+                try:
+                    ps_map = self.tfBuffer.transform(ps, self.target_frame, rospy.Duration(0.1))
+                except (tf2_ros.LookupException,
+                        tf2_ros.ExtrapolationException,
+                        tf2_ros.ConnectivityException) as e:
+                    rospy.logwarn(f"TF failed for obs {obs.id.data}: {e}")
+                    continue
+
+                x_map = ps_map.pose.position.x
+                y_map = ps_map.pose.position.y
+                true_r = obs.radius.data
+                eff_r  = true_r + Qstar #+ buffer
+
+                self.obstacleData["obstacles"][obs.id.data] = [x_map, y_map, true_r, eff_r]
 
     def loadWaypoints(self, filePath: str) -> List[Tuple[float, float]]:
         """Load waypoints with explicit float conversion"""
@@ -270,8 +300,12 @@ class APFPlanner:
         fxRep, fyRep = 0.0, 0.0
         with self.obstacleData["lock"]:
             for obst in self.obstacleData["obstacles"].values():
-                subs.update({symbol[4]: obst[0], symbol[5]: obst[1], symbol[6]: obst[3]})
-                if sqrt((position[0] - obst[0]) ** 2 + (position[1] - obst[1]) ** 2) < obst[3]:
+                dx = position[0] - obst[0]
+                dy = position[1] - obst[1]
+                dist = math.hypot(dx, dy)
+                rospy.logdebug(f"Obs at ({obst[0]:.2f},{obst[1]:.2f}), dist={dist:.2f}, eff_r={obst[3]:.2f}")
+                if dist < obst[3]:
+                    subs.update({symbol[4]: obst[0], symbol[5]: obst[1], symbol[6]: obst[3]})
                     fxRep += float(self.apfForces["repX"].subs(subs).evalf())
                     fyRep += float(self.apfForces["repY"].subs(subs).evalf())
 
@@ -338,10 +372,9 @@ class APFPlanner:
         plt.pause(0.001)
 
     def publishPath(self, trajectory: List[Tuple[float, float]]) -> None:
-        """Publish planned path for Controller"""
         pathMsg = Path()
         pathMsg.header.stamp = rospy.Time.now()
-        pathMsg.header.frame_id = "map"
+        pathMsg.header.frame_id = self.target_frame  # use world
 
         for point in trajectory:
             pose = PoseStamped()
@@ -399,3 +432,4 @@ if __name__ == "__main__":
         planner.run()
     except rospy.ROSInterruptException:
         pass
+    

@@ -6,7 +6,7 @@ APF_update:
   KGRADIENT: 0.1         # Costmap gradient coefficient
 
   # Obstacle parameters
-  QSTAR: 0.5             # Influence range threshold (meters)
+  QSTAR: 1             # Influence range threshold (meters)
   obstacle_topic: "obstacle_topic"  # Topic name for obstacles
 
   # Path following parameters

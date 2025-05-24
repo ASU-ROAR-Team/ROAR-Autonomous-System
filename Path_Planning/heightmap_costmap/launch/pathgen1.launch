@@ -33,6 +33,7 @@
     <param name="via9_x" value="277" />
     <param name="via9_y" value="437" />
 
+
     <param name="output_csv" value="$(find heightmap_costmap)/path.csv"/>
    </node>
 </launch>
