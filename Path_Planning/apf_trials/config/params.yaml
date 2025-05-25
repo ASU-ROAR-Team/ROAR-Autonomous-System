@@ -7,8 +7,13 @@ APF_update:
   
 
   # Obstacle parameters
+<<<<<<< HEAD
   QSTAR: 0.5             # Influence range threshold (meters)
   obstacleTopic: "/zed_obstacle/obstacle_array"  # Topic name for obstacles
+=======
+  QSTAR: 1             # Influence range threshold (meters)
+  obstacle_topic: "obstacle_topic"  # Topic name for obstacles
+>>>>>>> c85ab0244ee72e4e653786b6c9da042edcca4c21
 
   # Path following parameters
   M: 1                   # Potential field exponent

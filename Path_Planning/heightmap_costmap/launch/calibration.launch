@@ -1,7 +1,7 @@
 <launch>
-    <node pkg="heightmap_costmap"
+    <node name="calibration_node"
+    pkg="heightmap_costmap"
     type="map_calibration.py"
-    name="calibration_node"
     output="screen">
         <param name="image_path" type="string"
         value="$(find heightmap_costmap)/maps/Calibration_map.png" />
