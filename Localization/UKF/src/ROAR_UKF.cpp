@@ -2,6 +2,9 @@
 #include "WGS84toCartesian.hpp"
 #include <iostream>
 #include <limits>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+
 using namespace std;
 ROVER::ROVER()
 {
@@ -356,9 +359,9 @@ Eigen::VectorXd UKF::process_model(Eigen::VectorXd x, Eigen::VectorXd w, double 
 
     //position
     //float yaw = atan2(2 * (x(0) * x(3) + x(1) * x(2)), (1 - 2 * (x(2) * x(2) + x(3) * x(3))));
-    float roll, pitch, yaw;
-    tf::Quaternion quat (x(0), x(1), x(2), x(3));
-    tf::Matrix3x3 m(quat);
+    double roll, pitch, yaw;
+    tf2::Quaternion quat (x(0), x(1), x(2), x(3));
+    tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
 
     // Update position based on linear and angular velocities
@@ -588,13 +591,13 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
 
 
         //position
-        float roll, pitch, yaw;
-        tf::Quaternion quat (sigmas.col(i)(0),
+        double roll, pitch, yaw;
+        tf2::Quaternion quat (sigmas.col(i)(0),
         sigmas.col(i)(1),
         sigmas.col(i)(2),
         sigmas.col(i)(3));
 
-        tf::Matrix3x3 m(quat);
+        tf2::Matrix3x3 m(quat);
         m.getRPY(roll, pitch, yaw);
 
         ROVER rover;    
@@ -899,8 +902,8 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     }
     // Add GPS noise
     Eigen::Matrix2d R_gps;
-    R_gps << 0.0001, 0,
-        0, 0.0001;
+    R_gps << 1, 0,
+        0, 1;
     S2 += R_gps; // 2x2, diagonal with variances in meters^2
 
     Eigen::MatrixXd Tc = Eigen::MatrixXd::Zero(x_dim, 2);

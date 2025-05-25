@@ -120,7 +120,16 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     state_msg.twist.twist.angular.z = ukf.x_post[6];
     state_msg.pose.pose.position.x = ukf.x_post[7];
     state_msg.pose.pose.position.y = ukf.x_post[8];
+
+    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+
+    state_msg.pose.covariance[35] = 1;
+
     state_publisher.publish(state_msg);
+    std::cout <<  ukf.P_post.col(7)(7) << endl;
 }
 
 // Callback function for IMU data
@@ -150,7 +159,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     z_measurement[4] = msg->linear_acceleration.y;
     z_measurement[5] = msg->linear_acceleration.z;
 
-    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu);
+    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu); //////////need to be fixed
     imu_prev_time_stamp = imu_current_time_stamp;
 
     // Publish state message
@@ -163,6 +172,11 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     state_msg.twist.twist.angular.z = ukf.x_post[6];
     state_msg.pose.pose.position.x = ukf.x_post[7];
     state_msg.pose.pose.position.y = ukf.x_post[8];
+
+    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
     state_publisher.publish(state_msg);
 }
 
@@ -189,6 +203,12 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     state_msg.twist.twist.angular.z = ukf.x_post[6];
     state_msg.pose.pose.position.x = ukf.x_post[7];
     state_msg.pose.pose.position.y = ukf.x_post[8];
+
+    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+
     state_publisher.publish(state_msg);
 }
 
