@@ -112,6 +112,7 @@ def odom_callback(msg):
         y_data.append(y)
         roll, pitch, yaw = quaternion_to_euler(msg.pose.pose.orientation)
         cov_data.append(msg.pose.covariance)
+        print(f"\n[+] Rover's pose udpate!\n|___ x:   {x:.4f}\n|___ y:   {y:.4f}\n|___ yaw: {yaw:.4f}")
 
 def animate(i):
     ax1.cla()
@@ -119,8 +120,8 @@ def animate(i):
 
     # Plot 2D path points
     ax1.plot(x_data, y_data, 'b.-')
-    ax1.set_xlim(-10, 10)
-    ax1.set_ylim(-10, 10)
+    ax1.set_xlim(-5, 5)
+    ax1.set_ylim(-5, 5)
     ax1.set_title("2D Rover Path")
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
@@ -139,9 +140,10 @@ if __name__ == "__main__":
 
     rospy.Subscriber("/filtered_state", Odometry, odom_callback)
 
-    fig = plt.figure(figsize=(10, 5))
-    ax1 = fig.add_subplot(121)
-    ax2 = fig.add_subplot(122, projection='3d')
+    fig = plt.figure(figsize=(5, 8))
+    fig.canvas.manager.set_window_title("ROAR Localization")
+    ax1 = fig.add_subplot(211)
+    ax2 = fig.add_subplot(212, projection='3d')
 
     ani = animation.FuncAnimation(fig, animate, interval=100)
     plt.show()

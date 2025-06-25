@@ -535,6 +535,11 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw)
         double dx = linear_velocity * cos(yaw) * dt;
         double dy = linear_velocity * sin(yaw) * dt;
 
+        //std::cout << "Yaw: " << yaw << std::endl;
+        //std::cout << "dx: " << dx << std::endl;
+        //std::cout << "dy: " << dy << std::endl;
+        //std::cout << "-------------------------------------------------------------------------" << std::endl;
+
         // Update x and y positions
         X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
         X_sigma.col(i)(8) = sigmas.col(i)(8) + dy;
@@ -970,9 +975,69 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
                         X_sigma.col(i)(8),
                         Z_sigma.col(i)(13);
     }
+
+    std::tie(x_hat, P) = unscented_transform(X_sigma, sigma_points.Wm, sigma_points.Wc, Q);
     
     std::tie(z, S) = unscented_transform(Z_sigma, sigma_points.Wm, sigma_points.Wc, R);
     
+
+    P_post.col(7) = P.col(7);
+    P_post.col(8) = P.col(8);
+    P_post.row(7) = P.row(7);
+    P_post.row(8) = P.row(8);
+
+    std::array<double, 2> result{z_measurement[11], z_measurement[12]};
+
+    Eigen::Vector2d z_LL(result[0], result[1]);
+    Eigen::VectorXd x_mean = Eigen::VectorXd::Zero(x_dim);
+    for (int i = 0; i < 2 * x_dim + 1; i++)
+        x_mean += sigma_points.Wm(i) * X_sigma.col(i);
+
+    Eigen::MatrixXd Z_sigma2(2, 2 * x_dim + 1);
+    for (int i = 0; i < 2 * x_dim + 1; i++) {
+        // Extract x, y from state sigma point
+        double x = X_sigma(7, i);
+        double y = X_sigma(8, i);
+        Z_sigma2.col(i) << x, y;
+    }
+    
+    // Predicted measurement mean
+    Eigen::Vector2d z_mean = Eigen::Vector2d::Zero();
+    for (int i = 0; i < 2 * x_dim + 1; i++)
+        z_mean += sigma_points.Wm(i) * Z_sigma2.col(i);
+
+    // Measurement covariance
+    Eigen::Matrix2d S2 = Eigen::Matrix2d::Zero();
+    for (int i = 0; i < 2 * x_dim + 1; i++) {
+        Eigen::Vector2d dz = Z_sigma2.col(i) - z_mean;
+        S2 += sigma_points.Wc(i) * dz * dz.transpose();
+    }
+    // Add GPS noise
+    Eigen::Matrix2d R_LL;
+    R_LL << 1, 0,
+        0, 1;
+    S2 += R_LL; // 2x2, diagonal with variances in meters^2
+
+    Eigen::MatrixXd Tc = Eigen::MatrixXd::Zero(x_dim, 2);
+    for (int i = 0; i < 2 * x_dim + 1; i++) {
+        Eigen::VectorXd dx = X_sigma.col(i) - x_mean;
+        Eigen::Vector2d dz = Z_sigma2.col(i) - z_mean;
+        Tc += sigma_points.Wc(i) * dx * dz.transpose();
+    }
+
+    Eigen::MatrixXd K2 = Tc * S2.inverse();  // K: (n_x x 2)
+
+    x_hat = x_mean + K2 * (z_LL - z_mean);
+    P = P_prior - K2 * S2 * K2.transpose();
+
+    std::cout << "The result2: \n"<< x_hat.tail(2) << endl;
+
+    x_prior = x_post;
+    P_prior = P_post;
+
+    x_post.tail(2) = x_hat.tail(2);
+
+    /*
     // Save posterior
      z_prior.tail(3) = z.tail(3);
      
@@ -1005,4 +1070,5 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
     P_post.col(8) = P.col(8);
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
+    */
 }

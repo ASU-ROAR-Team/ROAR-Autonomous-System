@@ -4,6 +4,7 @@
 #include <geometry_msgs/Vector3Stamped.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/NavSatFix.h>
+#include <sensor_msgs/JointState.h>
 #include <nav_msgs/Odometry.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <vector>
@@ -17,6 +18,7 @@ using namespace std;
 // Define global variables
 Eigen::VectorXd z_measurement(14); // Vector for measurement
 Eigen::VectorXd encoder_measurement(2); // Vector for encoder measurement
+Eigen::VectorXd encoder_prev_measurement(2); // Vector for encoder measurement
 
 // Define constants
 const int n_state_dim = 9;  // State dimension
@@ -53,15 +55,17 @@ ros::Subscriber landmarkSub; // Landmark subscriber
 ros::Publisher state_publisher; // State publisher
 
 // Callback function for encoder data
-void encoderCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
+void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
 {
-    std::cout << "encoooder" << endl;
+    //std::cout << "encoooder" << endl;
     nav_msgs::Odometry state_msg;
     
     // Check if encoder_prev_time_stamp is zero
     if (encoder_prev_time_stamp.isZero()) 
     {
         encoder_prev_time_stamp = msg->header.stamp; // Initialize encoder_prev_time_stamp
+        encoder_prev_measurement[0] = msg->position[1];
+        encoder_prev_measurement[1] = msg->position[4];
         return;
     }
 
@@ -69,12 +73,29 @@ void encoderCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
     ros::Time encoder_current_time_stamp = msg->header.stamp;
     dt_encoder = (encoder_current_time_stamp - encoder_prev_time_stamp).toSec();
     // Store encoder measurements
-    encoder_measurement[0] = (msg->vector.x)* 0.1047;
-    encoder_measurement[1] = (msg->vector.y)* 0.1047;
+
+    /*
+    encoder_measurement[0] = (msg->position[1])* 0.1047;
+    encoder_measurement[1] = (msg->position[4])* 0.1047;
+    */
+
+    encoder_measurement[0] = (msg->position[1] - encoder_prev_measurement[0]) / dt_encoder;
+    encoder_measurement[1] = (msg->position[4] - encoder_prev_measurement[1]) / dt_encoder;
+
+    std::cout << "msg->position[1]: " << msg->position[1] << endl;
+    std::cout << "encoder_prev_lef: " << encoder_prev_measurement[0] << endl;
+    std::cout << "dt_encoder" << dt_encoder << endl;
+    std::cout << "Wl: " << encoder_measurement[0] << std::endl;
+    std::cout << "Wr: " << encoder_measurement[1] << std::endl;
+    std::cout << "*******************************************************************" << std::endl;
+    
     // Call UKF encoder callback function
     ukf.encoder_callback(encoder_measurement, dt_encoder,yaw);
     // Update encoder_prev_time_stamp
     encoder_prev_time_stamp = encoder_current_time_stamp;
+
+    encoder_prev_measurement[0] = msg->position[1];
+    encoder_prev_measurement[1] = msg->position[4];
     
     // Publish state message
     state_msg.pose.pose.orientation.x = ukf.x_post[0];
@@ -128,8 +149,9 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 
     state_msg.pose.covariance[35] = 1;
 
-    state_publisher.publish(state_msg);
-    std::cout <<  ukf.P_post.col(7)(7) << endl;
+    //state_publisher.publish(state_msg);
+    
+    //std::cout <<  ukf.P_post.col(7)(7) << endl;
 }
 
 // Callback function for IMU data
@@ -216,6 +238,28 @@ void trueLandmarkCallback(const roar_msgs::LandmarkArray::ConstPtr& msg){
 
     //Set the landmarks
     ROVlandmarks = msg->landmarks;
+    std::cout << "[*] Landmarks recieved! \n";
+
+    nav_msgs::Odometry state_msg;
+
+    state_msg.pose.pose.orientation.x = ukf.x_post[0];
+    state_msg.pose.pose.orientation.y = ukf.x_post[1];
+    state_msg.pose.pose.orientation.z = ukf.x_post[2];
+    state_msg.pose.pose.orientation.w = ukf.x_post[3];
+    state_msg.twist.twist.angular.x = ukf.x_post[4];
+    state_msg.twist.twist.angular.y = ukf.x_post[5];
+    state_msg.twist.twist.angular.z = ukf.x_post[6];
+    state_msg.pose.pose.position.x = ukf.x_post[7];
+    state_msg.pose.pose.position.y = ukf.x_post[8];
+
+    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+
+    state_msg.pose.covariance[35] = 1;
+
+    state_publisher.publish(state_msg);
 }
 
 void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
@@ -226,11 +270,35 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 	//Landmark RELATIVE position: landmark_poses
 
     if(ROVlandmarks.size() > 0){
+        std::cout << "landmark_poses->pose.pose.position.x: " << landmark_poses->pose.pose.position.x << std::endl;
+        std::cout << "ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.x: " << ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.x << std::endl;
         z_measurement[11] = ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.x - landmark_poses->pose.pose.position.x;
+        std::cout << "z_measurement[11]: " << z_measurement[11] << std::endl;
         z_measurement[12] = ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.y - landmark_poses->pose.pose.position.y;
         z_measurement[13] = ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.z - landmark_poses->pose.pose.position.z;
 
         ukf.LL_Callback(z_measurement);
+
+        nav_msgs::Odometry state_msg;
+
+        state_msg.pose.pose.orientation.x = ukf.x_post[0];
+        state_msg.pose.pose.orientation.y = ukf.x_post[1];
+        state_msg.pose.pose.orientation.z = ukf.x_post[2];
+        state_msg.pose.pose.orientation.w = ukf.x_post[3];
+        state_msg.twist.twist.angular.x = ukf.x_post[4];
+        state_msg.twist.twist.angular.y = ukf.x_post[5];
+        state_msg.twist.twist.angular.z = ukf.x_post[6];
+        state_msg.pose.pose.position.x = ukf.x_post[7];
+        state_msg.pose.pose.position.y = ukf.x_post[8];
+
+        state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+        state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+        state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+        state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+
+        state_msg.pose.covariance[35] = 1;
+
+        state_publisher.publish(state_msg);
     }
 
 }
@@ -243,12 +311,12 @@ int main(int argc, char **argv)
     
     // Initialize ROS subscribers
     gps_sub = nh.subscribe("/gps", 100000000, gpsCallback);
-    imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
+    //imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
     encoder_sub = nh.subscribe("/joint_states", 100000000, encoderCallback);
     
   
-    trueLandmarkSub = nh.subscribe("/landmarkTruePoses", 1000, trueLandmarkCallback);
-    landmarkSub = nh.subscribe("/landmarkPoses", 1000, landmarkCallback);
+    trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
+    landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
 
     // Initialize ROS publisher
     state_publisher = nh.advertise<nav_msgs::Odometry>("/filtered_state", 1000);
