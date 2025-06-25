@@ -250,7 +250,7 @@ class Control:
             k = deltaX / actualLookahead**2
             self.debuggingLists["pastCurvature"].append(k)
             velocityCentre = self.setVelocity(k)
-            print("velocityCentre=" + str(velocityCentre))
+            # print("velocityCentre=" + str(velocityCentre))
             self.distLd = self.KL * velocityCentre + self.KC
             self.debuggingLists["pastLD"].append(self.distLd)
             self.debuggingLists["pastHeadings"].append(self.currentPosition[2])
@@ -269,16 +269,16 @@ class Control:
 
             vrMapped = self.mapVelocity(velocityRight)
             vlMapped = self.mapVelocity(velocityLeft)
-            print(
-                "Right: ",
-                velocityRight,
-                " Mapped Right:",
-                vrMapped,
-                " Left: ",
-                velocityLeft,
-                " Mapped Left:",
-                vlMapped,
-            )
+            # print(
+            #     "Right: ",
+            #     velocityRight,
+            #     " Mapped Right:",
+            #     vrMapped,
+            #     " Left: ",
+            #     velocityLeft,
+            #     " Mapped Left:",
+            #     vlMapped,
+            # )
 
             self.velocityPublisher["LF"].publish(velocityLeft)
             self.velocityPublisher["RF"].publish(velocityRight)

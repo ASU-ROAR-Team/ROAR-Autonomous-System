@@ -1,39 +1,19 @@
 APF_update:
   # force coefficients
-  KATT: 4                # Attractive gain
+  KATT: 8               # Attractive gain
   KREP: 100              # Repulsive gain
-  KENHANCED: 60          # Enhanced attraction gain
+  KENHANCED: 80          # Enhanced attraction gain
   KGRADIENT: 0.1         # Costmap gradient coefficient
-  
 
   # Obstacle parameters
-  QSTAR: 0.5             # Influence range threshold (meters)
-  obstacleTopic: "/zed_obstacle/obstacle_array"  # Topic name for obstacles
+  QSTAR: 1             # Influence range threshold (meters)
+  obstacle_topic: "obstacleArrayTopic"  # Topic name for obstacles
 
   # Path following parameters
   M: 1                   # Potential field exponent
-  LOOKAHEADDIST: 2       # Lookahead distance (meters)
-  CHECKPOINTDIST: 1.8    # Checkpoint triggering distance (meters)
+  LOOKAHEADDIST: 1.2      # Lookahead distance (meters)
+  CHECKPOINTDIST: 1.2    # Checkpoint triggering distance (meters)
 
 
   # Time parameters
   TAU: 0.1               # Time step for simulation (seconds)
-
-
-Paths:
-  # Costmap
-  costmapFile: "/home/dopebiscuit/roar/roar_ws/src/heightmap_costmap/Results/path_costmap.csv"
-  
-  # Path
-  pathFile: "/home/dopebiscuit/roar/roar_ws/src/heightmap_costmap/Results/straight_line_path.csv"
-
-  # Checkpoints
-  checkpoints:
-    # - [7.58, 10.874]
-    # - [0.211, 9.454]
-    # - [0.83, 19.867]
-    # - [6.71, 19.515]
-    - [2.5, 19.5]    # Start point, slightly right of (2,20)
-    - [4.2, 17.2]    # Middle point, slightly right of (4,17.5)
-    - [6.3, 14.3]    # Middle point, slightly right of (6.2,14.2)
-    - [8.4, 11.4]    # End point, slightly right of (8.4,12)
