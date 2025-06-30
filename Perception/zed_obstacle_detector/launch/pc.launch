@@ -1,34 +1,8 @@
 <launch>
+    <!-- Load parameters from YAML file -->
+    <rosparam command="load" file="$(find zed_obstacle_detector)/config/params.yaml" />
+    
     <node pkg="zed_obstacle_detector" type="zed_obstacle_detector_node" name="zed_obstacle_detector" output="screen" respawn="false">
-        <!-- Input and TF Parameters -->
-        <param name="point_cloud_topic" value="/camera/depth/points" />
-        <!-- base_link_frame: Robot's main frame, Z should be UP relative to ground -->
-        <param name="base_link_frame" value="base_link" /> 
-        <!-- world_frame: Global frame for tracking and final output -->
-        <param name="world_frame" value="world" /> <!-- Or "map" if you use a map frame -->
-        
-        <!-- Camera Frame Pre-processing -->
-        <param name="passthrough_z_min_camera" value="0.2" />
-        <param name="passthrough_z_max_camera" value="7.0" />
-        <param name="enable_uniform_downsampling" value="true" />
-        <param name="uniform_sampling_radius" value="0.05" />
-        <param name="voxel_leaf_size" value="0.05" />
-
-        <!-- Ground Filtering (in base_link_frame) -->
-        <param name="enable_ground_filtering" value="true" />
-        <param name="ground_filter_distance_threshold" value="0.05" />
-        <param name="ground_filter_angle_threshold_deg" value="10.0" />
-        <param name="ground_filter_max_iterations" value="100" /> <!-- Was 100, cpp had 500, now cpp gets from param -->
-
-        <!-- Clustering (in base_link_frame) -->
-        <param name="cluster_tolerance" value="0.25" /> <!-- Might need adjustment based on obstacle density -->
-        <param name="min_cluster_size" value="15" />   <!-- Cpp code uses this value now -->
-        <param name="max_cluster_size" value="10000" />
-
-        <!-- Tracking Parameters (in world_frame) -->
-        <param name="obstacle_association_distance" value="1.5" /> <!-- Max distance (meters) to associate new detection with existing track -->
-        <param name="obstacle_timeout_sec" value="30.0" />          <!-- Seconds without seeing an obstacle before removing it -->
-        <param name="position_smoothing_factor" value="0.3" />    <!-- Smoothing for RADIUS. 0.0=all old, 1.0=all new. -->
-        <param name="min_detections_for_confirmation" value="2" /> <!-- Detections needed to confirm an obstacle -->
+        <!-- You can override specific parameters here if needed -->
     </node>
 </launch>

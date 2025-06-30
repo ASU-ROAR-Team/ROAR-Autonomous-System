@@ -66,6 +66,20 @@ double param_obstacle_association_distance_sq_;
 double param_obstacle_timeout_sec_;
 double param_position_smoothing_factor_; // For radius smoothing
 int param_min_detections_for_confirmation_;
+
+// PERFORMANCE IMPROVEMENT #3: Early exit thresholds
+bool enable_early_exit_;
+int min_points_for_processing_;
+int max_points_for_processing_;
+
+// PERFORMANCE IMPROVEMENT #4: Debug and timing parameters
+bool enable_detailed_timing_;
+bool enable_debug_publishers_;
+double timing_report_interval_;
+
+// PERFORMANCE IMPROVEMENT #5: TF timeout optimization
+double tf_lookup_timeout_;
+double tf_buffer_duration_;
 // --- End Global Variables ---
 
 // --- Tracking Data Structures ---
@@ -92,6 +106,54 @@ std::vector<TrackedObstacle> tracked_obstacles_list_;
 int next_static_obstacle_id_ = 1;
 // std::mutex tracked_obstacles_mutex_; // If cleanup/access happens in a separate thread
 
+// Performance timing structure
+struct ProcessingTiming {
+    std::chrono::high_resolution_clock::time_point start_total;
+    std::chrono::high_resolution_clock::time_point end_total;
+    
+    std::chrono::high_resolution_clock::time_point start_input_validation;
+    std::chrono::high_resolution_clock::time_point end_input_validation;
+    
+    std::chrono::high_resolution_clock::time_point start_passthrough;
+    std::chrono::high_resolution_clock::time_point end_passthrough;
+    
+    std::chrono::high_resolution_clock::time_point start_uniform_sampling;
+    std::chrono::high_resolution_clock::time_point end_uniform_sampling;
+    
+    std::chrono::high_resolution_clock::time_point start_voxel_grid;
+    std::chrono::high_resolution_clock::time_point end_voxel_grid;
+    
+    std::chrono::high_resolution_clock::time_point start_transform;
+    std::chrono::high_resolution_clock::time_point end_transform;
+    
+    std::chrono::high_resolution_clock::time_point start_ground_filter;
+    std::chrono::high_resolution_clock::time_point end_ground_filter;
+    
+    std::chrono::high_resolution_clock::time_point start_clustering;
+    std::chrono::high_resolution_clock::time_point end_clustering;
+    
+    std::chrono::high_resolution_clock::time_point start_world_transform;
+    std::chrono::high_resolution_clock::time_point end_world_transform;
+    
+    std::chrono::high_resolution_clock::time_point start_tracking;
+    std::chrono::high_resolution_clock::time_point end_tracking;
+    
+    std::chrono::high_resolution_clock::time_point start_output;
+    std::chrono::high_resolution_clock::time_point end_output;
+    
+    // Helper function to get duration in milliseconds
+    template<typename T>
+    static long getDurationMs(const T& start, const T& end) {
+        return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000;
+    }
+    
+    // Helper function to get duration in microseconds
+    template<typename T>
+    static long getDurationUs(const T& start, const T& end) {
+        return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    }
+};
+
 // Simple degree to radian conversion
 inline double deg2rad(double degrees) {
     return degrees * M_PI / 180.0;
@@ -99,8 +161,12 @@ inline double deg2rad(double degrees) {
 
 void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 {
-    auto start_total = std::chrono::high_resolution_clock::now();    
+    ProcessingTiming timing;
+    timing.start_total = std::chrono::high_resolution_clock::now();    
     ROS_INFO_THROTTLE(5.0, "Received point cloud. Processing for obstacle tracking...");
+    
+    // --- Input Validation ---
+    timing.start_input_validation = std::chrono::high_resolution_clock::now();
     
     if (!tf_buffer_ptr || !tf_listener_ptr) {
         ROS_ERROR_THROTTLE(1.0, "TF buffer or listener not initialized!");
@@ -114,8 +180,18 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         ROS_WARN_THROTTLE(1.0, "Input PCL cloud is empty!");
         return;
     }
+    
+    // PERFORMANCE IMPROVEMENT #3: Early exit if cloud is too small
+    if (enable_early_exit_ && cloud_input_pcl->size() < min_points_for_processing_) {
+        ROS_DEBUG_THROTTLE(5.0, "Cloud too small (%zu points), skipping processing", cloud_input_pcl->size());
+        return;
+    }
+    
+    timing.end_input_validation = std::chrono::high_resolution_clock::now();
 
-    // 1. PassThrough filter (in original camera frame)
+    // --- 1. PassThrough filter (in original camera frame) ---
+    timing.start_passthrough = std::chrono::high_resolution_clock::now();
+    
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_passthrough(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PassThrough<pcl::PointXYZ> pass;
     pass.setInputCloud(cloud_input_pcl);
@@ -128,16 +204,23 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         return;
     }
     
+    timing.end_passthrough = std::chrono::high_resolution_clock::now();
+    
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_processed_camera_frame = cloud_passthrough;
 
-    // 2. Optional Uniform Downsampling (in original camera frame)
+    // --- 2. Optional Uniform Downsampling (in original camera frame) ---
+    // PERFORMANCE IMPROVEMENT #1: Disabled by default - redundant with voxel grid
     if (enable_uniform_downsampling_) {
+        timing.start_uniform_sampling = std::chrono::high_resolution_clock::now();
+        
         pcl::UniformSampling<pcl::PointXYZ> uniform;
         uniform.setInputCloud(cloud_passthrough); 
         uniform.setRadiusSearch(uniform_sampling_radius_);
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_uniform(new pcl::PointCloud<pcl::PointXYZ>);
         uniform.filter(*cloud_uniform);
         cloud_processed_camera_frame = cloud_uniform; 
+        
+        timing.end_uniform_sampling = std::chrono::high_resolution_clock::now();
     }
 
     if (cloud_processed_camera_frame->empty()) {
@@ -145,19 +228,34 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         return;
     }
 
-    // 3. VoxelGrid downsampling (in original camera frame)
+    // --- 3. VoxelGrid downsampling (in original camera frame) ---
+    timing.start_voxel_grid = std::chrono::high_resolution_clock::now();
+    
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_downsampled_camera_frame(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::VoxelGrid<pcl::PointXYZ> voxel;
     voxel.setInputCloud(cloud_processed_camera_frame);
-    voxel.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, voxel_leaf_size_);
+    
+    // PERFORMANCE IMPROVEMENT #3: Aggressive downsampling for very large clouds
+    double current_voxel_size = voxel_leaf_size_;
+    if (enable_early_exit_ && cloud_processed_camera_frame->size() > max_points_for_processing_) {
+        current_voxel_size = voxel_leaf_size_ * 2.0; // Double the voxel size for very large clouds
+        ROS_DEBUG_THROTTLE(5.0, "Large cloud detected (%zu points), using aggressive downsampling (voxel size: %.3f)", 
+                          cloud_processed_camera_frame->size(), current_voxel_size);
+    }
+    
+    voxel.setLeafSize(current_voxel_size, current_voxel_size, current_voxel_size);
     voxel.filter(*cloud_downsampled_camera_frame);
 
     if (cloud_downsampled_camera_frame->empty()) {
         ROS_WARN_THROTTLE(1.0, "Cloud empty after VoxelGrid (camera frame)!");
         return;
     }
+    
+    timing.end_voxel_grid = std::chrono::high_resolution_clock::now();
 
-    // 4. Transform PointCloud to base_link_frame_
+    // --- 4. Transform PointCloud to base_link_frame_ ---
+    timing.start_transform = std::chrono::high_resolution_clock::now();
+    
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZ>);
     if (base_link_frame_.empty()) {
         ROS_ERROR_THROTTLE(1.0, "Target base_link_frame is not set!");
@@ -177,15 +275,24 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         ROS_WARN_THROTTLE(1.0, "Transformed cloud (to %s) is empty!", base_link_frame_.c_str());
         return;
     }
-    sensor_msgs::PointCloud2 output_filtered_transformed_msg;
-    pcl::toROSMsg(*cloud_transformed, output_filtered_transformed_msg);
-    output_filtered_transformed_msg.header.stamp = input->header.stamp;
-    output_filtered_transformed_msg.header.frame_id = base_link_frame_;
-    pub_filtered_transformed.publish(output_filtered_transformed_msg);
+    
+    timing.end_transform = std::chrono::high_resolution_clock::now();
+    
+    // PERFORMANCE IMPROVEMENT #4: Conditional debug publishing
+    if (enable_debug_publishers_) {
+        sensor_msgs::PointCloud2 output_filtered_transformed_msg;
+        pcl::toROSMsg(*cloud_transformed, output_filtered_transformed_msg);
+        output_filtered_transformed_msg.header.stamp = input->header.stamp;
+        output_filtered_transformed_msg.header.frame_id = base_link_frame_;
+        pub_filtered_transformed.publish(output_filtered_transformed_msg);
+    }
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_for_clustering = cloud_transformed;
 
+    // --- 5. Ground Filtering ---
     if (enable_ground_filtering_) {
+        timing.start_ground_filter = std::chrono::high_resolution_clock::now();
+        
         pcl::SACSegmentation<pcl::PointXYZ> seg;
         seg.setOptimizeCoefficients(true);
         seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE); 
@@ -210,16 +317,24 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
             if (!cloud_no_ground_ptr->empty()) {
                 cloud_for_clustering = cloud_no_ground_ptr;
-                sensor_msgs::PointCloud2 output_no_ground_msg;
-                pcl::toROSMsg(*cloud_for_clustering, output_no_ground_msg);
-                output_no_ground_msg.header.stamp = input->header.stamp;
-                output_no_ground_msg.header.frame_id = base_link_frame_;
-                pub_no_ground.publish(output_no_ground_msg);
+                
+                // PERFORMANCE IMPROVEMENT #4: Conditional debug publishing
+                if (enable_debug_publishers_) {
+                    sensor_msgs::PointCloud2 output_no_ground_msg;
+                    pcl::toROSMsg(*cloud_for_clustering, output_no_ground_msg);
+                    output_no_ground_msg.header.stamp = input->header.stamp;
+                    output_no_ground_msg.header.frame_id = base_link_frame_;
+                    pub_no_ground.publish(output_no_ground_msg);
+                }
             }
         }
+        
+        timing.end_ground_filter = std::chrono::high_resolution_clock::now();
     }
     
-    // --- Tracking Logic ---
+    // --- 6. Clustering ---
+    timing.start_clustering = std::chrono::high_resolution_clock::now();
+    
     ros::Time current_scan_time = input->header.stamp;
 
     for (auto& obs : tracked_obstacles_list_) {
@@ -245,6 +360,8 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
             ROS_DEBUG("Found %ld raw clusters in %s.", cluster_indices_vec.size(), base_link_frame_.c_str());
             pcl::PointCloud<pcl::PointXYZRGB>::Ptr clustered_cloud_rgb_debug(new pcl::PointCloud<pcl::PointXYZRGB>);
 
+            // --- 7. World Coordinate Transformation ---
+            timing.start_world_transform = std::chrono::high_resolution_clock::now();
 
             for (size_t i = 0; i < cluster_indices_vec.size(); ++i) {
                 pcl::PointCloud<pcl::PointXYZ> current_cluster_cloud;
@@ -288,7 +405,8 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
                 geometry_msgs::PointStamped pt_world;
                 try {
-                    tf_buffer_ptr->transform(pt_base_link, pt_world, world_frame_param_, ros::Duration(0.1)); // Shorter timeout
+                    // PERFORMANCE IMPROVEMENT #5: Use configurable TF timeout
+                    tf_buffer_ptr->transform(pt_base_link, pt_world, world_frame_param_, ros::Duration(tf_lookup_timeout_));
                     current_world_detections.push_back({pt_world.point, cluster_radius_base});
                 } catch (tf2::TransformException &ex) {
                     ROS_WARN_THROTTLE(1.0, "TF transform failed for new cluster: %s. From %s to %s. Skipping. Stamp: %.3f, Target Time: %.3f",
@@ -296,7 +414,11 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
                     continue;
                 }
             }
-             if(!clustered_cloud_rgb_debug->points.empty()){
+            
+            timing.end_world_transform = std::chrono::high_resolution_clock::now();
+            
+            // PERFORMANCE IMPROVEMENT #4: Conditional debug publishing
+            if (enable_debug_publishers_ && !clustered_cloud_rgb_debug->points.empty()) {
                 clustered_cloud_rgb_debug->width = clustered_cloud_rgb_debug->points.size();
                 clustered_cloud_rgb_debug->height = 1;
                 clustered_cloud_rgb_debug->is_dense = true;
@@ -312,6 +434,11 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     } else {
          ROS_WARN_THROTTLE(1.0, "Cloud for clustering (in %s) is empty!", base_link_frame_.c_str());
     }
+    
+    timing.end_clustering = std::chrono::high_resolution_clock::now();
+
+    // --- 8. Tracking Logic ---
+    timing.start_tracking = std::chrono::high_resolution_clock::now();
 
     for (const auto& detection_pair : current_world_detections) {
         const geometry_msgs::Point& detected_centroid_world = detection_pair.first;
@@ -373,6 +500,11 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
                              });
     tracked_obstacles_list_.erase(it, tracked_obstacles_list_.end());
 
+    timing.end_tracking = std::chrono::high_resolution_clock::now();
+
+    // --- 9. Output ---
+    timing.start_output = std::chrono::high_resolution_clock::now();
+
     roar_msgs::ObstacleArray world_obstacle_array_msg;
     world_obstacle_array_msg.header.stamp = current_scan_time;
     world_obstacle_array_msg.header.frame_id = world_frame_param_;
@@ -421,12 +553,42 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     pub_obstacle_array.publish(world_obstacle_array_msg);
     pub_markers.publish(world_markers_array);
 
+    timing.end_output = std::chrono::high_resolution_clock::now();
 
-    auto end_total = std::chrono::high_resolution_clock::now();
-    ROS_INFO_THROTTLE(1.0, "Total processing & tracking time: %ld ms. Tracked Confirmed Obstacles: %zu. Output Frame: %s",
-             std::chrono::duration_cast<std::chrono::milliseconds>(end_total - start_total).count(),
-             world_obstacle_array_msg.obstacles.size(), world_frame_param_.c_str());
+    // --- 10. Print Timing ---
+    // PERFORMANCE IMPROVEMENT #4: Conditional detailed timing output
+    if (enable_detailed_timing_) {
+        ROS_INFO_THROTTLE(timing_report_interval_, 
+            "=== DETAILED TIMING BREAKDOWN ===\n"
+            "Input Validation: %ld ms\n"
+            "Passthrough: %ld ms\n"
+            "Uniform Sampling: %ld ms\n"
+            "Voxel Grid: %ld ms\n"
+            "Transform: %ld ms\n"
+            "Ground Filter: %ld ms\n"
+            "Clustering: %ld ms\n"
+            "World Transform: %ld ms\n"
+            "Tracking: %ld ms\n"
+            "Output: %ld ms",
+            ProcessingTiming::getDurationMs(timing.start_input_validation, timing.end_input_validation),
+            ProcessingTiming::getDurationMs(timing.start_passthrough, timing.end_passthrough),
+            ProcessingTiming::getDurationMs(timing.start_uniform_sampling, timing.end_uniform_sampling),   
+            ProcessingTiming::getDurationMs(timing.start_voxel_grid, timing.end_voxel_grid),
+            ProcessingTiming::getDurationMs(timing.start_transform, timing.end_transform),
+            ProcessingTiming::getDurationMs(timing.start_ground_filter, timing.end_ground_filter),
+            ProcessingTiming::getDurationMs(timing.start_clustering, timing.end_clustering),
+            ProcessingTiming::getDurationMs(timing.start_world_transform, timing.end_world_transform),
+            ProcessingTiming::getDurationMs(timing.start_tracking, timing.end_tracking),
+            ProcessingTiming::getDurationMs(timing.start_output, timing.end_output));
+    }
+    
+    timing.end_total = std::chrono::high_resolution_clock::now();
+    long total_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timing.end_total - timing.start_total).count();
+    
+    ROS_INFO_THROTTLE(1.0, "Total processing time: %ld ms | Confirmed obstacles: %zu | Frame: %s | Input points: %zu",
+             total_time_ms, world_obstacle_array_msg.obstacles.size(), world_frame_param_.c_str(), cloud_input_pcl->size());
 }
+
 
 int main(int argc, char** argv)
 {
@@ -466,6 +628,20 @@ int main(int argc, char** argv)
     private_nh.param("position_smoothing_factor", param_position_smoothing_factor_, 0.3);
     private_nh.param("min_detections_for_confirmation", param_min_detections_for_confirmation_, 2);
 
+    // PERFORMANCE IMPROVEMENT #3: Early exit thresholds
+    private_nh.param("enable_early_exit", enable_early_exit_, false);
+    private_nh.param("min_points_for_processing", min_points_for_processing_, 100);
+    private_nh.param("max_points_for_processing", max_points_for_processing_, 10000);
+
+    // PERFORMANCE IMPROVEMENT #4: Debug and timing parameters
+    private_nh.param("enable_detailed_timing", enable_detailed_timing_, false);
+    private_nh.param("enable_debug_publishers", enable_debug_publishers_, false);
+    private_nh.param("timing_report_interval", timing_report_interval_, 10.0);
+
+    // PERFORMANCE IMPROVEMENT #5: TF timeout optimization
+    private_nh.param("tf_lookup_timeout", tf_lookup_timeout_, 0.1);
+    private_nh.param("tf_buffer_duration", tf_buffer_duration_, 10.0);
+
     ROS_INFO("--- Obstacle Detector Configuration ---");
     ROS_INFO("Input Point Cloud Topic: %s", point_cloud_topic.c_str());
     ROS_INFO("Base Link Frame (processing): %s", base_link_frame_.c_str());
@@ -483,6 +659,12 @@ int main(int argc, char** argv)
     ROS_INFO("Tracking: Assoc. Dist: %.2f m (%.2f m^2), Timeout: %.1f s, Radius Smooth: %.2f, Min Confirm: %d",
              assoc_dist, param_obstacle_association_distance_sq_, param_obstacle_timeout_sec_,
              param_position_smoothing_factor_, param_min_detections_for_confirmation_);
+    ROS_INFO("Early Exit: %s, Min Points: %d, Max Points: %d",
+             enable_early_exit_ ? "Enabled" : "Disabled", min_points_for_processing_, max_points_for_processing_);
+    ROS_INFO("Detailed Timing: %s, Debug Publishers: %s, Timing Report Interval: %.1f s",
+             enable_detailed_timing_ ? "Enabled" : "Disabled", enable_debug_publishers_ ? "Enabled" : "Disabled", timing_report_interval_);
+    ROS_INFO("TF Lookup Timeout: %.1f s, TF Buffer Duration: %.1f s",
+             tf_lookup_timeout_, tf_buffer_duration_);
     ROS_INFO("------------------------------------");
 
     ros::Subscriber sub = nh.subscribe(point_cloud_topic, 1, pointCloudCallback);
