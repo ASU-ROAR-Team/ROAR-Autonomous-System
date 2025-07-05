@@ -229,7 +229,7 @@ UKF::UKF(MerwedSigmaPoints merwed_sigma_points)
     Z_sigma = Eigen::MatrixXd::Zero(z_dim, sigma_points.num_sigma_points); // Measurement sigma points
 
     // Initialize noise matrices
-    Q = Eigen::MatrixXd::Identity(x_dim, x_dim) * 1e-10;    // Process Noise Matrix //research
+    Q = Eigen::MatrixXd::Identity(x_dim, x_dim) * 1e-3;    // Process Noise Matrix //research
 
     R = Eigen::MatrixXd::Identity(z_dim, z_dim) * 0.7;      // Measurement Noise Matrix //add noise covariance for each sensor from datasheet
 
@@ -565,9 +565,41 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     u_t: Measured wheels velocity as input
     ***/
     // Compute the sigma points for given mean and posteriori covariance
+    if (x_post(0) == 1)
+    {
+    x_post << 1, 0, 0, 0, 0, 0, 0, 0, 0;
+    }
+    if (P_post(0,0) == 0.5)
+    {
+    P_post = Eigen::MatrixXd::Identity(x_dim, x_dim)*0.5;
+    }
     Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
 
-        // Pass sigmas into f(x) for wheel odometry
+    // std::cout<< "x_post and p_post"<< endl<< x_post<< endl<< P_post<<endl;
+    // std::cout<< z_measurement(0)<<endl;
+    // std::cout<< z_measurement(1)<<endl;
+    // std::cout<< z_measurement(2)<<endl;
+    // std::cout<< z_measurement(3)<<endl;
+    // std::cout<< z_measurement(4)<<endl;
+    // std::cout<< z_measurement(5)<<endl;
+    // std::cout<< z_measurement(6)<<endl;
+    // std::cout<< z_measurement(7)<<endl;
+    // std::cout<< z_measurement(8)<<endl;
+    // std::cout<< z_measurement(9)<<endl;
+    // std::cout<< z_measurement(10)<<endl;
+    // std::cout<< z_measurement(11)<<endl;
+    // std::cout<< z_measurement(12)<<endl;
+    // std::cout<< z_measurement(13)<<endl;
+
+
+    ROVER rover;    
+    std::cout<<"wheel is :    "<<endl<< w<<endl<<"dt  "<<dt<<endl;
+    rover.calculate_wheel_change(w, dt);
+    //position
+    // Update x and y positions
+    double linear_velocity = rover.rover_speeds(0);
+    std::cout<<"Linear v is:   "<<linear_velocity<<endl;
+    // Pass sigmas into f(x) for wheel odometry
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
     {
         X_sigma.col(i)(4) = sigmas.col(i)(4);
@@ -588,6 +620,7 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
             sigmas.col(i)(6) * dt);  
 
         attitude = attitude * uq_omega;
+        attitude.normalize();
 
         X_sigma.col(i)(0) = attitude.s;
         X_sigma.col(i)(1) = attitude.v_1;
@@ -597,27 +630,23 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
 
         //position
         double roll, pitch, yaw;
-        tf2::Quaternion quat (sigmas.col(i)(0),
-        sigmas.col(i)(1),
-        sigmas.col(i)(2),
-        sigmas.col(i)(3));
-
+        tf2::Quaternion quat(attitude.v_1, attitude.v_2, attitude.v_3, attitude.s);
+        //std::cout<<"Quat is :   "<<quat.s<<endl<<quat.v_1<<endl<<quat.v_2<<endl<<quat.v_3;
         tf2::Matrix3x3 m(quat);
         m.getRPY(roll, pitch, yaw);
-
-        ROVER rover;    
-        rover.calculate_wheel_change(w, dt);
-        //position
-        // Update x and y positions
-        double linear_velocity = rover.rover_speeds(0);
 
         // Calculate change in x and y positions
         double dx = linear_velocity * cos(yaw) * dt;
         double dy = linear_velocity * sin(yaw) * dt;
-
+        
         // Update x and y positions
         X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
         X_sigma.col(i)(8) = sigmas.col(i)(8) + dy;
+        // std::cout<<"X_Sigma is............"<<i<<endl;
+        // std::cout<<X_sigma.col(i)<<endl;
+        // std::cout<<"dt is:    "<<dt<<"      "<<"Yaw:    "<<yaw<<endl<<"Cos(yaw) :"<< cos(yaw)<<endl;
+        // std::cout<<"linear v:    "<< linear_velocity<<endl;
+        // std::cout<<dx<< "     "<<dy<<endl;
     }
 
     // Compute unscented mean and covariance
@@ -630,12 +659,17 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     UnitQuaternion uq(x_hat(0), x_hat(1), x_hat(2), x_hat(3));
     uq.normalize();
     x_prior.head(4) = uq.to_quaternion_vector();
-    x_prior(4) = z_measurement(0);
-    x_prior(5) = z_measurement(1);
-    x_prior(6) = z_measurement(2);
-    P_prior.topLeftCorner(7,7) = P.topLeftCorner(7,7);
+    x_prior(4) = x_hat(4);
+    x_prior(5) = x_hat(5);
+    x_prior(6) = x_hat(6);
+    x_prior(7) = x_hat(7);
+    x_prior(8) = x_hat(8);
+    // x_prior(7) = x_prior(7) + dx;
+    // x_prior(8) = x_prior(8) + dy;
+    P_prior.topLeftCorner(9,9) = P.topLeftCorner(9,9);
 
     // Pass the transformed sigmas into measurement function
+    Z_sigma.setZero();
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
     {
             /***
@@ -657,17 +691,18 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
         // Inverse: {B} to {0}
         UnitQuaternion invq = attitude.inverse();
 
+        // Gyroscope
+        Eigen::VectorXd gyro_pred(3);
+        gyro_pred << X_sigma.col(i)(4), X_sigma.col(i)(5), X_sigma.col(i)(6);
+        
         // Accelerometer
         Eigen::VectorXd acc_pred = invq.vector_rotation_by_quaternion(g0);
 
         // Magnetomer
         Eigen::VectorXd mag_pred = invq.vector_rotation_by_quaternion(m0);
 
-        // Gyroscope
-        Eigen::VectorXd gyro_pred(3);
-        gyro_pred << X_sigma.col(i)(4), X_sigma.col(i)(5), X_sigma.col(i)(6);
 
-        Z_sigma.col(i) << gyro_pred, acc_pred, mag_pred, Z_sigma.col(i)(9), Z_sigma.col(i)(10), Z_sigma.col(i)(11), Z_sigma.col(i)(12), Z_sigma.col(i)(13); // test behaviour for last two values
+        Z_sigma.col(i) << gyro_pred, acc_pred, mag_pred, Z_sigma(9), Z_sigma(10), Z_sigma(11), Z_sigma(12), Z_sigma(13); // test behaviour for last two values
     }
 
     std::tie(z, S) = unscented_transform(Z_sigma,
@@ -675,7 +710,7 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
         sigma_points.Wc,
         R);
 
-    z_prior.head(9) = z.head(9);
+    z_prior = z;
     S_prior.topLeftCorner(9,9) = S.topLeftCorner(9,9);
 
     	/***
@@ -688,30 +723,67 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
                     	z_measurement: Sensor measurements from gyroscope, accelerometer and magnetometer
                         	***/
 
-	    // Compute cross covariance
-	    Eigen::MatrixXd T = Eigen::MatrixXd::Zero(x_dim, z_dim);
-        for (int i = 0; i < sigma_points.num_sigma_points; i++)
-        {
-	    	T = T + sigma_points.Wc(i) * (X_sigma.col(i) - x_prior) * (Z_sigma.col(i) - z_prior).transpose();
-	    }
+    // Compute cross covariance
+    Eigen::MatrixXd T = Eigen::MatrixXd::Zero(x_dim, z_dim);
+    for (int i = 0; i < sigma_points.num_sigma_points; i++)
+    {
+    	T = T + sigma_points.Wc(i) * (X_sigma.col(i) - x_prior) * (Z_sigma.col(i) - z_prior).transpose();
+    }
 
-	    // Compute Kalman gain
-	    Eigen::MatrixXd K = T * S.inverse();
+    // Compute Kalman gain
+    Eigen::MatrixXd K = T * S.inverse();
 
-	    // Update state estimate
-            x_hat = x_hat + K * (z_measurement - z_prior); // x_hat is defined in constructor for as a temp vector (overwriting x_post)
+    // Update state estimate
+    // std::cout<<"x_hat BEFORE " <<endl <<x_hat<<endl;
+    // std::cout<<endl;
+    //std::cout<<z_measurement.head(9)<<endl<<endl<<z_prior.head(9)<<endl;
+    Eigen::VectorXd innovation = z_measurement - z_prior;
+    Eigen::VectorXd state_update = K * innovation;
+    // state_update(7) = 0;
+    // state_update(8) = 0;
+    x_hat += state_update;
 
-            // Update covariance
-            P = P_prior - K * S_prior * K.transpose();
+    // Update covariance
+    P = P_prior - K * S_prior * K.transpose();
 
-            // Save posterior
-            x_post.head(4) = x_hat.head(4);
-            x_post(4) = z_measurement(0);
-            x_post(5) = z_measurement(1);
-            x_post(6) = z_measurement(2);
-            x_post(7) = x_hat(7);
-            x_post(8) = x_hat(8);
-            P_post= P;
+    UnitQuaternion uq_hat(x_hat(0), x_hat(1), x_hat(2), x_hat(3));
+    uq_hat.normalize();
+    x_hat.head(4) = uq_hat.to_quaternion_vector();
+
+    // Save posterior
+    x_post.head(4) = x_hat.head(4);
+    x_post(4) = x_hat(4);
+    x_post(5) = x_hat(5);
+    x_post(6) = x_hat(6);
+    x_post(7) = x_hat(7);
+    x_post(8) = x_hat(8);
+    //std::cout<<"x_hat AFTER " <<endl <<x_hat<<endl;
+    std::cout<<endl;
+    // x_post(7) = x_hat(7);
+    // x_post(8) = x_hat(8);
+    P_post= P;
+
+    std::cout<<"Quat" <<endl;
+    std::cout<<x_post(0)<<endl;
+    std::cout<<x_post(1)<<endl;
+    std::cout<<x_post(2)<<endl;
+    std::cout<<x_post(3)<<endl;
+    std::cout<<"Angular velocity" <<endl;
+    std::cout<<x_post(4)<<endl;
+    std::cout<<x_post(5)<<endl;
+    std::cout<<x_post(6)<<endl;
+    std::cout<<"postion X,Y" <<endl;
+    std::cout<<x_post(7)<<endl;
+    std::cout<<x_post(8)<<endl;
+
+    x_prior = x_post;
+    P_prior = P_post;
+            
+    double roll, pitch, yaw;
+    tf2::Quaternion quat (x_post(1), x_post(2), x_post(3), x_post(0));
+    tf2::Matrix3x3 m(quat);
+    m.getRPY(roll, pitch, yaw);
+    std::cout<<"YAW IS:   "<< yaw<<endl;
 }
 
 void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)

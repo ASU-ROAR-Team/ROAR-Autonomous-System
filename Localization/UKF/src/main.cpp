@@ -12,6 +12,7 @@
 #include "roar_msgs/LandmarkArray.h"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
+#include <sensor_msgs/MagneticField.h>
 
 using namespace std;
 
@@ -34,9 +35,9 @@ bool new_measurement_received = false; // Flag for new measurement
 bool initial_measurement = true; // Flag for initial measurement
 double lat0 = 0.0; // Initial latitude
 double lon0 = 0.0; // Initial longitude
-double yaw = 0.0;
-double pitch = 0.0; 
 double roll = 0.0;
+double pitch = 0.0; 
+double yaw = 0.0;
 vector<roar_msgs::Landmark> ROVlandmarks;
 
 // Initialize Sigma Points and UKF
@@ -49,7 +50,7 @@ ros::Subscriber imu_sub; // IMU subscriber
 ros::Subscriber gps_sub; // GPS subscriber
 ros::Subscriber trueLandmarkSub; // Landmarks true position subscriber
 ros::Subscriber landmarkSub; // Landmark subscriber
-
+ros::Subscriber mag_sub; // Magnetometer subscriber
 
 // Define ROS publisher
 ros::Publisher state_publisher; // State publisher
@@ -82,12 +83,12 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
     encoder_measurement[0] = (msg->position[1] - encoder_prev_measurement[0]) / dt_encoder;
     encoder_measurement[1] = (msg->position[4] - encoder_prev_measurement[1]) / dt_encoder;
 
-    std::cout << "msg->position[1]: " << msg->position[1] << endl;
-    std::cout << "encoder_prev_lef: " << encoder_prev_measurement[0] << endl;
-    std::cout << "dt_encoder" << dt_encoder << endl;
-    std::cout << "Wl: " << encoder_measurement[0] << std::endl;
-    std::cout << "Wr: " << encoder_measurement[1] << std::endl;
-    std::cout << "*******************************************************************" << std::endl;
+    // std::cout << "msg->position[1]: " << msg->position[1] << endl;
+    // std::cout << "encoder_prev_lef: " << encoder_prev_measurement[0] << endl;
+    // std::cout << "dt_encoder" << dt_encoder << endl;
+    // std::cout << "Wl: " << encoder_measurement[0] << std::endl;
+    // std::cout << "Wr: " << encoder_measurement[1] << std::endl;
+    // std::cout << "*******************************************************************" << std::endl;
     
     // Call UKF encoder callback function
     ukf.encoder_callback(encoder_measurement, dt_encoder,yaw);
@@ -157,6 +158,7 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 // Callback function for IMU data
 void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
+    std::cout << "IMU" << endl;
     // yaw = msg->orientation.z;
     // yaw = yaw * PI / 180.0;
     if (imu_prev_time_stamp.isZero()) 
@@ -181,9 +183,16 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     z_measurement[4] = msg->linear_acceleration.y;
     z_measurement[5] = msg->linear_acceleration.z;
 
+    if (encoder_prev_time_stamp.isZero()) 
+        {
+            imu_prev_time_stamp = imu_current_time_stamp; // Initialize encoder_prev_time_stamp
+            std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+            return;
+        }
     ukf.imu_callback(encoder_measurement, z_measurement, dt_imu); //////////need to be fixed
     imu_prev_time_stamp = imu_current_time_stamp;
 
+    //std::cout<<"Z_measurement is:    "<<endl<<z_measurement<<"END Z_measurement!!!!!!!!!!"<<endl<<endl;
     // Publish state message
     state_msg.pose.pose.orientation.x = ukf.x_post[0];
     state_msg.pose.pose.orientation.y = ukf.x_post[1];
@@ -300,8 +309,16 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 
         state_publisher.publish(state_msg);
     }
+}
+
+void magnetometerCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
+{
+    z_measurement[6] = msg->vector.x;
+    z_measurement[7] = msg->vector.y;
+    z_measurement[8] = msg->vector.z;
 
 }
+
 
 // Main function
 int main(int argc, char **argv) 
@@ -309,14 +326,15 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "ukf_localization"); // Initialize ROS node
     ros::NodeHandle nh; // Create ROS node handle
     
+    mag_sub = nh.subscribe("/magnetometer", 100000000, magnetometerCallback);
     // Initialize ROS subscribers
-    gps_sub = nh.subscribe("/gps", 100000000, gpsCallback);
-    //imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
+    //gps_sub = nh.subscribe("/gps", 100000000, gpsCallback);
+    imu_sub = nh.subscribe("/imu", 100000000, imuCallback);
     encoder_sub = nh.subscribe("/joint_states", 100000000, encoderCallback);
     
   
-    trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
-    landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
+    //trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
+    //landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
 
     // Initialize ROS publisher
     state_publisher = nh.advertise<nav_msgs::Odometry>("/filtered_state", 1000);
