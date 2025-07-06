@@ -95,7 +95,7 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         */
         
         // Call UKF encoder callback function
-        ukf.encoder_callback(encoder_measurement, dt_encoder,yaw);
+        ukf.encoder_callback(encoder_measurement, dt_encoder, yaw);
         // Update encoder_prev_time_stamp
         encoder_prev_time_stamp = encoder_current_time_stamp;
 
@@ -113,6 +113,16 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         state_msg.pose.pose.position.x = ukf.x_post[7];
         state_msg.pose.pose.position.y = ukf.x_post[8];
 
+        state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+        state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+        state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+        state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+        state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
+        state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
+        state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
+        state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
+        
+
         
         state_publisher.publish(state_msg);
     }
@@ -123,7 +133,6 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
 // Callback function for GPS data
 void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 {
-    std::cout << "GPS UPDATE" << endl;
     nav_msgs::Odometry state_msg;
 
     if (initial_measurement == true)
@@ -155,6 +164,12 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
     state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
     state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+    state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
+    state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
+    state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
+    state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
+
+    state_msg.pose.covariance[35] = 1; //Used to update the plotter only
 
     state_publisher.publish(state_msg);
     
@@ -214,9 +229,10 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
     nav_msgs::Odometry state_msg;
 
-    tf2::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf2::Quaternion quat (msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
     tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
+
     // (yaw = msg->orientation.z;)
     // yaw = yaw * PI / 180.0;
     // pitch = msg->orientation.y; //????????????
@@ -245,6 +261,10 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
     state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
     state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
+    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
 
     state_publisher.publish(state_msg);
 }
@@ -340,9 +360,9 @@ int main(int argc, char **argv)
     ros::NodeHandle nh; // Create ROS node handle
     
     // Initialize ROS subscribers
-    //gps_sub = nh.subscribe("/gps", 100000000, gpsCallback);
-    //imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
-    //encoder_sub = nh.subscribe("/joint_states", 100000000, encoderCallback);
+    gps_sub = nh.subscribe("/gps", 100000000, gpsCallback);
+    imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
+    encoder_sub = nh.subscribe("/joint_states", 100000000, encoderCallback);
     
   
     trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
