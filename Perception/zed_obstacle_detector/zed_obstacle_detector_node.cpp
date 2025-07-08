@@ -44,7 +44,7 @@ ros::Publisher pub_markers;        // Tracked obstacle markers in world frame
 // TF
 std::shared_ptr<tf2_ros::Buffer> tf_buffer_ptr;
 std::shared_ptr<tf2_ros::TransformListener> tf_listener_ptr;
-std::string base_link_frame_; 
+std::string camera_frame_; 
 std::string world_frame_param_; 
 
 // Parameters (initialized in main)
@@ -80,6 +80,8 @@ double timing_report_interval_;
 // PERFORMANCE IMPROVEMENT #5: TF timeout optimization
 double tf_lookup_timeout_;
 double tf_buffer_duration_;
+
+bool enable_world_transform_;
 // --- End Global Variables ---
 
 // --- Tracking Data Structures ---
@@ -161,12 +163,8 @@ inline double deg2rad(double degrees) {
 
 void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 {
-    ProcessingTiming timing;
-    timing.start_total = std::chrono::high_resolution_clock::now();    
+    auto start_total = std::chrono::high_resolution_clock::now();    
     ROS_INFO_THROTTLE(5.0, "Received point cloud. Processing for obstacle tracking...");
-    
-    // --- Input Validation ---
-    timing.start_input_validation = std::chrono::high_resolution_clock::now();
     
     if (!tf_buffer_ptr || !tf_listener_ptr) {
         ROS_ERROR_THROTTLE(1.0, "TF buffer or listener not initialized!");
@@ -180,18 +178,8 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         ROS_WARN_THROTTLE(1.0, "Input PCL cloud is empty!");
         return;
     }
-    
-    // PERFORMANCE IMPROVEMENT #3: Early exit if cloud is too small
-    if (enable_early_exit_ && cloud_input_pcl->size() < min_points_for_processing_) {
-        ROS_DEBUG_THROTTLE(5.0, "Cloud too small (%zu points), skipping processing", cloud_input_pcl->size());
-        return;
-    }
-    
-    timing.end_input_validation = std::chrono::high_resolution_clock::now();
 
-    // --- 1. PassThrough filter (in original camera frame) ---
-    timing.start_passthrough = std::chrono::high_resolution_clock::now();
-    
+    // 1. PassThrough filter (in original camera frame)
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_passthrough(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PassThrough<pcl::PointXYZ> pass;
     pass.setInputCloud(cloud_input_pcl);
@@ -204,23 +192,16 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         return;
     }
     
-    timing.end_passthrough = std::chrono::high_resolution_clock::now();
-    
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_processed_camera_frame = cloud_passthrough;
 
-    // --- 2. Optional Uniform Downsampling (in original camera frame) ---
-    // PERFORMANCE IMPROVEMENT #1: Disabled by default - redundant with voxel grid
+    // 2. Optional Uniform Downsampling (in original camera frame)
     if (enable_uniform_downsampling_) {
-        timing.start_uniform_sampling = std::chrono::high_resolution_clock::now();
-        
         pcl::UniformSampling<pcl::PointXYZ> uniform;
         uniform.setInputCloud(cloud_passthrough); 
         uniform.setRadiusSearch(uniform_sampling_radius_);
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_uniform(new pcl::PointCloud<pcl::PointXYZ>);
         uniform.filter(*cloud_uniform);
         cloud_processed_camera_frame = cloud_uniform; 
-        
-        timing.end_uniform_sampling = std::chrono::high_resolution_clock::now();
     }
 
     if (cloud_processed_camera_frame->empty()) {
@@ -228,71 +209,37 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         return;
     }
 
-    // --- 3. VoxelGrid downsampling (in original camera frame) ---
-    timing.start_voxel_grid = std::chrono::high_resolution_clock::now();
-    
+    // 3. VoxelGrid downsampling (in original camera frame)
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_downsampled_camera_frame(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::VoxelGrid<pcl::PointXYZ> voxel;
     voxel.setInputCloud(cloud_processed_camera_frame);
-    
-    // PERFORMANCE IMPROVEMENT #3: Aggressive downsampling for very large clouds
-    double current_voxel_size = voxel_leaf_size_;
-    if (enable_early_exit_ && cloud_processed_camera_frame->size() > max_points_for_processing_) {
-        current_voxel_size = voxel_leaf_size_ * 2.0; // Double the voxel size for very large clouds
-        ROS_DEBUG_THROTTLE(5.0, "Large cloud detected (%zu points), using aggressive downsampling (voxel size: %.3f)", 
-                          cloud_processed_camera_frame->size(), current_voxel_size);
-    }
-    
-    voxel.setLeafSize(current_voxel_size, current_voxel_size, current_voxel_size);
+    voxel.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, voxel_leaf_size_);
     voxel.filter(*cloud_downsampled_camera_frame);
 
     if (cloud_downsampled_camera_frame->empty()) {
         ROS_WARN_THROTTLE(1.0, "Cloud empty after VoxelGrid (camera frame)!");
         return;
     }
-    
-    timing.end_voxel_grid = std::chrono::high_resolution_clock::now();
 
-    // --- 4. Transform PointCloud to base_link_frame_ ---
-    timing.start_transform = std::chrono::high_resolution_clock::now();
+    // 4. Skip transformation - work directly in camera frame
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_for_processing = cloud_downsampled_camera_frame;
     
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZ>);
-    if (base_link_frame_.empty()) {
-        ROS_ERROR_THROTTLE(1.0, "Target base_link_frame is not set!");
-        return;
-    }
-    if (input->header.frame_id != base_link_frame_) {
-        if (!pcl_ros::transformPointCloud(base_link_frame_, *cloud_downsampled_camera_frame, *cloud_transformed, *tf_buffer_ptr)) {
-            ROS_ERROR_THROTTLE(1.0, "Failed to transform point cloud from %s to %s. TF lookup error.",
-                    input->header.frame_id.c_str(), base_link_frame_.c_str());
-            return;
-        }
-    } else {
-        cloud_transformed = cloud_downsampled_camera_frame; 
-    }
-    
-    if (cloud_transformed->empty()) {
-        ROS_WARN_THROTTLE(1.0, "Transformed cloud (to %s) is empty!", base_link_frame_.c_str());
+    if (cloud_for_processing->empty()) {
+        ROS_WARN_THROTTLE(1.0, "Cloud for processing is empty!");
         return;
     }
     
-    timing.end_transform = std::chrono::high_resolution_clock::now();
-    
-    // PERFORMANCE IMPROVEMENT #4: Conditional debug publishing
-    if (enable_debug_publishers_) {
-        sensor_msgs::PointCloud2 output_filtered_transformed_msg;
-        pcl::toROSMsg(*cloud_transformed, output_filtered_transformed_msg);
-        output_filtered_transformed_msg.header.stamp = input->header.stamp;
-        output_filtered_transformed_msg.header.frame_id = base_link_frame_;
-        pub_filtered_transformed.publish(output_filtered_transformed_msg);
-    }
+    // Debug publishing of filtered cloud
+    sensor_msgs::PointCloud2 output_filtered_transformed_msg;
+    pcl::toROSMsg(*cloud_for_processing, output_filtered_transformed_msg);
+    output_filtered_transformed_msg.header.stamp = input->header.stamp;
+    output_filtered_transformed_msg.header.frame_id = input->header.frame_id; // Use original camera frame
+    pub_filtered_transformed.publish(output_filtered_transformed_msg);
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_for_clustering = cloud_transformed;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_for_clustering = cloud_for_processing;
 
-    // --- 5. Ground Filtering ---
+    // 5. Ground Filtering (in camera frame)
     if (enable_ground_filtering_) {
-        timing.start_ground_filter = std::chrono::high_resolution_clock::now();
-        
         pcl::SACSegmentation<pcl::PointXYZ> seg;
         seg.setOptimizeCoefficients(true);
         seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE); 
@@ -304,37 +251,29 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
         pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
         pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-        seg.setInputCloud(cloud_transformed); 
+        seg.setInputCloud(cloud_for_processing); 
         seg.segment(*inliers, *coefficients);
 
         if (!inliers->indices.empty()) {
             pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_no_ground_ptr(new pcl::PointCloud<pcl::PointXYZ>);
             pcl::ExtractIndices<pcl::PointXYZ> extract;
-            extract.setInputCloud(cloud_transformed);
+            extract.setInputCloud(cloud_for_processing);
             extract.setIndices(inliers);
             extract.setNegative(true); 
             extract.filter(*cloud_no_ground_ptr);
 
             if (!cloud_no_ground_ptr->empty()) {
                 cloud_for_clustering = cloud_no_ground_ptr;
-                
-                // PERFORMANCE IMPROVEMENT #4: Conditional debug publishing
-                if (enable_debug_publishers_) {
-                    sensor_msgs::PointCloud2 output_no_ground_msg;
-                    pcl::toROSMsg(*cloud_for_clustering, output_no_ground_msg);
-                    output_no_ground_msg.header.stamp = input->header.stamp;
-                    output_no_ground_msg.header.frame_id = base_link_frame_;
-                    pub_no_ground.publish(output_no_ground_msg);
-                }
+                sensor_msgs::PointCloud2 output_no_ground_msg;
+                pcl::toROSMsg(*cloud_for_clustering, output_no_ground_msg);
+                output_no_ground_msg.header.stamp = input->header.stamp;
+                output_no_ground_msg.header.frame_id = input->header.frame_id; // Use original camera frame
+                pub_no_ground.publish(output_no_ground_msg);
             }
         }
-        
-        timing.end_ground_filter = std::chrono::high_resolution_clock::now();
     }
     
-    // --- 6. Clustering ---
-    timing.start_clustering = std::chrono::high_resolution_clock::now();
-    
+    // --- Tracking Logic ---
     ros::Time current_scan_time = input->header.stamp;
 
     for (auto& obs : tracked_obstacles_list_) {
@@ -357,11 +296,8 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         ec.extract(cluster_indices_vec);
 
         if (!cluster_indices_vec.empty()) {
-            ROS_DEBUG("Found %ld raw clusters in %s.", cluster_indices_vec.size(), base_link_frame_.c_str());
+            ROS_DEBUG("Found %ld raw clusters in camera frame.", cluster_indices_vec.size());
             pcl::PointCloud<pcl::PointXYZRGB>::Ptr clustered_cloud_rgb_debug(new pcl::PointCloud<pcl::PointXYZRGB>);
-
-            // --- 7. World Coordinate Transformation ---
-            timing.start_world_transform = std::chrono::high_resolution_clock::now();
 
             for (size_t i = 0; i < cluster_indices_vec.size(); ++i) {
                 pcl::PointCloud<pcl::PointXYZ> current_cluster_cloud;
@@ -383,62 +319,60 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
                 }
                 if (current_cluster_cloud.empty()) continue;
 
-                Eigen::Vector4f centroid_base_link_eigen;
-                pcl::compute3DCentroid(current_cluster_cloud, centroid_base_link_eigen);
+                Eigen::Vector4f centroid_camera_eigen;
+                pcl::compute3DCentroid(current_cluster_cloud, centroid_camera_eigen);
 
                 float max_radius_sq = 0.0f;
-                pcl::PointXYZ centroid_base_link_pcl(centroid_base_link_eigen[0], centroid_base_link_eigen[1], centroid_base_link_eigen[2]);
+                pcl::PointXYZ centroid_camera_pcl(centroid_camera_eigen[0], centroid_camera_eigen[1], centroid_camera_eigen[2]);
                 for (const auto& point : current_cluster_cloud) {
-                    float dist_sq = pcl::geometry::squaredDistance(point, centroid_base_link_pcl);
+                    float dist_sq = pcl::geometry::squaredDistance(point, centroid_camera_pcl);
                     if (dist_sq > max_radius_sq) {
                         max_radius_sq = dist_sq;
                     }
                 }
-                float cluster_radius_base = std::sqrt(max_radius_sq);
+                float cluster_radius_camera = std::sqrt(max_radius_sq);
 
-                geometry_msgs::PointStamped pt_base_link;
-                pt_base_link.header.frame_id = base_link_frame_;
-                pt_base_link.header.stamp = current_scan_time;
-                pt_base_link.point.x = centroid_base_link_eigen[0];
-                pt_base_link.point.y = centroid_base_link_eigen[1];
-                pt_base_link.point.z = centroid_base_link_eigen[2];
+                if (enable_world_transform_) {
+                    geometry_msgs::PointStamped pt_camera;
+                    pt_camera.header.frame_id = input->header.frame_id; // Use original camera frame
+                    pt_camera.header.stamp = current_scan_time;
+                    pt_camera.point.x = centroid_camera_eigen[0];
+                    pt_camera.point.y = centroid_camera_eigen[1];
+                    pt_camera.point.z = centroid_camera_eigen[2];
 
-                geometry_msgs::PointStamped pt_world;
-                try {
-                    // PERFORMANCE IMPROVEMENT #5: Use configurable TF timeout
-                    tf_buffer_ptr->transform(pt_base_link, pt_world, world_frame_param_, ros::Duration(tf_lookup_timeout_));
-                    current_world_detections.push_back({pt_world.point, cluster_radius_base});
-                } catch (tf2::TransformException &ex) {
-                    ROS_WARN_THROTTLE(1.0, "TF transform failed for new cluster: %s. From %s to %s. Skipping. Stamp: %.3f, Target Time: %.3f",
-                                      ex.what(), base_link_frame_.c_str(), world_frame_param_.c_str(), pt_base_link.header.stamp.toSec(), ros::Time(0).toSec());
-                    continue;
+                    geometry_msgs::PointStamped pt_world;
+                    try {
+                        tf_buffer_ptr->transform(pt_camera, pt_world, world_frame_param_, ros::Duration(0.1)); // Shorter timeout
+                        current_world_detections.push_back({pt_world.point, cluster_radius_camera});
+                    } catch (tf2::TransformException &ex) {
+                        ROS_WARN_THROTTLE(1.0, "TF transform failed for new cluster: %s. From %s to %s. Skipping. Stamp: %.3f, Target Time: %.3f",
+                                          ex.what(), input->header.frame_id.c_str(), world_frame_param_.c_str(), pt_camera.header.stamp.toSec(), ros::Time(0).toSec());
+                        continue;
+                    }
+                } else {
+                    geometry_msgs::Point centroid_point;
+                    centroid_point.x = centroid_camera_eigen[0];
+                    centroid_point.y = centroid_camera_eigen[1];
+                    centroid_point.z = centroid_camera_eigen[2];
+                    current_world_detections.push_back({centroid_point, cluster_radius_camera});
                 }
             }
-            
-            timing.end_world_transform = std::chrono::high_resolution_clock::now();
-            
-            // PERFORMANCE IMPROVEMENT #4: Conditional debug publishing
-            if (enable_debug_publishers_ && !clustered_cloud_rgb_debug->points.empty()) {
+             if(!clustered_cloud_rgb_debug->points.empty()){
                 clustered_cloud_rgb_debug->width = clustered_cloud_rgb_debug->points.size();
                 clustered_cloud_rgb_debug->height = 1;
                 clustered_cloud_rgb_debug->is_dense = true;
                 sensor_msgs::PointCloud2 output_clusters_debug_msg;
                 pcl::toROSMsg(*clustered_cloud_rgb_debug, output_clusters_debug_msg);
                 output_clusters_debug_msg.header.stamp = input->header.stamp;
-                output_clusters_debug_msg.header.frame_id = base_link_frame_; 
+                output_clusters_debug_msg.header.frame_id = input->header.frame_id; // Use original camera frame
                 pub_clusters_debug.publish(output_clusters_debug_msg);
             }
         } else {
-             ROS_INFO_THROTTLE(2.0, "No raw clusters found in %s.", base_link_frame_.c_str());
+             ROS_INFO_THROTTLE(2.0, "No raw clusters found in camera frame.");
         }
     } else {
-         ROS_WARN_THROTTLE(1.0, "Cloud for clustering (in %s) is empty!", base_link_frame_.c_str());
+         ROS_WARN_THROTTLE(1.0, "Cloud for clustering is empty!");
     }
-    
-    timing.end_clustering = std::chrono::high_resolution_clock::now();
-
-    // --- 8. Tracking Logic ---
-    timing.start_tracking = std::chrono::high_resolution_clock::now();
 
     for (const auto& detection_pair : current_world_detections) {
         const geometry_msgs::Point& detected_centroid_world = detection_pair.first;
@@ -500,19 +434,14 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
                              });
     tracked_obstacles_list_.erase(it, tracked_obstacles_list_.end());
 
-    timing.end_tracking = std::chrono::high_resolution_clock::now();
-
-    // --- 9. Output ---
-    timing.start_output = std::chrono::high_resolution_clock::now();
-
     roar_msgs::ObstacleArray world_obstacle_array_msg;
     world_obstacle_array_msg.header.stamp = current_scan_time;
-    world_obstacle_array_msg.header.frame_id = world_frame_param_;
+    world_obstacle_array_msg.header.frame_id = enable_world_transform_ ? world_frame_param_ : camera_frame_;
 
     visualization_msgs::MarkerArray world_markers_array;
     visualization_msgs::Marker deleteAllMarker;
     deleteAllMarker.header.stamp = ros::Time::now(); 
-    deleteAllMarker.header.frame_id = world_frame_param_;
+    deleteAllMarker.header.frame_id = enable_world_transform_ ? world_frame_param_ : camera_frame_;
     deleteAllMarker.ns = "tracked_world_obstacles"; 
     deleteAllMarker.id = 0; 
     deleteAllMarker.action = visualization_msgs::Marker::DELETEALL;
@@ -522,11 +451,11 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
         if (tracked_obs.confirmed) {
             roar_msgs::Obstacle obs_msg;
             obs_msg.header.stamp = tracked_obs.last_seen; 
-            obs_msg.header.frame_id = world_frame_param_;
+            obs_msg.header.frame_id = enable_world_transform_ ? world_frame_param_ : camera_frame_;
             obs_msg.id.data = tracked_obs.id;
 
             obs_msg.position.header.stamp = tracked_obs.last_seen; 
-            obs_msg.position.header.frame_id = world_frame_param_;
+            obs_msg.position.header.frame_id = enable_world_transform_ ? world_frame_param_ : camera_frame_;
             obs_msg.position.pose.position = tracked_obs.position_world;
             obs_msg.position.pose.orientation.w = 1.0; 
 
@@ -535,7 +464,7 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
             visualization_msgs::Marker marker;
             marker.header.stamp = ros::Time::now(); 
-            marker.header.frame_id = world_frame_param_;
+            marker.header.frame_id = enable_world_transform_ ? world_frame_param_ : camera_frame_;
             marker.ns = "tracked_world_obstacles";
             marker.id = tracked_obs.id; 
             marker.type = visualization_msgs::Marker::SPHERE;
@@ -553,42 +482,12 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     pub_obstacle_array.publish(world_obstacle_array_msg);
     pub_markers.publish(world_markers_array);
 
-    timing.end_output = std::chrono::high_resolution_clock::now();
 
-    // --- 10. Print Timing ---
-    // PERFORMANCE IMPROVEMENT #4: Conditional detailed timing output
-    if (enable_detailed_timing_) {
-        ROS_INFO_THROTTLE(timing_report_interval_, 
-            "=== DETAILED TIMING BREAKDOWN ===\n"
-            "Input Validation: %ld ms\n"
-            "Passthrough: %ld ms\n"
-            "Uniform Sampling: %ld ms\n"
-            "Voxel Grid: %ld ms\n"
-            "Transform: %ld ms\n"
-            "Ground Filter: %ld ms\n"
-            "Clustering: %ld ms\n"
-            "World Transform: %ld ms\n"
-            "Tracking: %ld ms\n"
-            "Output: %ld ms",
-            ProcessingTiming::getDurationMs(timing.start_input_validation, timing.end_input_validation),
-            ProcessingTiming::getDurationMs(timing.start_passthrough, timing.end_passthrough),
-            ProcessingTiming::getDurationMs(timing.start_uniform_sampling, timing.end_uniform_sampling),   
-            ProcessingTiming::getDurationMs(timing.start_voxel_grid, timing.end_voxel_grid),
-            ProcessingTiming::getDurationMs(timing.start_transform, timing.end_transform),
-            ProcessingTiming::getDurationMs(timing.start_ground_filter, timing.end_ground_filter),
-            ProcessingTiming::getDurationMs(timing.start_clustering, timing.end_clustering),
-            ProcessingTiming::getDurationMs(timing.start_world_transform, timing.end_world_transform),
-            ProcessingTiming::getDurationMs(timing.start_tracking, timing.end_tracking),
-            ProcessingTiming::getDurationMs(timing.start_output, timing.end_output));
-    }
-    
-    timing.end_total = std::chrono::high_resolution_clock::now();
-    long total_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timing.end_total - timing.start_total).count();
-    
-    ROS_INFO_THROTTLE(1.0, "Total processing time: %ld ms | Confirmed obstacles: %zu | Frame: %s | Input points: %zu",
-             total_time_ms, world_obstacle_array_msg.obstacles.size(), world_frame_param_.c_str(), cloud_input_pcl->size());
+    auto end_total = std::chrono::high_resolution_clock::now();
+    ROS_INFO_THROTTLE(1.0, "Total processing & tracking time: %ld ms. Tracked Confirmed Obstacles: %zu. Output Frame: %s",
+             std::chrono::duration_cast<std::chrono::milliseconds>(end_total - start_total).count(),
+             world_obstacle_array_msg.obstacles.size(), (enable_world_transform_ ? world_frame_param_.c_str() : camera_frame_.c_str()));
 }
-
 
 int main(int argc, char** argv)
 {
@@ -602,8 +501,8 @@ int main(int argc, char** argv)
     tf_listener_ptr = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_ptr);
 
     std::string point_cloud_topic;
-    private_nh.param<std::string>("point_cloud_topic", point_cloud_topic, "/camera/depth/points");
-    private_nh.param<std::string>("base_link_frame", base_link_frame_, "base_link");
+    private_nh.param<std::string>("point_cloud_topic", point_cloud_topic, "/zed2i/zed_node/point_cloud/cloud_registered");
+    private_nh.param<std::string>("camera_frame", camera_frame_, "zed2i_left_camera_frame");
     private_nh.param<std::string>("world_frame", world_frame_param_, "world");
 
     private_nh.param("passthrough_z_min_camera", passthrough_z_min_camera_, 0.2); 
@@ -642,32 +541,30 @@ int main(int argc, char** argv)
     private_nh.param("tf_lookup_timeout", tf_lookup_timeout_, 0.1);
     private_nh.param("tf_buffer_duration", tf_buffer_duration_, 10.0);
 
-    ROS_INFO("--- Obstacle Detector Configuration ---");
+    private_nh.param("enable_world_transform", enable_world_transform_, true);
+
+    ROS_INFO("--- Obstacle Detector Configuration (Rosbag Mode) ---");
     ROS_INFO("Input Point Cloud Topic: %s", point_cloud_topic.c_str());
-    ROS_INFO("Base Link Frame (processing): %s", base_link_frame_.c_str());
+    ROS_INFO("Camera Frame (processing): %s", camera_frame_.c_str());
     ROS_INFO("World Frame (tracking & output): %s", world_frame_param_.c_str());
     ROS_INFO("Camera Frame PassThrough Z limits: [%.2f, %.2f] m", passthrough_z_min_camera_, passthrough_z_max_camera_);
     ROS_INFO("Uniform Downsampling: %s, Radius: %.3f m", enable_uniform_downsampling_ ? "Enabled" : "Disabled", uniform_sampling_radius_);
     ROS_INFO("Voxel Leaf Size: %.3f m", voxel_leaf_size_);
     ROS_INFO("Ground Filtering: %s", enable_ground_filtering_ ? "Enabled" : "Disabled");
     if (enable_ground_filtering_) {
-        ROS_INFO("  Ground Dist Thresh: %.3f m, Angle Thresh: %.2f deg (around Z-axis of %s), Max Iter: %d",
-                 ground_filter_distance_threshold_, ground_filter_angle_threshold_deg_, base_link_frame_.c_str(), ground_filter_max_iterations_);
+        ROS_INFO("  Ground Dist Thresh: %.3f m, Angle Thresh: %.2f deg (around Z-axis of camera), Max Iter: %d",
+                 ground_filter_distance_threshold_, ground_filter_angle_threshold_deg_, ground_filter_max_iterations_);
     }
     ROS_INFO("Clustering: Tol: %.2f m, MinSize: %d, MaxSize: %d",
              cluster_tolerance_, min_cluster_size_, max_cluster_size_);
     ROS_INFO("Tracking: Assoc. Dist: %.2f m (%.2f m^2), Timeout: %.1f s, Radius Smooth: %.2f, Min Confirm: %d",
              assoc_dist, param_obstacle_association_distance_sq_, param_obstacle_timeout_sec_,
              param_position_smoothing_factor_, param_min_detections_for_confirmation_);
-    ROS_INFO("Early Exit: %s, Min Points: %d, Max Points: %d",
-             enable_early_exit_ ? "Enabled" : "Disabled", min_points_for_processing_, max_points_for_processing_);
-    ROS_INFO("Detailed Timing: %s, Debug Publishers: %s, Timing Report Interval: %.1f s",
-             enable_detailed_timing_ ? "Enabled" : "Disabled", enable_debug_publishers_ ? "Enabled" : "Disabled", timing_report_interval_);
-    ROS_INFO("TF Lookup Timeout: %.1f s, TF Buffer Duration: %.1f s",
-             tf_lookup_timeout_, tf_buffer_duration_);
+    ROS_INFO("World Transform Enabled: %s", enable_world_transform_ ? "true" : "false");
+    ROS_INFO("NOTE: Working directly in camera frame - no base_link transformation");
     ROS_INFO("------------------------------------");
 
-    ros::Subscriber sub = nh.subscribe(point_cloud_topic, 1, pointCloudCallback);
+    ros::Subscriber sub = nh.subscribe("/zed2i/zed_node/point_cloud/cloud_registered", 1, pointCloudCallback);
 
     pub_filtered_transformed = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/filtered_transformed_pc", 1);
     pub_no_ground = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/pc_no_ground", 1); 
@@ -676,7 +573,7 @@ int main(int argc, char** argv)
     pub_obstacle_array = nh.advertise<roar_msgs::ObstacleArray>("/zed_obstacle/obstacle_array", 10); 
     pub_markers = nh.advertise<visualization_msgs::MarkerArray>("/zed_obstacle/markers", 10); 
 
-    ROS_INFO("Obstacle Detector with Tracking initialized. Waiting for point clouds on %s...", point_cloud_topic.c_str());
+    ROS_INFO("Obstacle Detector with Tracking initialized (Rosbag Mode). Waiting for point clouds on %s...", point_cloud_topic.c_str());
     ros::spin();
     return 0;
 }

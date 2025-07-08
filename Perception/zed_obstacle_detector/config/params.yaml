@@ -1,12 +1,15 @@
 zed_obstacle_detector:
   # Input and TF Parameters
-  point_cloud_topic: "/camera/depth/points"
-  base_link_frame: "base_link"  # Robot's main frame, Z should be UP relative to ground
-  world_frame: "world"          # Global frame for tracking and final output (or "map" if you use a map frame)
+  # point_cloud_topic: "/camera/depth/points"
+  point_cloud_topic: "/zed2i/zed_node/point_cloud/cloud_registered"
+  # base_link_frame: "base_link"  # Robot's main frame, Z should be UP relative to ground
+  # world_frame: "world"          # Global frame for tracking and final output (or "map" if you use a map frame)
+  base_link_frame: "zed2i_left_camera_frame"  # Use camera frame directly for live bag
+  world_frame: "zed2i_left_camera_frame"      # Use camera frame as world frame for live bag
   
   # Camera Frame Pre-processing
-  passthrough_z_min_camera: 0.2    # Minimum distance in camera frame (meters)
-  passthrough_z_max_camera: 7.0    # Maximum distance in camera frame (meters)
+  passthrough_z_min_camera: -0.5    # Minimum distance in camera frame (meters)
+  passthrough_z_max_camera: 2.0    # Maximum distance in camera frame (meters)
   
   # PERFORMANCE IMPROVEMENT #1: Disable uniform sampling by default (redundant with voxel grid)
   enable_uniform_downsampling: false  # Set to true if you need very aggressive downsampling

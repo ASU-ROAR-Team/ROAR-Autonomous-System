@@ -1,0 +1,46 @@
+zed_obstacle_detector:
+  # Custom Fine-Tuning Parameters for Testing
+  # These are optimized for detailed obstacle detection
+  
+  # Input and TF Parameters
+  point_cloud_topic: "/zed2i/zed_node/point_cloud/cloud_registered"
+  camera_frame: "zed2i_left_camera_frame"
+  world_frame: "world"
+  
+  # Very Fine Resolution Processing
+  passthrough_z_min_camera: 0.1      # Closer detection
+  passthrough_z_max_camera: 10.0     # Further detection
+  enable_uniform_downsampling: false
+  uniform_sampling_radius: 0.03      # Very fine uniform sampling
+  voxel_leaf_size: 0.03              # Very fine resolution (finer than debug mode)
+  
+  # Strict Ground Detection
+  enable_ground_filtering: true
+  ground_filter_distance_threshold: 0.03  # Very strict ground detection
+  ground_filter_angle_threshold_deg: 5.0  # Very strict angle
+  ground_filter_max_iterations: 300       # More iterations for accuracy
+  
+  # Tight Clustering for Small Obstacles
+  cluster_tolerance: 0.15            # Very tight clusters (tighter than debug)
+  min_cluster_size: 10               # Detect very small obstacles
+  max_cluster_size: 5000             # Smaller max size for precision
+  
+  # Conservative Tracking
+  obstacle_association_distance: 1.5     # Tighter tracking
+  obstacle_timeout_sec: 120.0            # Longer memory
+  position_smoothing_factor: 0.1         # Less smoothing for accuracy
+  min_detections_for_confirmation: 3     # More confirmations needed
+  
+  # Performance Settings
+  enable_early_exit: false               # Process everything
+  min_points_for_processing: 50          # Process even small clouds
+  max_points_for_processing: 30000       # Allow larger clouds
+  
+  # Full Debug Output
+  enable_detailed_timing: true
+  enable_debug_publishers: true
+  timing_report_interval: 5.0            # More frequent timing
+  
+  # TF Settings
+  tf_lookup_timeout: 0.2                 # More generous timeout
+  tf_buffer_duration: 15.0               # Longer buffer 

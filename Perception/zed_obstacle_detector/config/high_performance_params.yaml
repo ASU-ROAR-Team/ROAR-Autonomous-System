@@ -1,0 +1,46 @@
+zed_obstacle_detector:
+  # Custom Ultra-Fast Parameters for Real-Time Operation
+  # These are optimized for maximum speed on Jetson or low-power systems
+  
+  # Input and TF Parameters
+  point_cloud_topic: "/zed2i/zed_node/point_cloud/cloud_registered"
+  camera_frame: "zed2i_left_camera_frame"
+  world_frame: "world"
+  
+  # Ultra-Coarse Resolution Processing
+  passthrough_z_min_camera: 0.5      # Skip very close points
+  passthrough_z_max_camera: 5.0      # Limit range for speed
+  enable_uniform_downsampling: true  # Enable aggressive downsampling
+  uniform_sampling_radius: 0.15      # Very coarse uniform sampling
+  voxel_leaf_size: 0.15              # Ultra-coarse resolution (coarser than high_performance mode)
+  
+  # Minimal Ground Detection
+  enable_ground_filtering: true
+  ground_filter_distance_threshold: 0.2   # Very relaxed ground detection
+  ground_filter_angle_threshold_deg: 30.0 # Very relaxed angle
+  ground_filter_max_iterations: 50        # Fewer iterations for speed
+  
+  # Loose Clustering for Large Obstacles Only
+  cluster_tolerance: 0.6             # Very loose clusters (looser than high_performance)
+  min_cluster_size: 50               # Only large obstacles
+  max_cluster_size: 5000             # Smaller max size for speed
+  
+  # Aggressive Tracking
+  obstacle_association_distance: 0.5     # Very tight tracking
+  obstacle_timeout_sec: 10.0             # Short memory
+  position_smoothing_factor: 0.05        # Minimal smoothing
+  min_detections_for_confirmation: 1     # Confirm immediately
+  
+  # Ultra-Aggressive Performance Settings
+  enable_early_exit: true                # Exit early often
+  min_points_for_processing: 500         # Skip small clouds
+  max_points_for_processing: 5000        # Very small max clouds
+  
+  # No Debug Output for Speed
+  enable_detailed_timing: false
+  enable_debug_publishers: false
+  timing_report_interval: 120.0          # Rare timing reports
+  
+  # Fast TF Settings
+  tf_lookup_timeout: 0.01                # Very fast timeout
+  tf_buffer_duration: 1.0                # Short buffer 
