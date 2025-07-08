@@ -1,0 +1,66 @@
+{
+    "taskName": "Navigation",
+    "nodes": [
+      {
+        "nodeName": "roscan",
+        "launchCmd": "rosrun roscan node.py",
+        "heartBeat": true,
+        "params": {"update_rate": 10.0},
+        "args": ["--verbose"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+        {
+        "nodeName": "zed_wrapper",
+        "launchCmd": "roslaunch zed_wrapper zed2i.launch",
+        "heartBeat": false, 
+        "params": {"update_rate": 10.0},
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "aruco_tracking",
+        "launchCmd": "rosrun aruco_tracking node.py",
+        "heartBeat": true, 
+        "params": {"update_rate": 10.0},
+        "args": ["--verbose"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      }
+    ],
+    "controllers": [
+      {
+        "controllerName": "primary_nav",
+        "enableTopic": "/navigation/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop",
+        "requiredModules": ["talker", "listener"]
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      }
+    ]
+  }

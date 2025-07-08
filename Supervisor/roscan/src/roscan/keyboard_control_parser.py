@@ -9,7 +9,7 @@ It is used for sending control commands to test the rover via CAN bus.
 from typing import Dict, List, Optional
 from geometry_msgs.msg import Twist
 from can_msgs.msg import Frame
-from math import pi
+from math import pi,ceil
 import rospy
 
 
@@ -46,21 +46,23 @@ class KeyboardControlParser:  # pylint: disable=too-few-public-methods
             # Extract linear and angular velocities from the Twist message
             linear_velocity = msg.linear.x
             angular_velocity = msg.angular.z
-
+            max_motor_rpm = 15 
             # Convert velocities to motor RPMs using differential drive kinematics and limit to -10 to 10
-            left_motor_rpm = int((linear_velocity - angular_velocity) * 10)
-            right_motor_rpm = int((linear_velocity + angular_velocity) * 10)
-            left_motor_rpm = max(-10, min(10, left_motor_rpm))
-            right_motor_rpm = max(-10, min(10, right_motor_rpm))
+            left_motor_rpm = (linear_velocity - angular_velocity) * 10
+            right_motor_rpm = (linear_velocity + angular_velocity) * 10
+            left_motor_rpm = max(-15, min(15, left_motor_rpm))
+            right_motor_rpm = max(-15, min(15, right_motor_rpm))
+            left_motor_signal = int(ceil((left_motor_rpm + max_motor_rpm)*(127/(2*max_motor_rpm)))) # map motor rpm from -15,15 to 0,127
+            right_motor_signal = int(ceil((right_motor_rpm + max_motor_rpm)*(127/(2*max_motor_rpm)))) # map motor rpm from -15,15 to 0,127
             # Create the CAN frame data
             frame_data = [
-                int(abs(left_motor_rpm * 2**4)),
-                int(abs(left_motor_rpm * 2**4)),
-                int(abs(left_motor_rpm * 2**4)),
-                int(abs(right_motor_rpm * 2**4)),
-                int(abs(right_motor_rpm * 2**4)),
-                int(abs(right_motor_rpm * 2**4)),
-                (left_motor_rpm < 0) * 0b11100000 | (right_motor_rpm < 0) * 0b00011100,
+		right_motor_signal, 
+                right_motor_signal, 
+                right_motor_signal, 
+                left_motor_signal,
+                left_motor_signal, 
+                left_motor_signal,
+		0,
                 0,
             ]
 

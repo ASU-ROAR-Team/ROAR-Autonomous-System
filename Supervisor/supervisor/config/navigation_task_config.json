@@ -1,0 +1,46 @@
+{
+    "taskName": "navigation",
+    "nodes": [
+      {
+        "nodeName": "localization",
+        "launchCmd": "rosrun rover_localization localization_node",
+        "params": {"update_rate": 10.0, "map_frame": "map"},
+        "args": ["--verbose"],
+        "dependencies": [],
+        "critical": true,
+        "statePersistPath": "/states/last_known_pose",
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "mapping",
+        "launchCmd": "rosrun rover_mapping mapping_node",
+        "dependencies": ["localization"],
+        "resourceLimits": {
+          "maxCpu": 75.0,
+          "maxMem": 1024,
+          "timeout": 10.0
+        }
+      }
+    ],
+    "controllers": [
+      {
+        "controllerName": "primary_nav",
+        "enableTopic": "/navigation/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop",
+        "requiredModules": ["localization", "mapping"]
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      }
+    ]
+  }
