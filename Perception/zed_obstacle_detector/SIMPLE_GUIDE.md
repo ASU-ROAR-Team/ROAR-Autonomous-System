@@ -103,18 +103,18 @@ rqt_reconfigure
 - Try different clustering parameters
 - Check if ground filtering is too aggressive
 
-## File Structure
-
+## Project Structure
 ```
 zed_obstacle_detector/
 ├── launch/
 │   └── zed_camera_generic.launch    # Main launch file with performance modes
 ├── config/
 │   ├── params.yaml                  # Default parameters
-│   ├── test_params.yaml             # Ultra-fine custom settings
-│   └── high_performance_params.yaml # Ultra-fast custom settings
-├── test_parameters.sh               # Interactive testing script
-└── SIMPLE_GUIDE.md                  # This guide
+│   ├── high_performance_params.yaml # Ultra-fast parameters
+│   └── test_params.yaml             # Fine-tuning parameters
+├── src/                             # Source code modules
+├── include/                         # Header files
+└── test_parameters.sh               # Interactive parameter testing
 ```
 
 ## When to Use What

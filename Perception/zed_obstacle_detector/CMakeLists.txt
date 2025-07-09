@@ -27,7 +27,7 @@ include_directories(
 
 # Main executable with modular components
 add_executable(zed_obstacle_detector_node 
-  zed_obstacle_detector_node_new.cpp
+  zed_obstacle_detector_node.cpp
   src/ground_detector.cpp
   src/obstacle_tracker.cpp
   src/point_cloud_processor.cpp

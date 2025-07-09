@@ -14,15 +14,6 @@ roslaunch zed_obstacle_detector zed_camera_generic.launch camera_model:=zed2i pe
 roslaunch zed_obstacle_detector zed_camera_generic.launch camera_model:=zed2i performance_mode:=high_performance
 ```
 
-### Legacy Launch Files
-```bash
-# Production Mode
-roslaunch zed_obstacle_detector zed2i_real_world.launch
-
-# Debug Mode
-roslaunch zed_obstacle_detector zed2i_debug.launch
-```
-
 ## Camera Models
 
 | Camera Model | Default Frame | Topic Pattern |
@@ -51,67 +42,97 @@ roslaunch zed_obstacle_detector zed2i_debug.launch
 - `performance_mode`: debug, production, high_performance
 - `voxel_leaf_size`: Point cloud downsampling (0.05-0.12m)
 - `enable_early_exit`: Skip processing for small/large clouds
-- `enable_debug_publishers`: Enable debug point cloud topics
 
 ### Frame Configuration
-- `base_link_frame`: Robot base frame (default: base_link)
-- `world_frame`: World coordinate frame (default: world)
+- `base_link_frame`: Robot's main frame (default: base_link)
+- `world_frame`: Global tracking frame (default: world)
 
-## Output Topics
+## Real-Time Parameter Changes
 
-### Main Outputs
-- `/zed_obstacle/obstacle_array` - Detected obstacles
-- `/zed_obstacle/markers` - Visualization markers
+### Method 1: Interactive Script
+```bash
+# Terminal 2: Run the testing script
+./test_parameters.sh
+```
 
-### Debug Outputs (debug mode only)
-- `/zed_obstacle/debug/filtered_transformed_pc` - Filtered point cloud
-- `/zed_obstacle/debug/pc_no_ground` - Ground-removed point cloud
-- `/zed_obstacle/debug/raw_clusters_rgb` - Clustered point cloud
+### Method 2: Manual Commands
+```bash
+# Change voxel size
+rosparam set /zed_obstacle_detector/voxel_leaf_size 0.05
+
+# Change cluster tolerance
+rosparam set /zed_obstacle_detector/cluster_tolerance 0.25
+
+# Check current value
+rosparam get /zed_obstacle_detector/voxel_leaf_size
+```
+
+### Method 3: Load Custom Parameter Sets
+```bash
+# Load ultra-fine tuning (0.03m voxel, very strict)
+rosparam load config/test_params.yaml /zed_obstacle_detector
+
+# Load ultra-fast settings (0.15m voxel, very aggressive)
+rosparam load config/high_performance_params.yaml /zed_obstacle_detector
+```
 
 ## Common Use Cases
 
 ### Development & Testing
 ```bash
+# Debug mode with fine resolution
 roslaunch zed_obstacle_detector zed_camera_generic.launch camera_model:=zed2i performance_mode:=debug
 ```
 
 ### Real-World Deployment
 ```bash
+# Production mode with balanced performance
 roslaunch zed_obstacle_detector zed_camera_generic.launch camera_model:=zed2i performance_mode:=production
 ```
 
 ### Resource-Constrained Systems
 ```bash
+# High performance mode for Jetson or low-power systems
 roslaunch zed_obstacle_detector zed_camera_generic.launch camera_model:=zed2i performance_mode:=high_performance
 ```
 
-### Custom Configuration
+### Custom Camera Frame
 ```bash
+# Use right camera instead of left
 roslaunch zed_obstacle_detector zed_camera_generic.launch camera_model:=zed2i camera_frame:=zed2i_right_camera_frame performance_mode:=production
 ```
 
 ## Troubleshooting
 
-### TF Errors
+### Check Node Status
+```bash
+# List all parameters
+rosparam list /zed_obstacle_detector
+
+# Check node info
+rosnode info /zed_obstacle_detector
+
+# Check topics
+rostopic list | grep zed_obstacle
+```
+
+### TF Issues
 ```bash
 # Check TF tree
-rosrun tf tf_echo zed2i_left_camera_frame base_link
+rosrun tf view_frames
 
-# Verify camera frame exists
-rostopic echo /tf_static
+# Check specific transform
+rosrun tf tf_echo zed2i_left_camera_frame base_link
 ```
 
 ### Performance Issues
-- Use `high_performance` mode for Jetson
-- Increase `voxel_leaf_size` parameter
-- Enable `enable_early_exit`
+```bash
+# Monitor CPU usage
+htop
 
-### No Obstacles Detected
-- Check point cloud topic: `rostopic list | grep zed`
-- Verify camera frame matches TF tree
-- Adjust clustering parameters
+# Check memory usage
+free -h
 
-## Log Files
-- Production: `/tmp/zed_obstacle_detector_zed2i_production.log`
-- Debug: `/tmp/zed_obstacle_detector_zed2i_debug.log`
-- High Performance: `/tmp/zed_obstacle_detector_zed2i_high_performance.log` 
+# Monitor ROS topics
+rostopic hz /zed_obstacle/obstacle_array
+``` 

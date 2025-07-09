@@ -55,15 +55,6 @@ roslaunch zed_obstacle_detector zed_camera_generic.launch camera_model:=zed2 per
 roslaunch zed_obstacle_detector zed_camera_generic.launch camera_model:=zed_mini performance_mode:=debug
 ```
 
-### Legacy Launch Files
-```bash
-# Production Mode (Optimized for Jetson)
-roslaunch zed_obstacle_detector zed2i_real_world.launch
-
-# Debug Mode (Development)
-roslaunch zed_obstacle_detector zed2i_debug.launch
-```
-
 ### Performance Modes
 
 #### Debug Mode

@@ -1,8 +1,0 @@
-<launch>
-    <!-- Load parameters from YAML file -->
-    <rosparam command="load" file="$(find zed_obstacle_detector)/config/params.yaml" />
-    
-    <node pkg="zed_obstacle_detector" type="zed_obstacle_detector_node" name="zed_obstacle_detector" output="screen" respawn="false">
-        <!-- You can override specific parameters here if needed -->
-    </node>
-</launch>
