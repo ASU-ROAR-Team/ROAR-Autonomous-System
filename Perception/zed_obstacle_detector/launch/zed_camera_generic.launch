@@ -11,6 +11,9 @@
   <!-- Performance Mode -->
   <arg name="performance_mode" default="production" doc="Performance mode (production, debug, high_performance)" />
   
+  <!-- Transform Configuration -->
+  <arg name="enable_transformations" default="" doc="Override enable_transformations (true/false). If empty, uses performance mode default" />
+  
   <!-- Frame Configuration -->
   <arg name="base_link_frame" default="base_link" doc="Base link frame" />
   <arg name="world_frame" default="world" doc="World frame" />
@@ -30,25 +33,25 @@
     <param name="passthrough_z_max_camera" value="7.0" />
     
     <!-- Performance-based voxel size -->
-    <param name="voxel_leaf_size" value="0.05" if="$(eval arg('performance_mode') == 'debug')" />
+    <param name="voxel_leaf_size" value="0.06" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="voxel_leaf_size" value="0.08" if="$(eval arg('performance_mode') == 'production')" />
     <param name="voxel_leaf_size" value="0.12" if="$(eval arg('performance_mode') == 'high_performance')" />
     
     <param name="enable_uniform_downsampling" value="false" />
-    <param name="uniform_sampling_radius" value="0.05" if="$(eval arg('performance_mode') == 'debug')" />
+    <param name="uniform_sampling_radius" value="0.06" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="uniform_sampling_radius" value="0.08" if="$(eval arg('performance_mode') == 'production')" />
     <param name="uniform_sampling_radius" value="0.12" if="$(eval arg('performance_mode') == 'high_performance')" />
     
     <!-- Early exit based on performance mode -->
-    <param name="enable_early_exit" value="false" if="$(eval arg('performance_mode') == 'debug')" />
+    <param name="enable_early_exit" value="true" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="enable_early_exit" value="true" if="$(eval arg('performance_mode') == 'production')" />
     <param name="enable_early_exit" value="true" if="$(eval arg('performance_mode') == 'high_performance')" />
     
-    <param name="min_points_for_processing" value="100" if="$(eval arg('performance_mode') == 'debug')" />
+    <param name="min_points_for_processing" value="150" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="min_points_for_processing" value="200" if="$(eval arg('performance_mode') == 'production')" />
     <param name="min_points_for_processing" value="300" if="$(eval arg('performance_mode') == 'high_performance')" />
     
-    <param name="max_points_for_processing" value="20000" if="$(eval arg('performance_mode') == 'debug')" />
+    <param name="max_points_for_processing" value="15000" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="max_points_for_processing" value="15000" if="$(eval arg('performance_mode') == 'production')" />
     <param name="max_points_for_processing" value="10000" if="$(eval arg('performance_mode') == 'high_performance')" />
     
@@ -69,15 +72,15 @@
     <param name="mars_terrain_mode" value="false" />
     
     <!-- Clustering -->
-    <param name="cluster_tolerance" value="0.25" if="$(eval arg('performance_mode') == 'debug')" />
+    <param name="cluster_tolerance" value="0.3" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="cluster_tolerance" value="0.3" if="$(eval arg('performance_mode') == 'production')" />
     <param name="cluster_tolerance" value="0.4" if="$(eval arg('performance_mode') == 'high_performance')" />
     
-    <param name="min_cluster_size" value="15" if="$(eval arg('performance_mode') == 'debug')" />
+    <param name="min_cluster_size" value="18" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="min_cluster_size" value="20" if="$(eval arg('performance_mode') == 'production')" />
     <param name="min_cluster_size" value="25" if="$(eval arg('performance_mode') == 'high_performance')" />
     
-    <param name="max_cluster_size" value="10000" if="$(eval arg('performance_mode') == 'debug')" />
+    <param name="max_cluster_size" value="8000" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="max_cluster_size" value="15000" if="$(eval arg('performance_mode') == 'production')" />
     <param name="max_cluster_size" value="20000" if="$(eval arg('performance_mode') == 'high_performance')" />
     
@@ -89,6 +92,12 @@
     <param name="tf_buffer_duration" value="10.0" if="$(eval arg('performance_mode') == 'debug')" />
     <param name="tf_buffer_duration" value="5.0" if="$(eval arg('performance_mode') == 'production')" />
     <param name="tf_buffer_duration" value="3.0" if="$(eval arg('performance_mode') == 'high_performance')" />
+    
+    <!-- Enable transformations: respect command-line argument or use performance mode default -->
+    <param name="enable_transformations" value="$(arg enable_transformations)" unless="$(eval arg('enable_transformations') == '')" />
+    <param name="enable_transformations" value="true" if="$(eval arg('enable_transformations') == '' and arg('performance_mode') == 'debug')" />
+    <param name="enable_transformations" value="true" if="$(eval arg('enable_transformations') == '' and arg('performance_mode') == 'production')" />
+    <param name="enable_transformations" value="false" if="$(eval arg('enable_transformations') == '' and arg('performance_mode') == 'high_performance')" />
     
     <!-- Tracking Parameters -->
     <param name="obstacle_association_distance" value="2.0" if="$(eval arg('performance_mode') == 'debug')" />

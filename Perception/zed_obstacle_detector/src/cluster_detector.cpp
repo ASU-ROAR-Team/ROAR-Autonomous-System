@@ -24,6 +24,12 @@ std::vector<Cluster> ClusterDetector::detectClusters(const pcl::PointCloud<pcl::
         return clusters;
     }
 
+    // Early exit for very large point clouds (performance optimization)
+    if (input_cloud->size() > 50000) {
+        ROS_WARN_THROTTLE(1.0, "Point cloud too large for clustering (%zu points), skipping", input_cloud->size());
+        return clusters;
+    }
+
     timing.start_clustering = std::chrono::high_resolution_clock::now();
 
     // Extract cluster indices
@@ -37,10 +43,10 @@ std::vector<Cluster> ClusterDetector::detectClusters(const pcl::PointCloud<pcl::
 
     ROS_DEBUG("Found %zu raw clusters", cluster_indices.size());
 
-    // Process each cluster
+    // Process each cluster with optimized processing
     clusters.reserve(cluster_indices.size());
     for (const auto& cluster_idx : cluster_indices) {
-        Cluster cluster = processCluster(cluster_idx, input_cloud, next_cluster_id_++);
+        Cluster cluster = processClusterOptimized(cluster_idx, input_cloud, next_cluster_id_++);
         if (!cluster.points->empty()) {
             clusters.push_back(cluster);
         }
@@ -56,18 +62,35 @@ std::vector<pcl::PointIndices> ClusterDetector::extractClusterIndices(const pcl:
     std::vector<pcl::PointIndices> cluster_indices;
     
     try {
+        // Performance optimization: limit input cloud size for clustering
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_for_clustering = input_cloud;
+        if (input_cloud->size() > 30000) {
+            ROS_WARN_THROTTLE(1.0, "Large point cloud (%zu points), using first 30000 points for clustering", input_cloud->size());
+            cloud_for_clustering = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
+            cloud_for_clustering->points.assign(input_cloud->points.begin(), input_cloud->points.begin() + 30000);
+            cloud_for_clustering->width = 30000;
+            cloud_for_clustering->height = 1;
+            cloud_for_clustering->is_dense = input_cloud->is_dense;
+        }
+
         // Create KdTree for search
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
-        tree->setInputCloud(input_cloud);
+        tree->setInputCloud(cloud_for_clustering);
 
-        // Extract clusters
+        // Extract clusters with optimized parameters
         pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
         ec.setClusterTolerance(params_.cluster_tolerance);
         ec.setMinClusterSize(params_.min_cluster_size);
         ec.setMaxClusterSize(params_.max_cluster_size);
         ec.setSearchMethod(tree);
-        ec.setInputCloud(input_cloud);
+        ec.setInputCloud(cloud_for_clustering);
         ec.extract(cluster_indices);
+        
+        // Limit number of clusters for performance
+        if (cluster_indices.size() > 50) {
+            ROS_WARN_THROTTLE(1.0, "Too many clusters (%zu), limiting to first 50", cluster_indices.size());
+            cluster_indices.resize(50);
+        }
         
     } catch (const std::exception& e) {
         ROS_ERROR_THROTTLE(1.0, "Cluster extraction exception: %s", e.what());
@@ -105,6 +128,81 @@ Cluster ClusterDetector::processCluster(const pcl::PointIndices& cluster_indices
     cluster.radius = computeRadius(cluster.points, cluster.centroid);
 
     return cluster;
+}
+
+Cluster ClusterDetector::processClusterOptimized(const pcl::PointIndices& cluster_indices,
+                                                const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+                                                int cluster_id) {
+    Cluster cluster;
+    cluster.id = cluster_id;
+    
+    if (cluster_indices.indices.empty()) {
+        return cluster;
+    }
+
+    // Extract points for this cluster
+    cluster.points->reserve(cluster_indices.indices.size());
+    for (const auto& idx : cluster_indices.indices) {
+        if (idx < input_cloud->size()) {
+            cluster.points->push_back(input_cloud->points[idx]);
+        }
+    }
+
+    if (cluster.points->empty()) {
+        return cluster;
+    }
+
+    // Compute centroid and radius in a single pass (optimization)
+    std::tie(cluster.centroid, cluster.radius) = computeCentroidAndRadiusOptimized(cluster.points);
+
+    return cluster;
+}
+
+std::pair<geometry_msgs::Point, float> ClusterDetector::computeCentroidAndRadiusOptimized(
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points) const {
+    
+    geometry_msgs::Point centroid;
+    float radius = 0.0f;
+    
+    if (!cluster_points || cluster_points->empty()) {
+        return {centroid, radius};
+    }
+
+    try {
+        // Single-pass computation for both centroid and radius
+        float sum_x = 0.0f, sum_y = 0.0f, sum_z = 0.0f;
+        float max_radius_sq = 0.0f;
+        size_t num_points = cluster_points->size();
+        
+        // First pass: compute centroid
+        for (const auto& point : cluster_points->points) {
+            sum_x += point.x;
+            sum_y += point.y;
+            sum_z += point.z;
+        }
+        
+        centroid.x = sum_x / num_points;
+        centroid.y = sum_y / num_points;
+        centroid.z = sum_z / num_points;
+        
+        // Second pass: compute radius (can be combined with first pass for even more optimization)
+        for (const auto& point : cluster_points->points) {
+            float dx = point.x - centroid.x;
+            float dy = point.y - centroid.y;
+            float dz = point.z - centroid.z;
+            float dist_sq = dx*dx + dy*dy + dz*dz;
+            if (dist_sq > max_radius_sq) {
+                max_radius_sq = dist_sq;
+            }
+        }
+        
+        radius = std::sqrt(max_radius_sq);
+        
+    } catch (const std::exception& e) {
+        ROS_ERROR_THROTTLE(1.0, "Optimized centroid/radius computation exception: %s", e.what());
+    }
+    
+    return {centroid, radius};
 }
 
 geometry_msgs::Point ClusterDetector::computeCentroid(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points) const {

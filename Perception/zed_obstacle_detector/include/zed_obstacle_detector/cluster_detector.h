@@ -55,6 +55,9 @@ public:
     Cluster processCluster(const pcl::PointIndices& cluster_indices,
                           const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
                           int cluster_id);
+    Cluster processClusterOptimized(const pcl::PointIndices& cluster_indices,
+                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+                                   int cluster_id);
 
     // Parameter management
     void setParams(const ClusterParams& params);
@@ -64,6 +67,8 @@ public:
     geometry_msgs::Point computeCentroid(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points) const;
     float computeRadius(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points,
                        const geometry_msgs::Point& centroid) const;
+    std::pair<geometry_msgs::Point, float> computeCentroidAndRadiusOptimized(
+        const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points) const;
     
     // Debug output
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr createDebugCloud(const std::vector<Cluster>& clusters) const;

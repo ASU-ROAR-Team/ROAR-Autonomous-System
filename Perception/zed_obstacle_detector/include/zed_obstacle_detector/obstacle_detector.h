@@ -41,6 +41,9 @@ struct ObstacleDetectorResult {
     PerformanceMetrics metrics;
     bool success = false;
     std::string error_message;
+    sensor_msgs::PointCloud2 filtered_transformed_cloud; // Debug cloud output
+    sensor_msgs::PointCloud2 clusters_debug_cloud; // Colored clusters debug cloud
+    sensor_msgs::PointCloud2 no_ground_cloud; // No-ground debug cloud
 };
 
 class ObstacleDetector {

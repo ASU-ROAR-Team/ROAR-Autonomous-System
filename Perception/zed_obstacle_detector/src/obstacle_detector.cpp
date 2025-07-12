@@ -45,16 +45,37 @@ ObstacleDetectorResult ObstacleDetector::processPointCloud(const sensor_msgs::Po
     monitor_->endTimer("input_validation");
     monitor_->recordOutputPoints(processed_cloud->size());
 
+    // Fill debug cloud for publishing
+    pcl::toROSMsg(*processed_cloud, result.filtered_transformed_cloud);
+    result.filtered_transformed_cloud.header.stamp = input_msg->header.stamp;
+    result.filtered_transformed_cloud.header.frame_id = params_.input_frame_id;
+
     // Stage 2: Ground detection and obstacle extraction
     monitor_->startTimer("ground_filter");
     pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    if (!detectGroundAndObstacles(processed_cloud, obstacle_cloud)) {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud(new pcl::PointCloud<pcl::PointXYZ>); // For debug
+    bool ground_success = false;
+    if (params_.enable_ground_filtering) {
+        // Use ground_cloud for debug
+        ground_success = ground_detector_->detectGround(processed_cloud, ground_cloud, obstacle_cloud);
+    } else {
+        *obstacle_cloud = *processed_cloud;
+        ground_success = true;
+    }
+    if (!ground_success) {
         result.error_message = "Ground detection failed";
         monitor_->endTimer("ground_filter");
         monitor_->endFrame();
         return result;
     }
     monitor_->endTimer("ground_filter");
+
+    // Fill no-ground debug cloud for publishing
+    if (params_.monitor_params.enable_debug_publishers) {
+        pcl::toROSMsg(*obstacle_cloud, result.no_ground_cloud);
+        result.no_ground_cloud.header.stamp = input_msg->header.stamp;
+        result.no_ground_cloud.header.frame_id = params_.input_frame_id;
+    }
 
     // Stage 3: Cluster detection
     monitor_->startTimer("clustering");
@@ -67,6 +88,14 @@ ObstacleDetectorResult ObstacleDetector::processPointCloud(const sensor_msgs::Po
     }
     monitor_->endTimer("clustering");
     monitor_->recordClustersDetected(clusters.size());
+
+    // Fill debug cluster cloud for publishing
+    if (params_.monitor_params.enable_debug_publishers) {
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr debug_cloud = cluster_detector_->createDebugCloud(clusters);
+        pcl::toROSMsg(*debug_cloud, result.clusters_debug_cloud);
+        result.clusters_debug_cloud.header.stamp = input_msg->header.stamp;
+        result.clusters_debug_cloud.header.frame_id = params_.input_frame_id;
+    }
 
     // Stage 4: Transform and track
     monitor_->startTimer("tracking");
@@ -113,19 +142,10 @@ bool ObstacleDetector::detectGroundAndObstacles(const pcl::PointCloud<pcl::Point
         return true;
     }
 
-    // Transform to base_link frame for ground detection
-    TransformTiming transform_timing;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    if (!transformer_->transformPointCloud(input_cloud, params_.input_frame_id, 
-                                         params_.base_link_frame, transformed_cloud, 
-                                         ros::Time::now(), transform_timing)) {
-        ROS_ERROR_THROTTLE(1.0, "Failed to transform cloud for ground detection");
-        return false;
-    }
-
-    // Detect ground and extract obstacles
+    // Ground detection BEFORE transformation (all modes)
+    // Detect ground directly in camera frame
     pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    return ground_detector_->detectGround(transformed_cloud, ground_cloud, obstacle_cloud);
+    return ground_detector_->detectGround(input_cloud, ground_cloud, obstacle_cloud);
 }
 
 bool ObstacleDetector::detectClusters(const pcl::PointCloud<pcl::PointXYZ>::Ptr& obstacle_cloud,
@@ -151,7 +171,7 @@ bool ObstacleDetector::transformAndTrack(const std::vector<Cluster>& clusters,
         clusters_base_link.push_back({cluster.centroid, cluster.radius});
     }
 
-    // Transform clusters to world frame
+    // Transform clusters to world frame (or keep in input frame if transformations disabled)
     TransformTiming world_transform_timing;
     std::vector<std::pair<geometry_msgs::Point, float>> clusters_world;
     if (!transformer_->transformClustersToWorld(clusters_base_link, params_.base_link_frame,
@@ -168,7 +188,7 @@ bool ObstacleDetector::transformAndTrack(const std::vector<Cluster>& clusters,
     monitor_->recordObstaclesTracked(tracker_->getAllObstacles().size());
     monitor_->recordConfirmedObstacles(confirmed_obstacles.size());
 
-    // Create output messages
+    // Create output messages with correct frame
     createObstacleArray(confirmed_obstacles, result.obstacle_array);
     createMarkers(confirmed_obstacles, result.markers);
 
@@ -219,10 +239,14 @@ bool ObstacleDetector::initializeComponents() {
 
 void ObstacleDetector::createMarkers(const std::vector<TrackedObstacle>& obstacles,
                                     visualization_msgs::MarkerArray& markers) {
+    // Determine the correct frame to use
+    std::string frame_id = params_.transform_params.enable_transformations ? 
+                          params_.world_frame : params_.input_frame_id;
+    
     // Clear all existing markers
     visualization_msgs::Marker deleteAllMarker;
     deleteAllMarker.header.stamp = ros::Time::now();
-    deleteAllMarker.header.frame_id = params_.world_frame;
+    deleteAllMarker.header.frame_id = frame_id;
     deleteAllMarker.ns = "tracked_world_obstacles";
     deleteAllMarker.id = 0;
     deleteAllMarker.action = visualization_msgs::Marker::DELETEALL;
@@ -232,12 +256,12 @@ void ObstacleDetector::createMarkers(const std::vector<TrackedObstacle>& obstacl
     for (const auto& obs : obstacles) {
         visualization_msgs::Marker marker;
         marker.header.stamp = ros::Time::now();
-        marker.header.frame_id = params_.world_frame;
+        marker.header.frame_id = frame_id;
         marker.ns = "tracked_world_obstacles";
         marker.id = obs.id;
         marker.type = visualization_msgs::Marker::SPHERE;
         marker.action = visualization_msgs::Marker::ADD;
-        marker.pose.position = obs.position_world;
+        marker.pose.position = obs.position_world;  // This is correct regardless of frame
         marker.pose.orientation.w = 1.0;
         marker.scale.x = 2.0 * obs.radius_world;
         marker.scale.y = 2.0 * obs.radius_world;
@@ -253,20 +277,24 @@ void ObstacleDetector::createMarkers(const std::vector<TrackedObstacle>& obstacl
 
 void ObstacleDetector::createObstacleArray(const std::vector<TrackedObstacle>& obstacles,
                                           roar_msgs::ObstacleArray& obstacle_array) {
+    // Determine the correct frame to use
+    std::string frame_id = params_.transform_params.enable_transformations ? 
+                          params_.world_frame : params_.input_frame_id;
+    
     obstacle_array.header.stamp = ros::Time::now();
-    obstacle_array.header.frame_id = params_.world_frame;
+    obstacle_array.header.frame_id = frame_id;
     obstacle_array.obstacles.clear();
     obstacle_array.obstacles.reserve(obstacles.size());
 
     for (const auto& obs : obstacles) {
         roar_msgs::Obstacle obs_msg;
         obs_msg.header.stamp = obs.last_seen;
-        obs_msg.header.frame_id = params_.world_frame;
+        obs_msg.header.frame_id = frame_id;
         obs_msg.id.data = obs.id;
 
         obs_msg.position.header.stamp = obs.last_seen;
-        obs_msg.position.header.frame_id = params_.world_frame;
-        obs_msg.position.pose.position = obs.position_world;
+        obs_msg.position.header.frame_id = frame_id;
+        obs_msg.position.pose.position = obs.position_world;  // This is correct regardless of frame
         obs_msg.position.pose.orientation.w = 1.0;
 
         obs_msg.radius.data = obs.radius_world;

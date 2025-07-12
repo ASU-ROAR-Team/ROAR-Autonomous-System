@@ -19,7 +19,76 @@ ros::Publisher pub_clusters_debug;
 // Main obstacle detector instance
 std::unique_ptr<zed_obstacle_detector::ObstacleDetector> obstacle_detector;
 
+// Helper function to reload parameters live
+void reload_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorParams& params) {
+    // Processing
+    nh.getParam("voxel_leaf_size", params.processing_params.voxel_leaf_size);
+    nh.getParam("enable_uniform_downsampling", params.processing_params.enable_uniform_downsampling);
+    nh.getParam("uniform_sampling_radius", params.processing_params.uniform_sampling_radius);
+    nh.getParam("enable_early_exit", params.processing_params.enable_early_exit);
+    nh.getParam("min_points_for_processing", params.processing_params.min_points_for_processing);
+    nh.getParam("max_points_for_processing", params.processing_params.max_points_for_processing);
+    nh.getParam("passthrough_z_min_camera", params.processing_params.passthrough_z_min);
+    nh.getParam("passthrough_z_max_camera", params.processing_params.passthrough_z_max);
+    // Ground
+    nh.getParam("enable_ground_filtering", params.enable_ground_filtering);
+    nh.getParam("ground_filter_distance_threshold", params.ground_params.distance_threshold);
+    nh.getParam("ground_filter_angle_threshold_deg", params.ground_params.angle_threshold_deg);
+    nh.getParam("ground_filter_max_iterations", params.ground_params.max_iterations);
+    nh.getParam("mars_terrain_mode", params.ground_params.mars_terrain_mode);
+    // Clustering
+    nh.getParam("cluster_tolerance", params.cluster_params.cluster_tolerance);
+    nh.getParam("min_cluster_size", params.cluster_params.min_cluster_size);
+    nh.getParam("max_cluster_size", params.cluster_params.max_cluster_size);
+    // Tracking
+    double assoc_dist = 1.5;
+    if (nh.getParam("obstacle_association_distance", assoc_dist))
+        params.tracking_params.association_distance_sq = assoc_dist * assoc_dist;
+    nh.getParam("obstacle_timeout_sec", params.tracking_params.timeout_sec);
+    nh.getParam("position_smoothing_factor", params.tracking_params.position_smoothing_factor);
+    nh.getParam("min_detections_for_confirmation", params.tracking_params.min_detections_for_confirmation);
+    // Monitor
+    nh.getParam("enable_detailed_timing", params.monitor_params.enable_detailed_timing);
+    nh.getParam("enable_debug_publishers", params.monitor_params.enable_debug_publishers);
+    nh.getParam("timing_report_interval", params.monitor_params.timing_report_interval);
+    nh.getParam("enable_performance_logging", params.monitor_params.enable_performance_logging);
+    nh.getParam("log_file_path", params.monitor_params.log_file_path);
+}
+
 void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input_msg) {
+    // Reload parameters live
+    static ros::NodeHandle private_nh("~");
+    static zed_obstacle_detector::ObstacleDetectorParams params = obstacle_detector->getParams();
+    reload_params(private_nh, params);
+    obstacle_detector->setParams(params);
+
+    // Print updated parameters
+    ROS_INFO_THROTTLE(5.0, "Updated parameters:");
+    ROS_INFO_THROTTLE(5.0, "  Processing:");
+    ROS_INFO_THROTTLE(5.0, "    Voxel leaf size: %.3f", params.processing_params.voxel_leaf_size);
+    ROS_INFO_THROTTLE(5.0, "    Uniform sampling: %s (radius: %.3f)", 
+        params.processing_params.enable_uniform_downsampling ? "enabled" : "disabled",
+        params.processing_params.uniform_sampling_radius);
+    ROS_INFO_THROTTLE(5.0, "    Z range: [%.1f, %.1f]", 
+        params.processing_params.passthrough_z_min,
+        params.processing_params.passthrough_z_max);
+    
+    ROS_INFO_THROTTLE(5.0, "  Ground filtering: %s", params.enable_ground_filtering ? "enabled" : "disabled");
+    if (params.enable_ground_filtering) {
+        ROS_INFO_THROTTLE(5.0, "    Distance threshold: %.3f", params.ground_params.distance_threshold);
+        ROS_INFO_THROTTLE(5.0, "    Angle threshold: %.1f deg", params.ground_params.angle_threshold_deg);
+    }
+    
+    ROS_INFO_THROTTLE(5.0, "  Clustering:");
+    ROS_INFO_THROTTLE(5.0, "    Tolerance: %.3f", params.cluster_params.cluster_tolerance);
+    ROS_INFO_THROTTLE(5.0, "    Size range: [%d, %d]", 
+        params.cluster_params.min_cluster_size,
+        params.cluster_params.max_cluster_size);
+    
+    ROS_INFO_THROTTLE(5.0, "  Tracking:");
+    ROS_INFO_THROTTLE(5.0, "    Association distance: %.2f", sqrt(params.tracking_params.association_distance_sq));
+    ROS_INFO_THROTTLE(5.0, "    Timeout: %.1f sec", params.tracking_params.timeout_sec);
+    
     ROS_INFO_THROTTLE(5.0, "Received point cloud. Processing for obstacle tracking...");
     
     // Process point cloud using modular detector
@@ -36,8 +105,9 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input_msg) {
     
     // Publish debug clouds if enabled
     if (obstacle_detector->getParams().monitor_params.enable_debug_publishers) {
-        // Note: Debug clouds would need to be added to the ObstacleDetectorResult
-        // For now, we'll skip debug publishing in the modular version
+        pub_filtered_transformed.publish(result.filtered_transformed_cloud);
+        pub_clusters_debug.publish(result.clusters_debug_cloud);
+        pub_no_ground.publish(result.no_ground_cloud);
     }
 }
 
@@ -58,6 +128,11 @@ int main(int argc, char** argv) {
     private_nh.param<std::string>("world_frame", params.world_frame, "world");
     private_nh.param<bool>("enable_ground_filtering", params.enable_ground_filtering, true);
     private_nh.param<bool>("enable_debug_output", params.enable_debug_output, false);
+    
+    // Parameterize camera frame
+    std::string camera_frame;
+    private_nh.param<std::string>("camera_frame", camera_frame, "zed2i_left_camera_frame");
+    params.input_frame_id = camera_frame;  // Set input frame to camera frame
     
     // Processing parameters - Optimized for ZED2i and Jetson performance
     private_nh.param("passthrough_z_min_camera", params.processing_params.passthrough_z_min, 0.2);
@@ -84,12 +159,9 @@ int main(int argc, char** argv) {
     // Transform parameters - Optimized for real-world TF
     private_nh.param("tf_lookup_timeout", params.transform_params.tf_lookup_timeout, 0.05); // Faster timeout
     private_nh.param("tf_buffer_duration", params.transform_params.tf_buffer_duration, 5.0); // Shorter buffer
+    private_nh.param("enable_transformations", params.transform_params.enable_transformations, true); // New parameter to disable transformations
     
-    // Parameterize camera frame
-    std::string camera_frame;
-    private_nh.param<std::string>("camera_frame", camera_frame, "zed2i_left_camera_frame");
     params.transform_params.source_frame = camera_frame;
-    
     params.transform_params.target_frame = params.base_link_frame;
     params.transform_params.world_frame = params.world_frame;
     params.transform_params.enable_debug_output = params.enable_debug_output;

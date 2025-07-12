@@ -10,12 +10,13 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
   tf2_ros
   tf2_geometry_msgs
+  tf2_eigen
 )
 
 find_package(PCL REQUIRED)
 
 catkin_package(
-  CATKIN_DEPENDS roscpp sensor_msgs roar_msgs pcl_ros pcl_conversions visualization_msgs tf2_ros tf2_geometry_msgs
+  CATKIN_DEPENDS roscpp sensor_msgs roar_msgs pcl_ros pcl_conversions visualization_msgs tf2_ros tf2_geometry_msgs tf2_eigen
   INCLUDE_DIRS include
 )
 
