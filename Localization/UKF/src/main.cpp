@@ -95,7 +95,7 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         */
         
         // Call UKF encoder callback function
-        ukf.encoder_callback(encoder_measurement, dt_encoder, yaw);
+        ukf.encoder_callback(encoder_measurement, dt_encoder, yaw, pitch);
         // Update encoder_prev_time_stamp
         encoder_prev_time_stamp = encoder_current_time_stamp;
 
@@ -304,18 +304,69 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 
     if(ROVlandmarks.size() > 0){
 
+        /*
+        // Convert quaternion to tf2::Quaternion
+        tf2::Quaternion q(ukf.x_post(0), ukf.x_post(1), ukf.x_post(2), ukf.x_post(3));
+
+        // Convert quaternion to rotation matrix
+        tf2::Matrix3x3 R(q);
+
+        double theta = -M_PI / 2;
+        tf2::Quaternion correction;
+        correction.setRPY(0, 0, theta);  // Roll, Pitch, Yaw
+
+        q = q * correction;
+        q.normalize();
+
+        // Convert relative landmark position to tf2::Vector3
+        tf2::Vector3 rel_landmark_pos(landmark_poses->pose.pose.position.x,
+                                    landmark_poses->pose.pose.position.y,
+                                    landmark_poses->pose.pose.position.z);
+
+        // Rotate relative position into fixed frame
+        tf2::Vector3 rotated_relative = R * rel_landmark_pos;
+
+        // Subtract rotated relative position from landmark's fixed position
+        geometry_msgs::Point rover_pos;
+        rover_pos.x = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rotated_relative.x();
+        rover_pos.y = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rotated_relative.y();
+        rover_pos.z = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.z - rotated_relative.z();
+
+        std::cout << "x: " << rover_pos.x << " | y: " << rover_pos.y << " | z: " << std::endl;
+
+        
+        z_measurement[11] = rover_pos.x;
+        z_measurement[12] = rover_pos.y;
+        z_measurement[13] = rover_pos.z;
+        */
+        
         //All Relative Positions 
         std::vector<Eigen::Vector2d> rel_pos_all = {
             {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
             {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z}
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z}
         };
 
         Eigen::Vector2d nearestPos = rel_pos_all[3];
         double minDist = std::numeric_limits<double>::infinity();
 
-        for (int i = 0; i < 4; i++){
+        for (int i = 0; i < 16; i++){
             //calc dist
             double dist = sqrt(pow((rel_pos_all[i][0] - ukf.x_post[7]) ,2) + pow((rel_pos_all[i][1] - ukf.x_post[8]) ,2));
 
@@ -328,6 +379,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         z_measurement[11] = nearestPos[0];
         z_measurement[12] = nearestPos[1];
         z_measurement[13] = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.z - landmark_poses->pose.pose.position.y;
+        
 
         ukf.LL_Callback(z_measurement);
 
@@ -348,6 +400,8 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
         state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
 
+        state_msg.pose.covariance[35] = 1; //Used to update the plotter only
+
         state_publisher.publish(state_msg);
     }
 
@@ -360,9 +414,9 @@ int main(int argc, char **argv)
     ros::NodeHandle nh; // Create ROS node handle
     
     // Initialize ROS subscribers
-    gps_sub = nh.subscribe("/gps", 100000000, gpsCallback);
+    //gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
     imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
-    encoder_sub = nh.subscribe("/joint_states", 100000000, encoderCallback);
+    encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     
   
     trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
