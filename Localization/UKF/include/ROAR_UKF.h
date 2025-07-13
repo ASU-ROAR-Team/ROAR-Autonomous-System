@@ -116,6 +116,7 @@ public:
 	Eigen::Vector3d m0;
 
 	double yaw;
+	double pitch;
 
 	UnitQuaternion uq_omega;
 
@@ -147,7 +148,7 @@ public:
 	void update(Eigen::MatrixXd z_measurement);
 
 	/*** Sensors Callbacks ***/
-	void encoder_callback(Eigen::VectorXd w, double dt, double yaw);
+	void encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch);
 	void imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt);
 	void gps_callback(Eigen::VectorXd z_measurement, double lon0, double lat0);
 	void bno_callback(double roll, double pitch, double yaw);

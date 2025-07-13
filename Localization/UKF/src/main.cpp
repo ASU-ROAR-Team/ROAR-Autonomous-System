@@ -291,11 +291,10 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 	//Landmark RELATIVE position: landmark_poses
 
     if(ROVlandmarks.size() > 0){
-
+        
         //All Relative Positions 
         std::vector<Eigen::Vector2d> rel_pos_all = {
             {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
             {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
             {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z}
         };

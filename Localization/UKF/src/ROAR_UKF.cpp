@@ -240,6 +240,7 @@ UKF::UKF(MerwedSigmaPoints merwed_sigma_points)
         B_INTENSITY* sin(INCLINATION);
 
     yaw = 0.0;
+    pitch = 0.0;
 
 }
 /*** Destructor ***/
@@ -503,7 +504,7 @@ void UKF::update(Eigen::MatrixXd z_measurement)
 	P_post = P.replicate(1, 1); 
 
 }
-void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw)
+void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch)
 {
     /***
     Predict with wheel odometry process model
@@ -532,13 +533,8 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw)
         double linear_velocity = rover.rover_speeds(0);
 
         // Calculate change in x and y positions
-        double dx = linear_velocity * cos(yaw) * dt;
-        double dy = linear_velocity * sin(yaw) * dt;
-
-        //std::cout << "Yaw: " << yaw << std::endl;
-        //std::cout << "dx: " << dx << std::endl;
-        //std::cout << "dy: " << dy << std::endl;
-        //std::cout << "-------------------------------------------------------------------------" << std::endl;
+        double dx = - linear_velocity * sin(yaw) * cos(pitch) * dt; //the bno reads 0 from the -y so I added a -ve and switched the sin and cos
+        double dy = linear_velocity * cos(yaw) * cos(pitch) * dt;
 
         // Update x and y positions
         X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
@@ -794,25 +790,26 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     ***/
     // Compute the sigma points for given mean and posteriori covariance
     Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
-
-    //cout << "P_Post: \n"<< P_post << endl;
+    
+    //Save post
+    x_prior = x_post;
+    P_prior = P_post;
 
     std::array<double, 2> WGS84Reference{lon0, lat0};
+    //std::cout << "Lon0: " << lon0 << " | lat0: " << lat0 << std::endl;
     std::array<double, 2> result{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
-    std::cout << "lon0: " << fixed << setprecision(numeric_limits<double>::max_digits10) << lon0 << " | lat0: " << lat0 << endl;
-    std::cout << "lon: " << z_measurement[10] << " | lat: " << z_measurement[9] << endl;
-    std::cout << "x: " << result[0] << " | y: " << result[1] << endl;
     z_measurement[11] = result[0];
     z_measurement[12] = result[1];
+
+    //std::cout << "Lon: " << z_measurement[10] << " | lat: " << z_measurement[9] << std::endl;
+
+    //std::cout << "x: " << result[0] << " | y: " << result[1] << std::endl;
 
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
     {
         std::array<double, 2> result2{wgs84::fromCartesian(WGS84Reference, {sigmas.col(i)(7), sigmas.col(i)(8)})};
-        //double lat = lat0 + (180 / PI) * (sigmas.col(i)(7) / 6378137);
-        //double lon = lon0 + (180 / PI) * (sigmas.col(i)(8) / 6378137) / cos(lat0 * PI /180.0);
         double lon = result2[0];
         double lat = result2[1];
-        //std::cout << "i: " << i << " | x: " << sigmas.col(i)(7) << " | y: " << sigmas.col(i)(8) << " | lat: " << lat << " | lon: " << lon << endl;
 
         Z_sigma.col(i) << Z_sigma.col(i)(0), Z_sigma.col(i)(1), Z_sigma.col(i)(2), Z_sigma.col(i)(3), Z_sigma.col(i)(4), Z_sigma.col(i)(5), Z_sigma.col(i)(6),
                         Z_sigma.col(i)(7), Z_sigma.col(i)(8), lat, lon, sigmas.col(i)(7), sigmas.col(i)(8), Z_sigma.col(i)(13);
@@ -823,194 +820,89 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
 
     }
     
-    /*
-    std::tie(z, S) = unscented_transform(Z_sigma,
-        sigma_points.Wm,
-        sigma_points.Wc,
-        R);
-    */
-    
-    //cout << "Z is as following:\n" << z << endl;
     
     std::tie(x_hat, P) = unscented_transform(X_sigma,
         sigma_points.Wm,
         sigma_points.Wc,
         Q);
-    
     /*
-    z_prior(9) = z(9);
-    z_prior(10) = z(10);
-    z_prior(11) = z(11);
-    z_prior(12) = z(12);
-
-    S_prior.col(9)  = S.col(9);
-    S_prior.col(10) = S.col(10);
-    S_prior.col(11) = S.col(11);
-    S_prior.col(12) = S.col(12);
-    S_prior.row(9)  = S.row(9);
-    S_prior.row(10) = S.row(10);
-    S_prior.row(11) = S.row(11);
-    S_prior.row(12) = S.row(12);
-
-    x_prior(7) = x_hat(7);
-    x_prior(8) = x_hat(8);
-
-    P_prior.col(7) = P.col(7);
-    P_prior.col(8) = P.col(8);
-    P_prior.row(7) = P.row(7);
-    P_prior.row(8) = P.row(8);
-    */
-
-
-    	/***
-    	Update step of UKF with Quaternion + Angular Velocity model i.e state space is:
-        
-        	x = [q0 q1 q2 q3 omega_x omega_y omega_z x y].T
-            	z = [z_gyro z_acc z_mag z_gps].T
-                
-                	Inputs:
-                    	z_measurement: Sensor measurements from gyroscope, accelerometer, magnetometer and GPS
-                        	***/
-
-    // Compute cross covariance
-//Eigen::MatrixXd T = Eigen::MatrixXd::Zero(x_dim, z_dim);
-    //Eigen::MatrixXd Tc(2, 3);
-    //Tc.setZero();
-//for (int i = 0; i < sigma_points.num_sigma_points; i++)
-//{
-//    T = T + sigma_points.Wc(i) * (X_sigma.col(i) - x_prior) * (Z_sigma.col(i) - z_prior).transpose();
-
-        //cout << fixed << setprecision(numeric_limits<double>::max_digits10) << "X diff: \n" << X_sigma.col(i) - x_prior << endl;
-        //cout << fixed << setprecision(numeric_limits<double>::max_digits10) << "Z diff: \n" << Z_sigma.col(i) - z_prior << endl;
-        //Eigen::VectorXd dx = X_sigma.col(i).tail(2) - x_prior.tail(2);
-        //Eigen::Vector3d dz = Z_sigma.col(i).tail(3) - z_prior.tail(3);
-        /*
-        cout << "created dx and dz:" << endl<< dx << endl << dz << endl;
-        cout << "multi:" << dx * dz.transpose() << endl;
-        */
-        //Tc = Tc + sigma_points.Wc(i) * (dx * dz.transpose());
-//}
-
-    /*
-    Eigen::Matrix3d Sc = Eigen::Matrix3d::Zero();
-    Sc.col(0) = S.col(10).tail(3);
-    Sc.col(1) = S.col(11).tail(3);
-    Sc.col(2) = S.col(12).tail(3);
-    */
-
-    // Compute Kalman gain
-//Eigen::MatrixXd K = T * S.inverse();
-    //cout << "K is calculated: \n" << K << endl;
-    //Eigen::MatrixXd Kc = Tc * Sc.inverse();
-    //cout << "K is calculated: \n" << Kc << endl;
-    //cout << z_measurement.tail(3) - z_prior.tail(3);
-    //cout << "Added: \n" << Kc * (z_measurement.tail(3) - z_prior.tail(3)) << endl;
-    
-
-    
-    //Eigen::MatrixXd myK = Eigen::MatrixXd::Zero(9, 14);  // start with all zeros
-    // Apply strong gain (e.g., 0.9) to z[12] and z[13], affecting state rows 5 and 6 (for example)
-    //myK(7, 11) = 0.9;  // state x[5] is affected by z[12]
-    //myK(8, 12) = 0.9;  // state x[6] is affected by z[13]
-    
-    // Update state estimate
-/*Prev code was here*/
-    //x_hat = x_hat + K * (z_measurement - z_prior); // x_hat is defined in constructor for as a temp vector (overwriting x_post)
-    //cout << "The gain:\n" << K * (z_measurement - z_prior) << endl;
-
-    /*
-    // Step 1: extract residual
-    Eigen::Vector2d z_diff = z_measurement.segment<2>(11) - z_prior.segment<2>(11);
-    // Step 2: get only position-related Kalman gain
-    Eigen::MatrixXd K_pos = K.block(0, 12, 9, 2);  // 9x2
-    // Step 3: state update
-    x_hat = x_hat + K_pos * z_diff;
-    */
-
-
-    // Update covariance
-//P = P_prior - K * S_prior * K.transpose(); ////////////////////////////
-    /*
-    Eigen::MatrixXd S_pos = S.block(12, 12, 2, 2);
-    Eigen::MatrixXd Tc_pos = T.block(0, 12, 9, 2);
-    Eigen::MatrixXd k_pos = Tc_pos * S_pos.inverse();
-    P = P - k_pos * S_pos * K_pos.transpose();
-    */
-
-    //P.col(7) = P_prior.col(7).tail(2) - K * Sc * K.transpose();
-    //P.col(8) = P_prior.col(8).tail(2) - K * Sc * K.transpose();
-
-    // Save posterior
-    
-    //x_post.tail(2) = x_hat.tail(2);
-    
-    
-    P_post.col(7) = P.col(7);
-    P_post.col(8) = P.col(8);
-    P_post.row(7) = P.row(7);
-    P_post.row(8) = P.row(8);
-    
-    
-
-    //std::cout << "The result: \n"<< x_hat.tail(2) << endl;
-
-
-    Eigen::Vector2d z_gps(result[0], result[1]);
-    Eigen::VectorXd x_mean = Eigen::VectorXd::Zero(x_dim);
-    for (int i = 0; i < 2 * x_dim + 1; i++)
-        x_mean += sigma_points.Wm(i) * X_sigma.col(i);
-
-    Eigen::MatrixXd Z_sigma2(2, 2 * x_dim + 1);
-    for (int i = 0; i < 2 * x_dim + 1; i++) {
-        // Extract x, y from state sigma point
-        double x = X_sigma(7, i);
-        double y = X_sigma(8, i);
-        Z_sigma2.col(i) << x, y;
-    }
-    
-    // Predicted measurement mean
-    Eigen::Vector2d z_mean = Eigen::Vector2d::Zero();
-    for (int i = 0; i < 2 * x_dim + 1; i++)
-        z_mean += sigma_points.Wm(i) * Z_sigma2.col(i);
-
-    // Measurement covariance
-    Eigen::Matrix2d S2 = Eigen::Matrix2d::Zero();
-    for (int i = 0; i < 2 * x_dim + 1; i++) {
-        Eigen::Vector2d dz = Z_sigma2.col(i) - z_mean;
-        S2 += sigma_points.Wc(i) * dz * dz.transpose();
-    }
-    // Add GPS noise
-    Eigen::Matrix2d R_gps;
-    R_gps << 1, 0,
-        0, 1;
-    S2 += R_gps; // 2x2, diagonal with variances in meters^2
-
-    Eigen::MatrixXd Tc = Eigen::MatrixXd::Zero(x_dim, 2);
-    for (int i = 0; i < 2 * x_dim + 1; i++) {
-        Eigen::VectorXd dx = X_sigma.col(i) - x_mean;
-        Eigen::Vector2d dz = Z_sigma2.col(i) - z_mean;
-        Tc += sigma_points.Wc(i) * dx * dz.transpose();
-    }
-
     Eigen::MatrixXd K2 = Tc * S2.inverse();  // K: (n_x x 2)
 
     x_hat = x_mean + K2 * (z_gps - z_mean);
     P = P_prior - K2 * S2 * K2.transpose();
 
-    std::cout << "The result2: \n"<< x_hat.tail(2) << endl;
-
     x_prior = x_post;
     P_prior = P_post;
 
     x_post.tail(2) = x_hat.tail(2);
-    /*
+    */
     P_post.col(7) = P.col(7);
     P_post.col(8) = P.col(8);
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
-    */
     
 
+    // GPS measurement
+    Eigen::Vector2d z_gps(result[0], result[1]);
+
+    // Predicted state mean
+    Eigen::VectorXd x_mean = Eigen::VectorXd::Zero(x_dim);
+    for (int i = 0; i < 2 * x_dim + 1; ++i)
+        x_mean += sigma_points.Wm(i) * X_sigma.col(i);
+
+    // Project sigma points into GPS measurement space (only x, y)
+    Eigen::MatrixXd Z_sigma = Eigen::MatrixXd(2, 2 * x_dim + 1);
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Z_sigma(0, i) = X_sigma(7, i);  // x
+        Z_sigma(1, i) = X_sigma(8, i);  // y
+    }
+
+    // Predicted GPS measurement mean
+    Eigen::Vector2d z_mean = Eigen::Vector2d::Zero();
+    for (int i = 0; i < 2 * x_dim + 1; ++i)
+        z_mean += sigma_points.Wm(i) * Z_sigma.col(i);
+
+    // Measurement covariance S
+    Eigen::Matrix2d S = Eigen::Matrix2d::Zero();
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Eigen::Vector2d dz = Z_sigma.col(i) - z_mean;
+        S += sigma_points.Wc(i) * dz * dz.transpose();
+    }
+
+    // Add GPS noise
+    Eigen::Matrix2d R_gps;
+    R_gps << 0.2, 0.0,
+            0.0, 0.2;
+    S += R_gps;
+
+    // Cross-covariance between state and measurement
+    Eigen::MatrixXd Tc = Eigen::MatrixXd::Zero(x_dim, 2);
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Eigen::VectorXd dx = X_sigma.col(i) - x_mean;
+        Eigen::Vector2d dz = Z_sigma.col(i) - z_mean;
+        Tc += sigma_points.Wc(i) * dx * dz.transpose();
+    }
+
+    // Kalman gain
+    Eigen::MatrixXd K = Tc * S.inverse();
+
+    // Update state estimate
+    x_hat = x_mean + K * (z_gps - z_mean);
+
+    // Update covariance
+    P = P_prior - K * S * K.transpose();
+
+    // Partial update (only x, y)
+    x_post.tail(2) = x_hat.tail(2);
+
+    // Update P_post only for x and y rows/cols (indices 7 and 8)
+    //P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);
+    //P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
+
+    //P_post.col(7) = P.col(7);
+    //P_post.col(8) = P.col(8);
+    //P_post.row(7) = P.row(7);
+    //P_post.row(8) = P.row(8);
 
 }
 
@@ -1054,96 +946,70 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
     std::tie(x_hat, P) = unscented_transform(X_sigma, sigma_points.Wm, sigma_points.Wc, Q);
     
     std::tie(z, S) = unscented_transform(Z_sigma, sigma_points.Wm, sigma_points.Wc, R);
-    
-
-    P_post.col(7) = P.col(7);
-    P_post.col(8) = P.col(8);
-    P_post.row(7) = P.row(7);
-    P_post.row(8) = P.row(8);
 
     std::array<double, 2> result{z_measurement[11], z_measurement[12]};
 
-    Eigen::Vector2d z_LL(result[0], result[1]);
-    Eigen::VectorXd x_mean = Eigen::VectorXd::Zero(x_dim);
-    for (int i = 0; i < 2 * x_dim + 1; i++)
-        x_mean += sigma_points.Wm(i) * X_sigma.col(i);
-
-    Eigen::MatrixXd Z_sigma2(2, 2 * x_dim + 1);
-    for (int i = 0; i < 2 * x_dim + 1; i++) {
-        // Extract x, y from state sigma point
-        double x = X_sigma(7, i);
-        double y = X_sigma(8, i);
-        Z_sigma2.col(i) << x, y;
-    }
-    
-    // Predicted measurement mean
-    Eigen::Vector2d z_mean = Eigen::Vector2d::Zero();
-    for (int i = 0; i < 2 * x_dim + 1; i++)
-        z_mean += sigma_points.Wm(i) * Z_sigma2.col(i);
-
-    // Measurement covariance
-    Eigen::Matrix2d S2 = Eigen::Matrix2d::Zero();
-    for (int i = 0; i < 2 * x_dim + 1; i++) {
-        Eigen::Vector2d dz = Z_sigma2.col(i) - z_mean;
-        S2 += sigma_points.Wc(i) * dz * dz.transpose();
-    }
-    // Add GPS noise
-    Eigen::Matrix2d R_LL;
-    R_LL << 1, 0,
-        0, 1;
-    S2 += R_LL; // 2x2, diagonal with variances in meters^2
-
-    Eigen::MatrixXd Tc = Eigen::MatrixXd::Zero(x_dim, 2);
-    for (int i = 0; i < 2 * x_dim + 1; i++) {
-        Eigen::VectorXd dx = X_sigma.col(i) - x_mean;
-        Eigen::Vector2d dz = Z_sigma2.col(i) - z_mean;
-        Tc += sigma_points.Wc(i) * dx * dz.transpose();
-    }
-
-    Eigen::MatrixXd K2 = Tc * S2.inverse();  // K: (n_x x 2)
-
-    x_hat = x_mean + K2 * (z_LL - z_mean);
-    P_post = P_prior - K2 * S2 * K2.transpose();
-
-    std::cout << "The result2: \n"<< x_hat.tail(2) << endl;
-
+    // --- [1] Set prior from last post ---
     x_prior = x_post;
     P_prior = P_post;
 
-    x_post.tail(2) = x_hat.tail(2);
+    // --- [2] Predict state mean from sigma points ---
+    Eigen::VectorXd x_mean = Eigen::VectorXd::Zero(x_dim);
+    for (int i = 0; i < 2 * x_dim + 1; ++i)
+        x_mean += sigma_points.Wm(i) * X_sigma.col(i);
 
-    /*
-    // Save posterior
-     z_prior.tail(3) = z.tail(3);
-     
-     S_prior.col(11)  = S.col(11);
-     S_prior.col(12) = S.col(12);
-     S_prior.col(13) = S.col(13);
+    // --- [3] Project sigma points into Lat/Lon measurement space (x, y) ---
+    Eigen::MatrixXd Z_sigma = Eigen::MatrixXd(2, 2 * x_dim + 1);
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Z_sigma(0, i) = X_sigma(7, i);  // x (or lat x-projection)
+        Z_sigma(1, i) = X_sigma(8, i);  // y (or lon y-projection)
+    }
 
-     S_prior.row(11)  = S.row(11);
-     S_prior.row(12) = S.row(12);
-     S_prior.row(13) = S.row(13);
+    // --- [4] Predicted measurement mean ---
+    Eigen::Vector2d z_mean = Eigen::Vector2d::Zero();
+    for (int i = 0; i < 2 * x_dim + 1; ++i)
+        z_mean += sigma_points.Wm(i) * Z_sigma.col(i);
 
-    Eigen::MatrixXd T = Eigen::MatrixXd::Zero(x_dim, z_dim);
-    for (int i = 0; i < sigma_points.num_sigma_points; i++)
-    {
-	   	T = T + sigma_points.Wc(i) * (X_sigma.col(i) - x_prior) * (Z_sigma.col(i) - z_prior).transpose();
-	}
-    
-    // Compute Kalman gain
-    Eigen::MatrixXd K = T * S.inverse();
+    // --- [5] Measurement covariance S ---
+    Eigen::Matrix2d S = Eigen::Matrix2d::Zero();
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Eigen::Vector2d dz = Z_sigma.col(i) - z_mean;
+        S += sigma_points.Wc(i) * dz * dz.transpose();
+    }
 
-    // Update state estimate
-    x_hat = x_hat + K * (z_measurement - z_prior); // x_hat is defined in constructor for as a temp vector (overwriting x_post)
+    // --- [6] Add Lat/Lon sensor noise ---
+    Eigen::Matrix2d R_LL;
+    R_LL << 1.0, 0.0,
+            0.0, 1.0;  // Adjust to your actual sensor noise in meters²
+    S += R_LL;
 
-    // Update covariance
-    P = P_prior - K * S_prior * K.transpose();
+    // --- [7] Cross-covariance between state and measurement ---
+    Eigen::MatrixXd Tc = Eigen::MatrixXd::Zero(x_dim, 2);
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Eigen::VectorXd dx = X_sigma.col(i) - x_mean;
+        Eigen::Vector2d dz = Z_sigma.col(i) - z_mean;
+        Tc += sigma_points.Wc(i) * dx * dz.transpose();
+    }
 
-    // Save posterior
-    x_post.tail(2) = x_hat.tail(2);
-    P_post.col(7) = P.col(7);
-    P_post.col(8) = P.col(8);
-    P_post.row(7) = P.row(7);
-    P_post.row(8) = P.row(8);
-    */
+    // --- [8] Kalman gain ---
+    Eigen::MatrixXd K = Tc * S.inverse();
+
+    // --- [9] Measurement (Lat/Lon projection) ---
+    Eigen::Vector2d z_LL(result[0], result[1]);
+
+    // --- [10] Update state and covariance ---
+    x_hat = x_mean + K * (z_LL - z_mean);
+    P = P_prior - K * S * K.transpose();
+
+    // --- [11] Log result (optional debug) ---
+    std::cout << "The result2: \n" << x_hat.tail(2) << std::endl;
+
+    // --- [12] Update post state ---
+    x_post(7) = x_hat(7);  // Update only x, y
+    x_post(8) = x_hat(8);  // Update only x, y
+
+    // --- [13] Update post covariance (only x, y rows/cols) ---
+    P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);
+    P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
+
 }

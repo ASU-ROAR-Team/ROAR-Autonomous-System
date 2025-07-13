@@ -119,6 +119,24 @@ class ArucoTrackingNode:
                     np.vstack([np.hstack([rotationMatrix, [[0], [0], [0]]]), [0, 0, 0, 1]])
                 )
 
+                # | NEW |
+
+                # Instead of complex face detection or mapping
+                # Move 0.105 m *opposite* to face normal in camera frame
+
+                # Compute face normal in camera frame
+                face_normal_camera = rotationMatrix @ np.array([0, 0, 1])  # local +Z → camera frame
+
+                # Offset inward to cube centroid
+                offset_world = -0.105 * face_normal_camera
+                centroid = tvec + offset_world
+
+                # === STEP 3: Use centroid for publishing ===
+                tvec[0] = centroid[0]
+                tvec[1] = centroid[1]
+                tvec[2] = centroid[2]
+
+
                 # Create PoseStamped message
                 poseMsg = PoseStamped()
                 poseMsg.header = imageMsg.header
