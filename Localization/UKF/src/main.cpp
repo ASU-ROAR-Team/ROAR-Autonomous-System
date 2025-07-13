@@ -60,55 +60,64 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
 {
     //std::cout << "encoooder" << endl;
     nav_msgs::Odometry state_msg;
+    double reading_left = msg->position[1];
+    double reading_right = msg->position[4];
     
-    // Check if encoder_prev_time_stamp is zero
-    if (encoder_prev_time_stamp.isZero()) 
-    {
-        encoder_prev_time_stamp = msg->header.stamp; // Initialize encoder_prev_time_stamp
-        encoder_prev_measurement[0] = msg->position[1];
-        encoder_prev_measurement[1] = msg->position[4];
-        return;
+    if(!(reading_left == 0 || reading_right == 0)){
+        // Check if encoder_prev_time_stamp is zero
+        if (encoder_prev_time_stamp.isZero()) 
+        {
+            encoder_prev_time_stamp = msg->header.stamp; // Initialize encoder_prev_time_stamp
+            encoder_prev_measurement[0] = reading_left;
+            encoder_prev_measurement[1] = reading_right;
+            return;
+        }
+
+        // Calculate time difference
+        ros::Time encoder_current_time_stamp = msg->header.stamp;
+        dt_encoder = (encoder_current_time_stamp - encoder_prev_time_stamp).toSec();
+        // Store encoder measurements
+
+        /*
+        encoder_measurement[0] = (msg->position[1])* 0.1047;
+        encoder_measurement[1] = (msg->position[4])* 0.1047;
+        */
+
+        encoder_measurement[0] = (reading_left - encoder_prev_measurement[0]) / dt_encoder;
+        encoder_measurement[1] = (reading_right - encoder_prev_measurement[1]) / dt_encoder;
+
+        /*
+        std::cout << "msg->position[0]: " << reading_right << endl;
+        std::cout << "encoder_prev_lef: " << encoder_prev_measurement[0] << endl;
+        std::cout << "dt_encoder" << dt_encoder << endl;
+        std::cout << "Wl: " << encoder_measurement[0] << std::endl;
+        std::cout << "Wr: " << encoder_measurement[1] << std::endl;
+        std::cout << "*******************************************************************" << std::endl;
+        */
+        
+        // Call UKF encoder callback function
+        ukf.encoder_callback(encoder_measurement, dt_encoder,yaw);
+        // Update encoder_prev_time_stamp
+        encoder_prev_time_stamp = encoder_current_time_stamp;
+
+        encoder_prev_measurement[0] = reading_left;
+        encoder_prev_measurement[1] = reading_right;
+        
+        // Publish state message
+        state_msg.pose.pose.orientation.x = ukf.x_post[0];
+        state_msg.pose.pose.orientation.y = ukf.x_post[1];
+        state_msg.pose.pose.orientation.z = ukf.x_post[2];
+        state_msg.pose.pose.orientation.w = ukf.x_post[3];
+        state_msg.twist.twist.angular.x = ukf.x_post[4];
+        state_msg.twist.twist.angular.y = ukf.x_post[5];
+        state_msg.twist.twist.angular.z = ukf.x_post[6];
+        state_msg.pose.pose.position.x = ukf.x_post[7];
+        state_msg.pose.pose.position.y = ukf.x_post[8];
+
+        
+        state_publisher.publish(state_msg);
     }
-
-    // Calculate time difference
-    ros::Time encoder_current_time_stamp = msg->header.stamp;
-    dt_encoder = (encoder_current_time_stamp - encoder_prev_time_stamp).toSec();
-    // Store encoder measurements
-
-    /*
-    encoder_measurement[0] = (msg->position[1])* 0.1047;
-    encoder_measurement[1] = (msg->position[4])* 0.1047;
-    */
-
-    encoder_measurement[0] = (msg->position[1] - encoder_prev_measurement[0]) / dt_encoder;
-    encoder_measurement[1] = (msg->position[4] - encoder_prev_measurement[1]) / dt_encoder;
-
-    // std::cout << "msg->position[1]: " << msg->position[1] << endl;
-    // std::cout << "encoder_prev_lef: " << encoder_prev_measurement[0] << endl;
-    // std::cout << "dt_encoder" << dt_encoder << endl;
-    // std::cout << "Wl: " << encoder_measurement[0] << std::endl;
-    // std::cout << "Wr: " << encoder_measurement[1] << std::endl;
-    // std::cout << "*******************************************************************" << std::endl;
     
-    // Call UKF encoder callback function
-    ukf.encoder_callback(encoder_measurement, dt_encoder,yaw);
-    // Update encoder_prev_time_stamp
-    encoder_prev_time_stamp = encoder_current_time_stamp;
-
-    encoder_prev_measurement[0] = msg->position[1];
-    encoder_prev_measurement[1] = msg->position[4];
-    
-    // Publish state message
-    state_msg.pose.pose.orientation.x = ukf.x_post[0];
-    state_msg.pose.pose.orientation.y = ukf.x_post[1];
-    state_msg.pose.pose.orientation.z = ukf.x_post[2];
-    state_msg.pose.pose.orientation.w = ukf.x_post[3];
-    state_msg.twist.twist.angular.x = ukf.x_post[4];
-    state_msg.twist.twist.angular.y = ukf.x_post[5];
-    state_msg.twist.twist.angular.z = ukf.x_post[6];
-    state_msg.pose.pose.position.x = ukf.x_post[7];
-    state_msg.pose.pose.position.y = ukf.x_post[8];
-    state_publisher.publish(state_msg);
     
 }
 
@@ -148,9 +157,7 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
     state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
 
-    state_msg.pose.covariance[35] = 1;
-
-    //state_publisher.publish(state_msg);
+    state_publisher.publish(state_msg);
     
     //std::cout <<  ukf.P_post.col(7)(7) << endl;
 }
@@ -186,7 +193,6 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     if (encoder_prev_time_stamp.isZero()) 
         {
             imu_prev_time_stamp = imu_current_time_stamp; // Initialize encoder_prev_time_stamp
-            std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
             return;
         }
     ukf.imu_callback(encoder_measurement, z_measurement, dt_imu); //////////need to be fixed
@@ -208,6 +214,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
     state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
     state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+
     state_publisher.publish(state_msg);
 }
 
@@ -235,10 +242,17 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     state_msg.pose.pose.position.x = ukf.x_post[7];
     state_msg.pose.pose.position.y = ukf.x_post[8];
 
+    /*
     state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
     state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
     state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
     state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+    */
+
+    state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
+    state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
+    state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
+    state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
 
     state_publisher.publish(state_msg);
 }
@@ -266,8 +280,6 @@ void trueLandmarkCallback(const roar_msgs::LandmarkArray::ConstPtr& msg){
     state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
     state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
 
-    state_msg.pose.covariance[35] = 1;
-
     state_publisher.publish(state_msg);
 }
 
@@ -279,12 +291,31 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 	//Landmark RELATIVE position: landmark_poses
 
     if(ROVlandmarks.size() > 0){
-        std::cout << "landmark_poses->pose.pose.position.x: " << landmark_poses->pose.pose.position.x << std::endl;
-        std::cout << "ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.x: " << ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.x << std::endl;
-        z_measurement[11] = ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.x - landmark_poses->pose.pose.position.x;
-        std::cout << "z_measurement[11]: " << z_measurement[11] << std::endl;
-        z_measurement[12] = ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.y - landmark_poses->pose.pose.position.y;
-        z_measurement[13] = ROVlandmarks[(landmark_poses->id)-1].pose.pose.position.z - landmark_poses->pose.pose.position.z;
+
+        //All Relative Positions 
+        std::vector<Eigen::Vector2d> rel_pos_all = {
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z}
+        };
+
+        Eigen::Vector2d nearestPos = rel_pos_all[3];
+        double minDist = std::numeric_limits<double>::infinity();
+
+        for (int i = 0; i < 4; i++){
+            //calc dist
+            double dist = sqrt(pow((rel_pos_all[i][0] - ukf.x_post[7]) ,2) + pow((rel_pos_all[i][1] - ukf.x_post[8]) ,2));
+
+            if (dist < minDist){
+                minDist = dist;
+                nearestPos = rel_pos_all[i];
+            }
+        }
+        
+        z_measurement[11] = nearestPos[0];
+        z_measurement[12] = nearestPos[1];
+        z_measurement[13] = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.z - landmark_poses->pose.pose.position.y;
 
         ukf.LL_Callback(z_measurement);
 
@@ -304,8 +335,6 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
         state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
         state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
-
-        state_msg.pose.covariance[35] = 1;
 
         state_publisher.publish(state_msg);
     }

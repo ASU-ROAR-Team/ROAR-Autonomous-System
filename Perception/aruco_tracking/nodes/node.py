@@ -60,7 +60,7 @@ class ArucoTrackingNode:
         rospy.Subscriber(self.cameraInfoTopic, CameraInfo, self.cameraInfoCallback)
 
         # Publishers
-        self.posePub = rospy.Publisher("/landmark_topic", LandmarkArray, queue_size=10)
+        self.posePub = rospy.Publisher("/landmark_topic", Landmark, queue_size=10)
 
     def loadParameters(self):
         """
@@ -71,7 +71,7 @@ class ArucoTrackingNode:
         self.arucoDictType = rospy.get_param("~arucoDictType", cv2.aruco.DICT_5X5_100)
         self.visualize = rospy.get_param("~visualize", True)
         self.showRejected = rospy.get_param("~showRejected", True)
-        self.markerSize = rospy.get_param("~markerSize", 0.05)
+        self.markerSize = rospy.get_param("~markerSize", 0.15)
 
         # Validate mandatory parameters
         if self.cameraTopic is None:
@@ -131,12 +131,14 @@ class ArucoTrackingNode:
                 poseMsg.pose.orientation.w = quaternion[3]
                 landmarkMsg = Landmark()
                 landmarkMsg.header = imageMsg.header
-                landmarkMsg.id = ids[i]
+                landmarkMsg.id = ids[i][0]
                 landmarkMsg.pose = poseMsg
+                self.posePub.publish(landmarkMsg)
                 landmarkArrMsg.landmarks.append(landmarkMsg)
 
             # Publish pose
-            self.posePub.publish(landmarkArrMsg)
+            print(ids)
+            #self.posePub.publish(landmarkArrMsg)
 
         if self.showRejected:
             cvImage = self.arucoTracker.drawRejectedMarkers(cvImage, rejected)
@@ -157,6 +159,7 @@ class ArucoTrackingNode:
         cameraInfoMsg : CameraInfo
             The incoming ROS CameraInfo message.
         """
+        print("Camera info Updated Successfully!")
         self.cameraMatrix = np.array(cameraInfoMsg.K).reshape(3, 3)
         self.distCoeffs = np.array(cameraInfoMsg.D)
 

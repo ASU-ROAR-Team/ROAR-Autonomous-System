@@ -944,10 +944,12 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     
     //x_post.tail(2) = x_hat.tail(2);
     
+    
     P_post.col(7) = P.col(7);
     P_post.col(8) = P.col(8);
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
+    
     
 
     //std::cout << "The result: \n"<< x_hat.tail(2) << endl;
@@ -1007,6 +1009,7 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
     */
+    
 
 
 }
@@ -1100,7 +1103,7 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
     Eigen::MatrixXd K2 = Tc * S2.inverse();  // K: (n_x x 2)
 
     x_hat = x_mean + K2 * (z_LL - z_mean);
-    P = P_prior - K2 * S2 * K2.transpose();
+    P_post = P_prior - K2 * S2 * K2.transpose();
 
     std::cout << "The result2: \n"<< x_hat.tail(2) << endl;
 
