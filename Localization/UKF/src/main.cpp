@@ -13,6 +13,8 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include "WGS84toCartesian.hpp"
+#include <tf2_ros/transform_broadcaster.h>
+#include <geometry_msgs/TransformStamped.h>
 
 using namespace std;
 
@@ -54,6 +56,26 @@ ros::Subscriber landmarkSub; // Landmark subscriber
 
 // Define ROS publisher
 ros::Publisher state_publisher; // State publisher
+
+//Pose callback function
+void poseCallback(){
+    static tf2_ros::TransformBroadcaster br;
+    geometry_msgs::TransformStamped transformStamped;
+    
+    transformStamped.header.stamp = ros::Time::now();
+    transformStamped.header.frame_id = "base_link";
+    transformStamped.child_frame_id = "camera_link";
+    transformStamped.transform.translation.x = ukf.x_post[7];
+    transformStamped.transform.translation.y = ukf.x_post[8];
+    transformStamped.transform.translation.z = 0.0;
+
+    tf2::Quaternion q(ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[0]);
+    transformStamped.transform.rotation.x = q.x();
+    transformStamped.transform.rotation.y = q.y();
+    transformStamped.transform.rotation.z = q.z();
+    transformStamped.transform.rotation.w = q.w();  
+    br.sendTransform(transformStamped);
+}
 
 // Callback function for encoder data
 void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
@@ -273,6 +295,8 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
 
     state_publisher.publish(state_msg);
+
+    poseCallback(); // Call pose callback to publish the transform
 }
 
 void trueLandmarkCallback(const roar_msgs::LandmarkArray::ConstPtr& msg){
@@ -303,7 +327,7 @@ void trueLandmarkCallback(const roar_msgs::LandmarkArray::ConstPtr& msg){
 
 Eigen::Vector3d roverToWorld(const Eigen::Vector3d& rel_pos_rover, const tf2::Quaternion& rover_quat) {
     // Convert tf2 quaternion to Eigen quaternion
-    Eigen::Quaterniond q(rover_quat.w(), rover_quat.x(), rover_quat.y(), rover_quat.z());
+    Eigen::Quaterniond q(rover_quat.x(), rover_quat.y(), rover_quat.z(), rover_quat.w());
     // Get rotation matrix
     Eigen::Matrix3d R = q.toRotationMatrix();
     // Transform the vector
