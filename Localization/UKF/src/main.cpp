@@ -382,7 +382,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
                 minDist = dist;
                 nearestPos = rel_pos_all[i];
             }
-            std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << std::endl;
+            //std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << std::endl;
         }
         
         z_measurement[11] = nearestPos[0];
@@ -427,7 +427,7 @@ int main(int argc, char **argv)
     // Initialize ROS subscribers
     gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
     imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
-    //encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
+    encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     
   
     trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
