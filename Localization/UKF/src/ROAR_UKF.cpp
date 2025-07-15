@@ -207,7 +207,7 @@ UKF::UKF(MerwedSigmaPoints merwed_sigma_points)
 
     // Intialize Posteriori Estimate Covariance Matrix
     //P = Eigen::MatrixXd::Zero(x_dim, x_dim);
-    P = Eigen::MatrixXd::Identity(x_dim, x_dim)*0.5;
+    P = Eigen::MatrixXd::Identity(x_dim, x_dim)*0.5;  // The P should be set indvidually for each diagonal element, not like this
     S = Eigen::MatrixXd::Zero(z_dim, z_dim);
 
     // Initialize Prior Estimates
@@ -783,14 +783,13 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     P_prior = P_post;
 
     std::array<double, 2> WGS84Reference{lon0, lat0};
-    //std::cout << "Lon0: " << lon0 << " | lat0: " << lat0 << std::endl;
     std::array<double, 2> result{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
     z_measurement[11] = result[0];
     z_measurement[12] = result[1];
 
-    //std::cout << "Lon: " << z_measurement[10] << " | lat: " << z_measurement[9] << std::endl;
-
-    //std::cout << "x: " << result[0] << " | y: " << result[1] << std::endl;
+    std::cout << "Lon0: " << lon0 << " | lat0: " << lat0 << std::endl;
+    std::cout << "Lon: " << z_measurement[10] << " | lat: " << z_measurement[9] << std::endl;
+    std::cout << "x: " << result[0] << " | y: " << result[1] << std::endl;
 
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
     {
@@ -812,22 +811,11 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
         sigma_points.Wm,
         sigma_points.Wc,
         Q);
-    /*
-    Eigen::MatrixXd K2 = Tc * S2.inverse();  // K: (n_x x 2)
-
-    x_hat = x_mean + K2 * (z_gps - z_mean);
-    P = P_prior - K2 * S2 * K2.transpose();
-
-    x_prior = x_post;
-    P_prior = P_post;
-
-    x_post.tail(2) = x_hat.tail(2);
-    */
+    
     P_post.col(7) = P.col(7);
     P_post.col(8) = P.col(8);
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
-    
 
     // GPS measurement
     Eigen::Vector2d z_gps(result[0], result[1]);
@@ -885,11 +873,6 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     // Update P_post only for x and y rows/cols (indices 7 and 8)
     //P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);
     //P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
-
-    //P_post.col(7) = P.col(7);
-    //P_post.col(8) = P.col(8);
-    //P_post.row(7) = P.row(7);
-    //P_post.row(8) = P.row(8);
 
 }
 
@@ -989,7 +972,7 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
     P = P_prior - K * S * K.transpose();
 
     // --- [11] Log result (optional debug) ---
-    std::cout << "The result2: \n" << x_hat.tail(2) << std::endl;
+    //std::cout << "The result2: \n" << x_hat.tail(2) << std::endl;
 
     // --- [12] Update post state ---
     x_post(7) = x_hat(7);  // Update only x, y
