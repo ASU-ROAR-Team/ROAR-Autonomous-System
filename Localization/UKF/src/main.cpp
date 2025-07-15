@@ -12,7 +12,6 @@
 #include "roar_msgs/LandmarkArray.h"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
-#include <sensor_msgs/MagneticField.h>
 
 using namespace std;
 
@@ -35,9 +34,9 @@ bool new_measurement_received = false; // Flag for new measurement
 bool initial_measurement = true; // Flag for initial measurement
 double lat0 = 0.0; // Initial latitude
 double lon0 = 0.0; // Initial longitude
-double roll = 0.0;
-double pitch = 0.0; 
 double yaw = 0.0;
+double pitch = 0.0; 
+double roll = 0.0;
 vector<roar_msgs::Landmark> ROVlandmarks;
 
 // Initialize Sigma Points and UKF
@@ -51,6 +50,8 @@ ros::Subscriber gps_sub; // GPS subscriber
 ros::Subscriber trueLandmarkSub; // Landmarks true position subscriber
 ros::Subscriber landmarkSub; // Landmark subscriber
 ros::Subscriber mag_sub; // Magnetometer subscriber
+
+
 
 // Define ROS publisher
 ros::Publisher state_publisher; // State publisher
@@ -96,7 +97,7 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         */
         
         // Call UKF encoder callback function
-        ukf.encoder_callback(encoder_measurement, dt_encoder,yaw);
+        ukf.encoder_callback(encoder_measurement, dt_encoder, yaw, pitch);
         // Update encoder_prev_time_stamp
         encoder_prev_time_stamp = encoder_current_time_stamp;
 
@@ -114,6 +115,16 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         state_msg.pose.pose.position.x = ukf.x_post[7];
         state_msg.pose.pose.position.y = ukf.x_post[8];
 
+        state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+        state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+        state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+        state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+        state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
+        state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
+        state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
+        state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
+        
+
         
         state_publisher.publish(state_msg);
     }
@@ -124,7 +135,6 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
 // Callback function for GPS data
 void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 {
-    std::cout << "GPS UPDATE" << endl;
     nav_msgs::Odometry state_msg;
 
     if (initial_measurement == true)
@@ -156,6 +166,12 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
     state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
     state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+    state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
+    state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
+    state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
+    state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
+
+    state_msg.pose.covariance[35] = 1; //Used to update the plotter only
 
     state_publisher.publish(state_msg);
     
@@ -165,7 +181,6 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 // Callback function for IMU data
 void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
-    std::cout << "IMU" << endl;
     // yaw = msg->orientation.z;
     // yaw = yaw * PI / 180.0;
     if (imu_prev_time_stamp.isZero()) 
@@ -179,7 +194,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     dt_imu = (imu_current_time_stamp - imu_prev_time_stamp).toSec();
     nav_msgs::Odometry state_msg;
 
-    tf2::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf2::Quaternion quat (msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
     tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
 
@@ -190,15 +205,9 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     z_measurement[4] = msg->linear_acceleration.y;
     z_measurement[5] = msg->linear_acceleration.z;
 
-    if (encoder_prev_time_stamp.isZero()) 
-        {
-            imu_prev_time_stamp = imu_current_time_stamp; // Initialize encoder_prev_time_stamp
-            return;
-        }
     ukf.imu_callback(encoder_measurement, z_measurement, dt_imu); //////////need to be fixed
     imu_prev_time_stamp = imu_current_time_stamp;
 
-    //std::cout<<"Z_measurement is:    "<<endl<<z_measurement<<"END Z_measurement!!!!!!!!!!"<<endl<<endl;
     // Publish state message
     state_msg.pose.pose.orientation.x = ukf.x_post[0];
     state_msg.pose.pose.orientation.y = ukf.x_post[1];
@@ -222,9 +231,10 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
     nav_msgs::Odometry state_msg;
 
-    tf2::Quaternion quat (msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    tf2::Quaternion quat (msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
     tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
+
     // (yaw = msg->orientation.z;)
     // yaw = yaw * PI / 180.0;
     // pitch = msg->orientation.y; //????????????
@@ -253,6 +263,10 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
     state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
     state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
+    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
 
     state_publisher.publish(state_msg);
 }
@@ -291,18 +305,70 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 	//Landmark RELATIVE position: landmark_poses
 
     if(ROVlandmarks.size() > 0){
+
+        /*
+        // Convert quaternion to tf2::Quaternion
+        tf2::Quaternion q(ukf.x_post(0), ukf.x_post(1), ukf.x_post(2), ukf.x_post(3));
+
+        // Convert quaternion to rotation matrix
+        tf2::Matrix3x3 R(q);
+
+        double theta = -M_PI / 2;
+        tf2::Quaternion correction;
+        correction.setRPY(0, 0, theta);  // Roll, Pitch, Yaw
+
+        q = q * correction;
+        q.normalize();
+
+        // Convert relative landmark position to tf2::Vector3
+        tf2::Vector3 rel_landmark_pos(landmark_poses->pose.pose.position.x,
+                                    landmark_poses->pose.pose.position.y,
+                                    landmark_poses->pose.pose.position.z);
+
+        // Rotate relative position into fixed frame
+        tf2::Vector3 rotated_relative = R * rel_landmark_pos;
+
+        // Subtract rotated relative position from landmark's fixed position
+        geometry_msgs::Point rover_pos;
+        rover_pos.x = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rotated_relative.x();
+        rover_pos.y = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rotated_relative.y();
+        rover_pos.z = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.z - rotated_relative.z();
+
+        std::cout << "x: " << rover_pos.x << " | y: " << rover_pos.y << " | z: " << std::endl;
+
+        
+        z_measurement[11] = rover_pos.x;
+        z_measurement[12] = rover_pos.y;
+        z_measurement[13] = rover_pos.z;
+        */
         
         //All Relative Positions 
         std::vector<Eigen::Vector2d> rel_pos_all = {
             {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
             {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z}
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + landmark_poses->pose.pose.position.z},
+            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - landmark_poses->pose.pose.position.x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - landmark_poses->pose.pose.position.z}
         };
 
         Eigen::Vector2d nearestPos = rel_pos_all[3];
         double minDist = std::numeric_limits<double>::infinity();
 
-        for (int i = 0; i < 4; i++){
+        for (int i = 0; i < 16; i++){
             //calc dist
             double dist = sqrt(pow((rel_pos_all[i][0] - ukf.x_post[7]) ,2) + pow((rel_pos_all[i][1] - ukf.x_post[8]) ,2));
 
@@ -315,6 +381,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         z_measurement[11] = nearestPos[0];
         z_measurement[12] = nearestPos[1];
         z_measurement[13] = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.z - landmark_poses->pose.pose.position.y;
+        
 
         ukf.LL_Callback(z_measurement);
 
@@ -335,8 +402,11 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
         state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
 
+        state_msg.pose.covariance[35] = 1; //Used to update the plotter only
+
         state_publisher.publish(state_msg);
     }
+
 }
 
 void magnetometerCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
@@ -347,18 +417,17 @@ void magnetometerCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
 
 }
 
-
 // Main function
 int main(int argc, char **argv) 
 {
     ros::init(argc, argv, "ukf_localization"); // Initialize ROS node
     ros::NodeHandle nh; // Create ROS node handle
     
-    mag_sub = nh.subscribe("/magnetometer", 100000000, magnetometerCallback);
     // Initialize ROS subscribers
-    //gps_sub = nh.subscribe("/gps", 100000000, gpsCallback);
-    imu_sub = nh.subscribe("/imu", 100000000, imuCallback);
-    encoder_sub = nh.subscribe("/joint_states", 100000000, encoderCallback);
+    mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
+    //gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
+    imu_sub = nh.subscribe("/imu", 1000, imuCallback);
+    encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     
   
     //trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
