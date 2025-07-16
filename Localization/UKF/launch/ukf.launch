@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<launch>
+    <node pkg="localization" type="main" name="main" output="screen" />
+</launch>

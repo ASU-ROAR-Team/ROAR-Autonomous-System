@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # pylint: disable=all
 # mypy: ignore-errors
+
 """
 Node for aruco marker
 """
@@ -59,7 +60,7 @@ class ArucoTrackingNode:
         rospy.Subscriber(self.cameraInfoTopic, CameraInfo, self.cameraInfoCallback)
 
         # Publishers
-        self.posePub = rospy.Publisher("/landmark_topic", LandmarkArray, queue_size=10)
+        self.posePub = rospy.Publisher("/landmark_topic", Landmark, queue_size=10)
 
     def loadParameters(self):
         """
@@ -67,10 +68,10 @@ class ArucoTrackingNode:
         """
         self.cameraTopic = rospy.get_param("~cameraTopic", "/camera/color/image_raw")
         self.cameraInfoTopic = rospy.get_param("~cameraInfoTopic", "/camera/color/camera_info")
-        self.arucoDictType = rospy.get_param("~arucoDictType", cv2.aruco.DICT_5X5_10)
+        self.arucoDictType = rospy.get_param("~arucoDictType", cv2.aruco.DICT_5X5_100)
         self.visualize = rospy.get_param("~visualize", True)
         self.showRejected = rospy.get_param("~showRejected", True)
-        self.markerSize = rospy.get_param("~markerSize", 0.05)
+        self.markerSize = rospy.get_param("~markerSize", 0.25)
 
         # Validate mandatory parameters
         if self.cameraTopic is None:
@@ -118,6 +119,24 @@ class ArucoTrackingNode:
                     np.vstack([np.hstack([rotationMatrix, [[0], [0], [0]]]), [0, 0, 0, 1]])
                 )
 
+                # | NEW |
+
+                # Instead of complex face detection or mapping
+                # Move 0.105 m *opposite* to face normal in camera frame
+
+                # Compute face normal in camera frame
+                face_normal_camera = rotationMatrix @ np.array([0, 0, 1])  # local +Z → camera frame
+
+                # Offset inward to cube centroid
+                offset_world = -0.105 * face_normal_camera
+                centroid = tvec + offset_world
+
+                # === STEP 3: Use centroid for publishing ===
+                tvec[0] = centroid[0]
+                tvec[1] = centroid[1]
+                tvec[2] = centroid[2]
+
+
                 # Create PoseStamped message
                 poseMsg = PoseStamped()
                 poseMsg.header = imageMsg.header
@@ -130,12 +149,14 @@ class ArucoTrackingNode:
                 poseMsg.pose.orientation.w = quaternion[3]
                 landmarkMsg = Landmark()
                 landmarkMsg.header = imageMsg.header
-                landmarkMsg.id = ids[i]
+                landmarkMsg.id = ids[i][0]
                 landmarkMsg.pose = poseMsg
+                self.posePub.publish(landmarkMsg)
                 landmarkArrMsg.landmarks.append(landmarkMsg)
 
             # Publish pose
-            self.posePub.publish(landmarkArrMsg)
+            print(ids)
+            #self.posePub.publish(landmarkArrMsg)
 
         if self.showRejected:
             cvImage = self.arucoTracker.drawRejectedMarkers(cvImage, rejected)
@@ -156,6 +177,7 @@ class ArucoTrackingNode:
         cameraInfoMsg : CameraInfo
             The incoming ROS CameraInfo message.
         """
+        print("Camera info Updated Successfully!")
         self.cameraMatrix = np.array(cameraInfoMsg.K).reshape(3, 3)
         self.distCoeffs = np.array(cameraInfoMsg.D)
 

@@ -8,7 +8,6 @@ from typing import Optional, Tuple, List
 import numpy as np
 import cv2
 
-
 class ArucoTracker:
     """
     A class for detecting and tracking ArUco markers in images.
@@ -32,7 +31,10 @@ class ArucoTracker:
         arucoDictType : int, optional
             The type of ArUco dictionary to use (default is DICT_5X5_100).
         """
+        # This line is already correct for OpenCV 4.7.0+
         self.arucoDict = cv2.aruco.getPredefinedDictionary(arucoDictType)
+        
+        # These lines are also correct for OpenCV 4.7.0+
         self.arucoParams = cv2.aruco.DetectorParameters()
         self.arucoDetector = cv2.aruco.ArucoDetector(self.arucoDict, self.arucoParams)
 
@@ -56,6 +58,7 @@ class ArucoTracker:
         rejected : List[np.ndarray]
             List of rejected marker candidates.
         """
+        # This method signature and call are compatible with OpenCV 4.8
         corners, ids, rejected = self.arucoDetector.detectMarkers(image)
         return corners, ids, rejected
 
@@ -92,6 +95,7 @@ class ArucoTracker:
                 imgPoints = corner.reshape(-1, 2).astype(np.float32)
 
                 # Use IPPE_SQUARE method which is optimized for square markers
+                # This flag is available and correctly used in OpenCV 4.8
                 success, rvec, tvec = cv2.solvePnP(
                     objPoints, imgPoints, cameraMatrix, distCoeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE
                 )
@@ -175,12 +179,14 @@ class ArucoTracker:
                     2,
                 )
 
-                # Draw the axis
+                # Draw the axis (compatible with OpenCV 4.8)
                 cv2.drawFrameAxes(image, cameraMatrix, distCoeffs, rvec, tvec, 0.01)
+                
+                # Flattening rvec and tvec for display is good practice
                 tvec = tvec.flatten()
                 rvec = rvec.flatten()
 
-                # Display position and angles
+                # Display position and angles (compatible with OpenCV 4.8)
                 cv2.putText(
                     image,
                     f"Position: ({tvec[0]:.2f}, {tvec[1]:.2f}, {tvec[2]:.2f})",
