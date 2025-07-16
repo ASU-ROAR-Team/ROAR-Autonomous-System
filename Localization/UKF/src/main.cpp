@@ -459,9 +459,9 @@ int main(int argc, char **argv)
     ros::NodeHandle nh; // Create ROS node handle
     
     // Initialize ROS subscribers
-    mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
+    // mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
     //gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
-    imu_sub = nh.subscribe("/imu", 1000, imuCallback);
+    imu_sub = nh.subscribe("/bno", 1000, bnoCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     
   
