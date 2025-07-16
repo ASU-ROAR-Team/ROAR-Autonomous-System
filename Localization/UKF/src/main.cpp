@@ -28,8 +28,7 @@ const int n_state_dim = 9;  // State dimension
 const float alpha = 0.3;
 const float beta_ = 2.0;
 const float kappa = 0.1;
-ros::Time encoder_prev_time_stamp; // Timestamp for encoder
-ros::Time imu_prev_time_stamp; // Timestamp for IMU
+ros::Time prev_time_stamp; // Timestamp
 ros::Time gps_prev_time_stamp; // Timestamp for GPS
 double dt_encoder = 0.0; // encoder time step
 double dt_imu = 0.0; //IMU time step
@@ -88,18 +87,18 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
     double reading_right = msg->position[4];
     
     if(!(reading_left == 0 || reading_right == 0)){
-        // Check if encoder_prev_time_stamp is zero
-        if (encoder_prev_time_stamp.isZero()) 
+        // Check if prev_time_stamp is zero
+        if (prev_time_stamp.isZero()) 
         {
-            encoder_prev_time_stamp = msg->header.stamp; // Initialize encoder_prev_time_stamp
+            prev_time_stamp = msg->header.stamp; // Initialize prev_time_stamp
             encoder_prev_measurement[0] = reading_left;
             encoder_prev_measurement[1] = reading_right;
             return;
         }
 
         // Calculate time difference
-        ros::Time encoder_current_time_stamp = msg->header.stamp;
-        dt_encoder = (encoder_current_time_stamp - encoder_prev_time_stamp).toSec();
+        ros::Time current_time_stamp = msg->header.stamp;
+        dt_encoder = (current_time_stamp - prev_time_stamp).toSec();
         // Store encoder measurements
 
         /*
@@ -121,17 +120,17 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         
         // Call UKF encoder callback function
         ukf.encoder_callback(encoder_measurement, dt_encoder, yaw, pitch);
-        // Update encoder_prev_time_stamp
-        encoder_prev_time_stamp = encoder_current_time_stamp;
+        // Update prev_time_stamp
+        prev_time_stamp = current_time_stamp;
 
         encoder_prev_measurement[0] = reading_left;
         encoder_prev_measurement[1] = reading_right;
         
         // Publish state message
-        state_msg.pose.pose.orientation.x = ukf.x_post[0];
-        state_msg.pose.pose.orientation.y = ukf.x_post[1];
-        state_msg.pose.pose.orientation.z = ukf.x_post[2];
-        state_msg.pose.pose.orientation.w = ukf.x_post[3];
+        state_msg.pose.pose.orientation.w = ukf.x_post[0];
+        state_msg.pose.pose.orientation.x = ukf.x_post[1];
+        state_msg.pose.pose.orientation.y = ukf.x_post[2];
+        state_msg.pose.pose.orientation.z = ukf.x_post[3];
         state_msg.twist.twist.angular.x = ukf.x_post[4];
         state_msg.twist.twist.angular.y = ukf.x_post[5];
         state_msg.twist.twist.angular.z = ukf.x_post[6];
@@ -175,10 +174,10 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     ukf.gps_callback(z_measurement, lon0, lat0);
 
     // Publish state message
-    state_msg.pose.pose.orientation.x = ukf.x_post[0];
-    state_msg.pose.pose.orientation.y = ukf.x_post[1];
-    state_msg.pose.pose.orientation.z = ukf.x_post[2];
-    state_msg.pose.pose.orientation.w = ukf.x_post[3];
+    state_msg.pose.pose.orientation.w = ukf.x_post[0];
+    state_msg.pose.pose.orientation.x = ukf.x_post[1];
+    state_msg.pose.pose.orientation.y = ukf.x_post[2];
+    state_msg.pose.pose.orientation.z = ukf.x_post[3];
     state_msg.twist.twist.angular.x = ukf.x_post[4];
     state_msg.twist.twist.angular.y = ukf.x_post[5];
     state_msg.twist.twist.angular.z = ukf.x_post[6];
@@ -211,15 +210,15 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
     // yaw = msg->orientation.z;
     // yaw = yaw * PI / 180.0;
-    if (imu_prev_time_stamp.isZero()) 
+    if (prev_time_stamp.isZero()) 
     {
-        imu_prev_time_stamp = msg->header.stamp; // Initialize encoder_prev_time_stamp
+        prev_time_stamp = msg->header.stamp; // Initialize prev_time_stamp
         return;
     }
 
     // Calculate time difference
-    ros::Time imu_current_time_stamp = msg->header.stamp;
-    dt_imu = (imu_current_time_stamp - imu_prev_time_stamp).toSec();
+    ros::Time current_time_stamp = msg->header.stamp;
+    dt_imu = (current_time_stamp - prev_time_stamp).toSec();
     nav_msgs::Odometry state_msg;
 
     tf2::Quaternion quat (msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
@@ -233,14 +232,14 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     z_measurement[4] = msg->linear_acceleration.y;
     z_measurement[5] = msg->linear_acceleration.z;
 
-    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu); //////////need to be fixed
-    imu_prev_time_stamp = imu_current_time_stamp;
+    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu, yaw, pitch); //////////need to be fixed
+    prev_time_stamp = current_time_stamp;
 
     // Publish state message
-    state_msg.pose.pose.orientation.x = ukf.x_post[0];
-    state_msg.pose.pose.orientation.y = ukf.x_post[1];
-    state_msg.pose.pose.orientation.z = ukf.x_post[2];
-    state_msg.pose.pose.orientation.w = ukf.x_post[3];
+    state_msg.pose.pose.orientation.w = ukf.x_post[0];
+    state_msg.pose.pose.orientation.x = ukf.x_post[1];
+    state_msg.pose.pose.orientation.y = ukf.x_post[2];
+    state_msg.pose.pose.orientation.z = ukf.x_post[3];
     state_msg.twist.twist.angular.x = ukf.x_post[4];
     state_msg.twist.twist.angular.y = ukf.x_post[5];
     state_msg.twist.twist.angular.z = ukf.x_post[6];
@@ -270,10 +269,10 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     ukf.bno_callback(roll, pitch, yaw);
 
     // Publish state message
-    state_msg.pose.pose.orientation.x = ukf.x_post[0];
-    state_msg.pose.pose.orientation.y = ukf.x_post[1];
-    state_msg.pose.pose.orientation.z = ukf.x_post[2];
-    state_msg.pose.pose.orientation.w = ukf.x_post[3];
+    state_msg.pose.pose.orientation.w = ukf.x_post[0];
+    state_msg.pose.pose.orientation.x = ukf.x_post[1];
+    state_msg.pose.pose.orientation.y = ukf.x_post[2];
+    state_msg.pose.pose.orientation.z = ukf.x_post[3];
     state_msg.twist.twist.angular.x = ukf.x_post[4];
     state_msg.twist.twist.angular.y = ukf.x_post[5];
     state_msg.twist.twist.angular.z = ukf.x_post[6];

@@ -533,8 +533,8 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitc
         double linear_velocity = rover.rover_speeds(0);
 
         // Calculate change in x and y positions
-        double dx = linear_velocity * cos(yaw) * cos(pitch) * dt; //the bno reads 0 from the -y so I added a -ve and switched the sin and cos
-        double dy = - linear_velocity * sin(yaw) * cos(pitch) * dt;
+        double dx = - linear_velocity * sin(yaw) * cos(pitch) * dt; //the bno reads 0 from the -y so I added a -ve and switched the sin and cos
+        double dy = linear_velocity * cos(yaw) * cos(pitch) * dt;
 
         // Update x and y positions
         X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
@@ -554,7 +554,7 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitc
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
 }
-void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt)
+void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double yaw, double pitch)
 {
         /***
     Predict with wheel odometry process model
@@ -607,30 +607,30 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
         X_sigma.col(i)(2) = attitude.v_2;
         X_sigma.col(i)(3) = attitude.v_3;
 
-        //position
-        UnitQuaternion invq = attitude.inverse();
+        // //position
+        // UnitQuaternion invq = attitude.inverse();
 
-        Eigen::Vector3d acc_body = invq.vector_rotation_by_quaternion(g0);
-        Eigen::Vector3d mag_body = invq.vector_rotation_by_quaternion(m0);
+        // Eigen::Vector3d acc_body = invq.vector_rotation_by_quaternion(g0);
+        // Eigen::Vector3d mag_body = invq.vector_rotation_by_quaternion(m0);
 
-        acc_body.normalize();
-        mag_body.normalize();
+        // acc_body.normalize();
+        // mag_body.normalize();
 
-        double pitch = asin(-acc_body(0));
-        double roll  = atan2(acc_body(1), acc_body(2));
+        // double pitch = asin(-acc_body(0));
+        // double roll  = atan2(acc_body(1), acc_body(2));
 
-        double mag_x = mag_body(0)*cos(pitch) + 
-                       mag_body(1)*sin(roll)*sin(pitch) + 
-                       mag_body(2)*cos(roll)*sin(pitch);
+        // double mag_x = mag_body(0)*cos(pitch) + 
+        //                mag_body(1)*sin(roll)*sin(pitch) + 
+        //                mag_body(2)*cos(roll)*sin(pitch);
 
-        double mag_y = mag_body(1)*cos(roll) - 
-                       mag_body(2)*sin(roll);
+        // double mag_y = mag_body(1)*cos(roll) - 
+        //                mag_body(2)*sin(roll);
 
-        double yaw = atan2(-mag_y, mag_x);
+        // double yaw = atan2(-mag_y, mag_x);
 
         // Calculate change in x and y positions
-        double dx = linear_velocity * cos(yaw) * dt;
-        double dy = linear_velocity * sin(yaw) * dt;
+        double dx = - linear_velocity * sin(yaw) * cos(pitch) * dt;
+        double dy = linear_velocity * cos(yaw) * cos(pitch) * dt;
         
         // Update x and y positions
         X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
@@ -760,12 +760,12 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     x_prior = x_post;
     P_prior = P_post;
                 
-    double roll, pitch, yaw;
+    double roll, pitch2, yaw2;
     tf2::Quaternion quat_out(x_post(1), x_post(2), x_post(3), x_post(0));
-    tf2::Matrix3x3(quat_out).getRPY(roll, pitch, yaw);
-    std::cout<<"YAW IS:   "<< yaw<<endl
-             <<" Cos(Yaw) IS:    "<<cos(yaw)<<endl
-             <<" Sin(Yaw) IS:     "<<sin(yaw)
+    tf2::Matrix3x3(quat_out).getRPY(roll, pitch2, yaw2);
+    std::cout<<"YAW IS:   "<< yaw2<<endl
+             <<" Cos(Yaw) IS:    "<<cos(yaw2)<<endl
+             <<" Sin(Yaw) IS:     "<<sin(yaw2)
              <<std::endl<<endl;
 }
 
