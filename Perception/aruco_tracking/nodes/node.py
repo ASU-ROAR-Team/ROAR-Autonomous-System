@@ -71,7 +71,7 @@ class ArucoTrackingNode:
         self.arucoDictType = rospy.get_param("~arucoDictType", cv2.aruco.DICT_5X5_100)
         self.visualize = rospy.get_param("~visualize", True)
         self.showRejected = rospy.get_param("~showRejected", True)
-        self.markerSize = rospy.get_param("~markerSize", 0.25)
+        self.markerSize = rospy.get_param("~markerSize", 0.15)
 
         # Validate mandatory parameters
         if self.cameraTopic is None:

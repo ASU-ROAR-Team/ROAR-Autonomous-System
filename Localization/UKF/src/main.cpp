@@ -15,6 +15,7 @@
 #include "WGS84toCartesian.hpp"
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
+#include <XmlRpcValue.h>
 
 using namespace std;
 
@@ -40,6 +41,7 @@ double yaw = 0.0;
 double pitch = 0.0; 
 double roll = 0.0;
 vector<roar_msgs::Landmark> ROVlandmarks;
+XmlRpc::XmlRpcValue landmarks;
 
 // Initialize Sigma Points and UKF
 MerwedSigmaPoints sigma_points(n_state_dim, alpha, beta_, kappa); // Initialize sigma points
@@ -182,12 +184,12 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     state_msg.twist.twist.angular.y = ukf.x_post[5];
     state_msg.twist.twist.angular.z = ukf.x_post[6];
     
-    //state_msg.pose.pose.position.x = ukf.x_post[7];
-    //state_msg.pose.pose.position.y = ukf.x_post[8];
-    std::array<double, 2> WGS84Reference{lon0, lat0};
-    std::array<double, 2> result{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
-    state_msg.pose.pose.position.x = result[0];
-    state_msg.pose.pose.position.y = result[1];
+    state_msg.pose.pose.position.x = ukf.x_post[7];
+    state_msg.pose.pose.position.y = ukf.x_post[8];
+    //std::array<double, 2> WGS84Reference{lon0, lat0};
+    //std::array<double, 2> result{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
+    //state_msg.pose.pose.position.x = result[0];
+    //state_msg.pose.pose.position.y = result[1];
 
     state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
     state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
@@ -202,7 +204,9 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 
     state_publisher.publish(state_msg);
     
-    //std::cout <<  ukf.P_post.col(7)(7) << endl;
+    std::cout <<  "[*] GPS UPDATED !" << std::endl;
+    std::cout << "x: " << ukf.x_post[7] << " | y: " << ukf.x_post[8] << std::endl;
+    std::cout << ukf.P_post.col(7)(7) << std::endl;
 }
 
 // Callback function for IMU data
@@ -252,6 +256,9 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
 
     state_publisher.publish(state_msg);
+
+    std::cout <<  "[*] IMU UPDATED !" << std::endl;
+    std::cout << ukf.P_post.col(7)(7) << std::endl;
 }
 
 void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
@@ -342,7 +349,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 	//Landmark TRUE position: ROVlandmarks
 	//Landmark RELATIVE position: landmark_poses
 
-    if(ROVlandmarks.size() > 0){
+    if(landmarks.size() > 0){
 
         double rel_x = landmark_poses->pose.pose.position.x;
         double rel_y = landmark_poses->pose.pose.position.z;
@@ -363,61 +370,93 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         Eigen::Vector3d rel_pos_world = roverToWorld(rel_pos_rover, rover_quat);
 
         rel_x = rel_pos_world.x();
-        rel_y = rel_pos_world.y();
+        rel_y = rel_pos_world.y() ; // Adjusting y position to match the gps postion 
 
         std::cout << "Relative position in world frame: " 
                   << rel_pos_world.x() << ", " 
                   << rel_pos_world.y() << ", " 
                   << rel_pos_world.z() << std::endl;
+
+        double rov_x = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["x"]);
+        double rov_y = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["y"]);
         
         //All Relative Positions 
         std::vector<Eigen::Vector2d> rel_pos_all = {
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + rel_x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + rel_y},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + rel_x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rel_y},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + rel_x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + rel_y},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + rel_x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rel_y},
+            {rov_x + rel_x, rov_y + rel_y},
+            {rov_x + rel_x, rov_y - rel_y},
+            {rov_x + rel_x, - rov_y + rel_y},
+            {rov_x + rel_x, - rov_y - rel_y},
 
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rel_x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + rel_y},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rel_x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rel_y},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rel_x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + rel_y},
-            {ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rel_x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rel_y},
+            {rov_x - rel_x, rov_y + rel_y},
+            {rov_x - rel_x, rov_y - rel_y},
+            {rov_x - rel_x, - rov_y + rel_y},
+            {rov_x - rel_x, - rov_y - rel_y},
 
-            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + rel_x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + rel_y},
-            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + rel_x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rel_y},
-            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + rel_x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + rel_y},
-            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x + rel_x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rel_y},
+            {- rov_x + rel_x, rov_y + rel_y},
+            {- rov_x + rel_x, rov_y - rel_y},
+            {- rov_x + rel_x, - rov_y + rel_y},
+            {- rov_x + rel_x, - rov_y - rel_y},
 
-            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rel_x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + rel_y},
-            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rel_x, ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rel_y},
-            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rel_x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y + rel_y},
-            {- ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.x - rel_x, - ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.y - rel_y}
+            {- rov_x - rel_x, rov_y + rel_y},
+            {- rov_x - rel_x, rov_y - rel_y},
+            {- rov_x - rel_x, - rov_y + rel_y},
+            {- rov_x - rel_x, - rov_y - rel_y},
+            
+            {rov_x + rel_y, rov_y + rel_x},
+            {rov_x + rel_y, rov_y - rel_x},
+            {rov_x + rel_y, - rov_y + rel_x},
+            {rov_x + rel_y, - rov_y - rel_x},
+
+            {rov_x - rel_y, rov_y + rel_x},
+            {rov_x - rel_y, rov_y - rel_x},
+            {rov_x - rel_y, - rov_y + rel_x},
+            {rov_x - rel_y, - rov_y - rel_x},
+
+            {- rov_x + rel_y, rov_y + rel_x},
+            {- rov_x + rel_y, rov_y - rel_x},
+            {- rov_x + rel_y, - rov_y + rel_x},
+            {- rov_x + rel_y, - rov_y - rel_x},
+
+            {- rov_x - rel_y, rov_y + rel_x},
+            {- rov_x - rel_y, rov_y - rel_x},
+            {- rov_x - rel_y, - rov_y + rel_x},
+            {- rov_x - rel_y, - rov_y - rel_x}
         };
 
         Eigen::Vector2d nearestPos = rel_pos_all[0];
         double minDist = 1000000.0;
+        double dist = 0.0;
+        
+        double rovCurrentX = ukf.x_post[7];
+        double rovCurrentY = ukf.x_post[8];
 
-        std::cout << "x_post[7]: " << ukf.x_post[7] << " | x_post[8]: " << ukf.x_post[8] << std::endl; 
+        std::cout << "x_post[7]: " << rovCurrentX << " | x_post[8]: " << rovCurrentY << std::endl; 
         std::cout << "rel_x: " << rel_x << " | rel_y: " << rel_y << std::endl; 
 
-        for (int i = 0; i < 16; i++){
+        for (int i = 0; i < 32; i++){
             //calc dist
-            double dist = sqrt(pow((rel_pos_all[i][0] - ukf.x_post[7]) ,2) + pow((rel_pos_all[i][1] - ukf.x_post[8]) ,2));
+            dist = sqrt(pow((rel_pos_all[i][0] - rovCurrentX) ,2) + pow((rel_pos_all[i][1] - rovCurrentY) ,2));
 
-            if (dist < minDist){
+            if (dist < minDist) // Check if the distance is less than 0.5
+            {
                 minDist = dist;
                 nearestPos = rel_pos_all[i];
             }
-            //std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << std::endl;
+            std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << std::endl;
         }
         
         z_measurement[11] = nearestPos[0];
         z_measurement[12] = nearestPos[1];
-        z_measurement[13] = ROVlandmarks[(landmark_poses->id)-51].pose.pose.position.z - landmark_poses->pose.pose.position.y;
-        
-        std::cout << "LL-> X: " << z_measurement[11] << " | Y: " << z_measurement[12] << std::endl;
-        std::cout << "****************************" << std::endl;
+        z_measurement[13] = 0;
 
-        ukf.LL_Callback(z_measurement);
+        if (dist < 0.5){
+            ukf.LL_Callback(z_measurement);
+            std::cout << "LL-> X: " << z_measurement[11] << " | Y: " << z_measurement[12] << " | minDist: " << minDist << std::endl;
+            std::cout << "[*] Landmark Updated !" << std::endl;
+            std::cout << ukf.P_post.col(7)(7) << std::endl;
+            std::cout << "****************************" << std::endl;
+        }
+        
 
         nav_msgs::Odometry state_msg;
 
@@ -459,13 +498,15 @@ int main(int argc, char **argv)
     
     // Initialize ROS subscribers
     mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
-    //gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
+    gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
     imu_sub = nh.subscribe("/imu", 1000, imuCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
-    
-  
     //trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
-    //landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
+    landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
+
+    if (!nh.getParam("landmarks", landmarks)) {
+    ROS_ERROR("Could not find 'landmarks' parameter");
+    }
 
     // Initialize ROS publisher
     state_publisher = nh.advertise<nav_msgs::Odometry>("/filtered_state", 1000);
