@@ -6,6 +6,7 @@ zed_obstacle_detector:
   # world_frame: "world"          # Global frame for tracking and final output (or "map" if you use a map frame)
   base_link_frame: "zed2i_left_camera_frame"  # Use camera frame directly for live bag
   world_frame: "zed2i_left_camera_frame"      # Use camera frame as world frame for live bag
+  camera_frame: "camera_link"     # URDF camera frame name for TF transformations
   
   # Camera Frame Pre-processing
   passthrough_z_min_camera: -0.5    # Minimum distance in camera frame (meters)

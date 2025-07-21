@@ -4,8 +4,9 @@ zed_obstacle_detector:
   
   # Input and TF Parameters
   point_cloud_topic: "/zed2i/zed_node/point_cloud/cloud_registered"
-  camera_frame: "zed2i_left_camera_frame"
+  base_link_frame: "base_link"
   world_frame: "world"
+  camera_frame: "camera_link"     # URDF camera frame name for TF transformations
   
   # Ultra-Coarse Resolution Processing
   passthrough_z_min_camera: 0.5      # Skip very close points
