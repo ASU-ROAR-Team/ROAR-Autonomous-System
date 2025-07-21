@@ -8,10 +8,10 @@ namespace zed_obstacle_detector {
 
 PointCloudProcessor::PointCloudProcessor(const ProcessingParams& params)
     : params_(params) {
-    ROS_INFO("Frame %d: voxel=%.3f, cluster_tol=%.3f, min_size=%d, ground_method=%s, mars_mode=%s", 
-         frame_count, params.processing_params.voxel_leaf_size, 
-         params.cluster_params.cluster_tolerance, params.cluster_params.min_cluster_size,
-         params.ground_params.method.c_str(), params.ground_params.mars_terrain_mode ? "true" : "false");
+    ROS_INFO("PointCloudProcessor initialized: voxel=%.3f, uniform_sampling=%s, radius=%.3f", 
+         params.voxel_leaf_size, 
+         params.enable_uniform_downsampling ? "enabled" : "disabled",
+         params.uniform_sampling_radius);
 }
 
 bool PointCloudProcessor::processPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
