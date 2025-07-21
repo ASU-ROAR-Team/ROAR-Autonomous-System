@@ -1,9 +1,6 @@
 #ifndef COORDINATE_TRANSFORMER_H
 #define COORDINATE_TRANSFORMER_H
 
-#include <pcl/point_types.h>
-#include <pcl/point_cloud.h>
-#include <pcl_ros/transforms.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_eigen/tf2_eigen.h>
@@ -36,26 +33,14 @@ public:
     CoordinateTransformer(const TransformParams& params);
     ~CoordinateTransformer() = default;
 
-    // Main transformation interfaces
-    bool transformPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                            const std::string& source_frame,
-                            const std::string& target_frame,
-                            pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
-                            const ros::Time& timestamp,
-                            std::shared_ptr<PerformanceMonitor> monitor = nullptr);
-
-    bool transformPointToWorld(const geometry_msgs::Point& point_base_link,
-                              const std::string& base_frame,
-                              geometry_msgs::Point& point_world,
-                              const ros::Time& timestamp);
-
+    // Main transformation interface - only transform cluster centroids
     bool transformClustersToWorld(const std::vector<std::pair<geometry_msgs::Point, float>>& clusters_base_link,
                                  const std::string& base_frame,
                                  std::vector<std::pair<geometry_msgs::Point, float>>& clusters_world,
                                  const ros::Time& timestamp,
                                  std::shared_ptr<PerformanceMonitor> monitor = nullptr);
 
-    // Individual transformation steps (for testing and debugging)
+    // Individual transformation step (for internal use)
     bool transformSinglePoint(const geometry_msgs::PointStamped& point_in,
                              geometry_msgs::PointStamped& point_out,
                              const std::string& target_frame);

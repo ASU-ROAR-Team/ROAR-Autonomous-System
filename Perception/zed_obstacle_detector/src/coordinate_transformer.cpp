@@ -1,6 +1,4 @@
 #include "zed_obstacle_detector/coordinate_transformer.h"
-#include <pcl_ros/transforms.h>
-#include <pcl_conversions/pcl_conversions.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <ros/ros.h>
@@ -17,98 +15,6 @@ CoordinateTransformer::CoordinateTransformer(const TransformParams& params)
     
     ROS_DEBUG("CoordinateTransformer initialized with source: %s, target: %s, world: %s, buffer_duration: %.1f s",
               params_.source_frame.c_str(), params_.target_frame.c_str(), params_.world_frame.c_str(), params_.tf_buffer_duration);
-}
-
-bool CoordinateTransformer::transformPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                                               const std::string& source_frame,
-                                               const std::string& target_frame,
-                                               pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
-                                               const ros::Time& timestamp,
-                                               std::shared_ptr<PerformanceMonitor> monitor) {
-    if (!input_cloud || input_cloud->empty()) {
-        ROS_WARN_THROTTLE(1.0, "Input cloud is empty or null for transformation!");
-        return false;
-    }
-
-    // Check if transformations are disabled
-    if (!params_.enable_transformations) {
-        ROS_DEBUG_THROTTLE(5.0, "Transformations disabled, copying cloud without transformation");
-        *output_cloud = *input_cloud;
-        return true;
-    }
-
-    if (source_frame == target_frame) {
-        // No transformation needed
-        *output_cloud = *input_cloud;
-        return true;
-    }
-
-    // Start timing if monitor is provided
-    if (monitor) {
-        monitor->startTimer("transform");
-    }
-
-    try {
-        // Check if transform is available
-        if (!isTransformAvailable(source_frame, target_frame, timestamp)) {
-            ROS_WARN_THROTTLE(1.0, "Transform from %s to %s not available at time %.3f",
-                             source_frame.c_str(), target_frame.c_str(), timestamp.toSec());
-            if (monitor) monitor->endTimer("transform");
-            return false;
-        }
-
-        // Use pcl_ros::transformPointCloud for better compatibility
-        // This is still faster than the old method due to better TF2 integration
-        if (!pcl_ros::transformPointCloud(target_frame, *input_cloud, *output_cloud, *tf_buffer_)) {
-            ROS_ERROR_THROTTLE(1.0, "Failed to transform point cloud from %s to %s",
-                              source_frame.c_str(), target_frame.c_str());
-            if (monitor) monitor->endTimer("transform");
-            return false;
-        }
-
-        // End timing if monitor is provided
-        long transform_duration = 0;
-        if (monitor) {
-            transform_duration = monitor->endTimer("transform");
-        }
-        
-        ROS_DEBUG_THROTTLE(5.0, "Transformed point cloud: %s -> %s (%zu points) in %ld ms",
-                          source_frame.c_str(), target_frame.c_str(), output_cloud->size(), transform_duration);
-        return true;
-
-    } catch (const tf2::TransformException& ex) {
-        ROS_ERROR_THROTTLE(1.0, "TF transform exception: %s", ex.what());
-        if (monitor) monitor->endTimer("transform");
-        return false;
-    } catch (const std::exception& e) {
-        ROS_ERROR_THROTTLE(1.0, "Point cloud transform exception: %s", e.what());
-        if (monitor) monitor->endTimer("transform");
-        return false;
-    }
-}
-
-bool CoordinateTransformer::transformPointToWorld(const geometry_msgs::Point& point_base_link,
-                                                 const std::string& base_frame,
-                                                 geometry_msgs::Point& point_world,
-                                                 const ros::Time& timestamp) {
-    try {
-        geometry_msgs::PointStamped point_in;
-        point_in.header.frame_id = base_frame;
-        point_in.header.stamp = timestamp;
-        point_in.point = point_base_link;
-
-        geometry_msgs::PointStamped point_out;
-        if (!transformSinglePoint(point_in, point_out, params_.world_frame)) {
-            return false;
-        }
-
-        point_world = point_out.point;
-        return true;
-
-    } catch (const std::exception& e) {
-        ROS_ERROR_THROTTLE(1.0, "Point to world transform exception: %s", e.what());
-        return false;
-    }
 }
 
 bool CoordinateTransformer::transformClustersToWorld(const std::vector<std::pair<geometry_msgs::Point, float>>& clusters_base_link,
@@ -131,50 +37,22 @@ bool CoordinateTransformer::transformClustersToWorld(const std::vector<std::pair
         monitor->startTimer("world_transform");
     }
 
-    // Try to get cached transform for efficiency
-    geometry_msgs::TransformStamped transform;
-    bool transform_cached = false;
-    
-    try {
-        // Check if we can get a transform that's valid for the entire batch
-        transform = tf_buffer_->lookupTransform(params_.world_frame, base_frame, timestamp, 
-                                               ros::Duration(params_.tf_lookup_timeout));
-        transform_cached = true;
-    } catch (const tf2::TransformException& ex) {
-        ROS_DEBUG_THROTTLE(1.0, "Could not cache transform for batch processing: %s", ex.what());
-    }
+    // Use iterative transformation for cluster centroids (more efficient for small number of points)
+    for (const auto& cluster_pair : clusters_base_link) {
+        const geometry_msgs::Point& centroid_base_link = cluster_pair.first;
+        float radius_base_link = cluster_pair.second;
 
-    if (transform_cached) {
-        // Use cached transform for batch processing
-        Eigen::Isometry3d transform_eigen = tf2::transformToEigen(transform);
-        
-        for (const auto& cluster_pair : clusters_base_link) {
-            const geometry_msgs::Point& centroid_base_link = cluster_pair.first;
-            float radius_base_link = cluster_pair.second;
+        // Create PointStamped for transformation
+        geometry_msgs::PointStamped point_in;
+        point_in.header.frame_id = base_frame;
+        point_in.header.stamp = timestamp;
+        point_in.point = centroid_base_link;
 
-            // Transform point using Eigen
-            Eigen::Vector3d point_eigen(centroid_base_link.x, centroid_base_link.y, centroid_base_link.z);
-            Eigen::Vector3d transformed_point = transform_eigen * point_eigen;
-            
-            geometry_msgs::Point centroid_world;
-            centroid_world.x = transformed_point.x();
-            centroid_world.y = transformed_point.y();
-            centroid_world.z = transformed_point.z();
-            
-            clusters_world.push_back({centroid_world, radius_base_link});
-        }
-    } else {
-        // Fall back to individual transformations
-        for (const auto& cluster_pair : clusters_base_link) {
-            const geometry_msgs::Point& centroid_base_link = cluster_pair.first;
-            float radius_base_link = cluster_pair.second;
-
-            geometry_msgs::Point centroid_world;
-            if (transformPointToWorld(centroid_base_link, base_frame, centroid_world, timestamp)) {
-                clusters_world.push_back({centroid_world, radius_base_link});
-            } else {
-                ROS_WARN_THROTTLE(1.0, "Failed to transform cluster centroid to world frame");
-            }
+        geometry_msgs::PointStamped point_out;
+        if (transformSinglePoint(point_in, point_out, params_.world_frame)) {
+            clusters_world.push_back({point_out.point, radius_base_link});
+        } else {
+            ROS_WARN_THROTTLE(1.0, "Failed to transform cluster centroid to world frame");
         }
     }
 
@@ -184,9 +62,8 @@ bool CoordinateTransformer::transformClustersToWorld(const std::vector<std::pair
         world_transform_duration = monitor->endTimer("world_transform");
     }
     
-    ROS_DEBUG_THROTTLE(5.0, "Transformed %zu/%zu clusters to world frame in %ld ms (%s)",
-                      clusters_world.size(), clusters_base_link.size(), world_transform_duration,
-                      transform_cached ? "cached" : "individual");
+    ROS_DEBUG_THROTTLE(5.0, "Transformed %zu/%zu clusters to world frame in %ld ms (iterative)",
+                      clusters_world.size(), clusters_base_link.size(), world_transform_duration);
     
     return !clusters_world.empty();
 }
