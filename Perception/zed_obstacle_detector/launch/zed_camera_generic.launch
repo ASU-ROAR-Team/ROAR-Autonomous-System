@@ -24,6 +24,19 @@
   <arg name="base_link_frame" default="base_link" doc="Base link frame" />
   <arg name="world_frame" default="world" doc="World frame" />
   
+  <!-- Load parameters based on performance mode -->
+  <group if="$(eval arg('performance_mode') == 'debug')">
+    <rosparam command="load" file="$(find zed_obstacle_detector)/config/test_params.yaml" />
+  </group>
+  
+  <group if="$(eval arg('performance_mode') == 'production')">
+    <rosparam command="load" file="$(find zed_obstacle_detector)/config/params.yaml" />
+  </group>
+  
+  <group if="$(eval arg('performance_mode') == 'high_performance')">
+    <rosparam command="load" file="$(find zed_obstacle_detector)/config/high_performance_params.yaml" />
+  </group>
+  
   <node name="zed_obstacle_detector" pkg="zed_obstacle_detector" type="zed_obstacle_detector_node" output="screen">
     
     <!-- Input/Output Topics -->
@@ -34,114 +47,8 @@
     <param name="world_frame" value="$(arg world_frame)" />
     <param name="camera_frame" value="$(arg camera_frame)" />
     
-    <!-- Processing Parameters (Configurable based on performance mode) -->
-    <param name="passthrough_z_min_camera" value="0.2" />
-    <param name="passthrough_z_max_camera" value="7.0" />
-    
-    <!-- Performance-based voxel size -->
-    <param name="voxel_leaf_size" value="0.06" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="voxel_leaf_size" value="0.08" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="voxel_leaf_size" value="0.12" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="enable_uniform_downsampling" value="false" />
-    <param name="uniform_sampling_radius" value="0.06" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="uniform_sampling_radius" value="0.08" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="uniform_sampling_radius" value="0.12" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <!-- Early exit based on performance mode -->
-    <param name="enable_early_exit" value="true" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="enable_early_exit" value="true" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="enable_early_exit" value="true" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="min_points_for_processing" value="150" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="min_points_for_processing" value="200" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="min_points_for_processing" value="300" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="max_points_for_processing" value="15000" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="max_points_for_processing" value="15000" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="max_points_for_processing" value="10000" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <!-- Ground Detection -->
-    <param name="enable_ground_filtering" value="true" />
-    <param name="ground_filter_distance_threshold" value="0.05" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="ground_filter_distance_threshold" value="0.08" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="ground_filter_distance_threshold" value="0.1" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="ground_filter_angle_threshold_deg" value="10.0" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="ground_filter_angle_threshold_deg" value="15.0" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="ground_filter_angle_threshold_deg" value="20.0" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="ground_filter_max_iterations" value="150" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="ground_filter_max_iterations" value="200" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="ground_filter_max_iterations" value="250" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="mars_terrain_mode" value="false" />
-    
-    <!-- Clustering -->
-    <param name="cluster_tolerance" value="0.3" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="cluster_tolerance" value="0.3" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="cluster_tolerance" value="0.4" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="min_cluster_size" value="18" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="min_cluster_size" value="20" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="min_cluster_size" value="25" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="max_cluster_size" value="8000" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="max_cluster_size" value="15000" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="max_cluster_size" value="20000" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <!-- Transform Parameters -->
-    <param name="tf_lookup_timeout" value="0.1" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="tf_lookup_timeout" value="0.05" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="tf_lookup_timeout" value="0.03" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="tf_buffer_duration" value="10.0" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="tf_buffer_duration" value="5.0" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="tf_buffer_duration" value="3.0" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <!-- Enable transformations: respect command-line argument or use performance mode default -->
+    <!-- Override enable_transformations if specified -->
     <param name="enable_transformations" value="$(arg enable_transformations)" unless="$(eval arg('enable_transformations') == '')" />
-    <param name="enable_transformations" value="true" if="$(eval arg('enable_transformations') == '' and arg('performance_mode') == 'debug')" />
-    <param name="enable_transformations" value="true" if="$(eval arg('enable_transformations') == '' and arg('performance_mode') == 'production')" />
-    <param name="enable_transformations" value="false" if="$(eval arg('enable_transformations') == '' and arg('performance_mode') == 'high_performance')" />
-    
-    <!-- Tracking Parameters -->
-    <param name="obstacle_association_distance" value="2.0" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="obstacle_association_distance" value="1.5" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="obstacle_association_distance" value="1.0" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="obstacle_timeout_sec" value="60.0" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="obstacle_timeout_sec" value="30.0" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="obstacle_timeout_sec" value="20.0" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="position_smoothing_factor" value="0.3" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="position_smoothing_factor" value="0.2" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="position_smoothing_factor" value="0.1" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="min_detections_for_confirmation" value="2" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="min_detections_for_confirmation" value="3" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="min_detections_for_confirmation" value="4" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <!-- Performance Monitoring -->
-    <param name="enable_detailed_timing" value="true" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="enable_detailed_timing" value="false" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="enable_detailed_timing" value="false" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="enable_debug_publishers" value="true" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="enable_debug_publishers" value="false" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="enable_debug_publishers" value="false" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="timing_report_interval" value="10.0" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="timing_report_interval" value="30.0" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="timing_report_interval" value="60.0" if="$(eval arg('performance_mode') == 'high_performance')" />
-    
-    <param name="enable_performance_logging" value="true" />
-    <param name="log_file_path" value="/tmp/zed_obstacle_detector_$(arg camera_model)_$(arg performance_mode).log" />
-    
-    <!-- Debug Output -->
-    <param name="enable_debug_output" value="true" if="$(eval arg('performance_mode') == 'debug')" />
-    <param name="enable_debug_output" value="false" if="$(eval arg('performance_mode') == 'production')" />
-    <param name="enable_debug_output" value="false" if="$(eval arg('performance_mode') == 'high_performance')" />
     
   </node>
   

@@ -21,19 +21,16 @@ bool GroundDetector::detectGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr& inp
         return false;
     }
 
-
-    GroundDetectionMethod method = parseMethod(params_.method);
-    
-    switch (method) {
-        case GroundDetectionMethod::RANSAC:
-            return detectGroundRANSAC(input_cloud, obstacle_cloud);
-        case GroundDetectionMethod::MORPHOLOGICAL:
-            return detectGroundMorphological(input_cloud, obstacle_cloud);
-        case GroundDetectionMethod::CONDITIONAL:
-            return detectGroundConditional(input_cloud, obstacle_cloud);
-        default:
-            ROS_ERROR("Unknown ground detection method: %s", params_.method.c_str());
-            return false;
+    // Direct string comparison - much simpler!
+    if (params_.method == "ransac") {
+        return detectGroundRANSAC(input_cloud, obstacle_cloud);
+    } else if (params_.method == "morphological") {
+        return detectGroundMorphological(input_cloud, obstacle_cloud);
+    } else if (params_.method == "conditional") {
+        return detectGroundConditional(input_cloud, obstacle_cloud);
+    } else {
+        ROS_ERROR("Unknown ground detection method: %s, defaulting to RANSAC", params_.method.c_str());
+        return detectGroundRANSAC(input_cloud, obstacle_cloud);
     }
 }
 
@@ -156,15 +153,6 @@ void GroundDetector::setParams(const GroundDetectionParams& params) {
 
 double GroundDetector::deg2rad(double degrees) const {
     return degrees * M_PI / 180.0;
-}
-
-zed_obstacle_detector::GroundDetectionMethod GroundDetector::parseMethod(const std::string& method_str) const {
-    if (method_str == "ransac") return GroundDetectionMethod::RANSAC;
-    if (method_str == "morphological") return GroundDetectionMethod::MORPHOLOGICAL;
-    if (method_str == "conditional") return GroundDetectionMethod::CONDITIONAL;
-    
-    ROS_WARN("Unknown ground detection method: %s, defaulting to RANSAC", method_str.c_str());
-    return GroundDetectionMethod::RANSAC;
 }
 
 } // namespace zed_obstacle_detector 

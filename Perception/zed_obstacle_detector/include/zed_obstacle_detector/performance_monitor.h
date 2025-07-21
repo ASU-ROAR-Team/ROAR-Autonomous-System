@@ -40,11 +40,11 @@ struct PerformanceMetrics {
 };
 
 struct MonitorParams {
-    bool enable_detailed_timing = false;
-    bool enable_debug_publishers = false;
-    double timing_report_interval = 10.0;
-    bool enable_performance_logging = true;
-    std::string log_file_path = "";
+    bool enable_detailed_timing;
+    bool enable_debug_publishers;
+    double timing_report_interval;
+    bool enable_performance_logging;
+    std::string log_file_path;
 };
 
 class PerformanceMonitor {

@@ -28,11 +28,11 @@ struct ObstacleDetectorParams {
     MonitorParams monitor_params;
     
     // General settings
-    std::string input_frame_id = "camera_frame";
-    std::string base_link_frame = "base_link";
-    std::string world_frame = "world";
-    bool enable_ground_filtering = true;
-    bool enable_debug_output = false;
+    std::string input_frame_id;
+    std::string base_link_frame;
+    std::string world_frame;
+    bool enable_ground_filtering;
+    bool enable_debug_output;
 };
 
 struct ObstacleDetectorResult {

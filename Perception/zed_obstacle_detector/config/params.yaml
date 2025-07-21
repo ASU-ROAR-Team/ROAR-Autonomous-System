@@ -1,59 +1,57 @@
 zed_obstacle_detector:
-  # Input and TF Parameters
-  # point_cloud_topic: "/camera/depth/points"
+  # Core settings
   point_cloud_topic: "/zed2i/zed_node/point_cloud/cloud_registered"
-  # base_link_frame: "base_link"  # Robot's main frame, Z should be UP relative to ground
-  # world_frame: "world"          # Global frame for tracking and final output (or "map" if you use a map frame)
-  base_link_frame: "zed2i_left_camera_frame"  # Use camera frame directly for live bag
-  world_frame: "zed2i_left_camera_frame"      # Use camera frame as world frame for live bag
-  camera_frame: "camera_link"     # URDF camera frame name for TF transformations
+  camera_frame: "camera_link"
+  base_link_frame: "base_link"
+  world_frame: "world"
   
-  # Camera Frame Pre-processing
-  passthrough_z_min_camera: -0.5    # Minimum distance in camera frame (meters)
-  passthrough_z_max_camera: 2.0    # Maximum distance in camera frame (meters)
+  # Processing parameters
+  processing:
+    passthrough_z_min_camera: 0.2
+    passthrough_z_max_camera: 7.0
+    voxel_leaf_size: 0.08
+    enable_uniform_downsampling: false
+    uniform_sampling_radius: 0.08
+    enable_early_exit: true
+    min_points_for_processing: 200
+    max_points_for_processing: 15000
   
-  # PERFORMANCE IMPROVEMENT #1: Disable uniform sampling by default (redundant with voxel grid)
-  enable_uniform_downsampling: false  # Set to true if you need very aggressive downsampling
-  uniform_sampling_radius: 0.05       # Radius for uniform sampling (meters)
-  voxel_leaf_size: 0.05              # Voxel grid leaf size (meters)
+  # Ground detection
+  ground_detection:
+    method: "ransac"  # Options: "ransac", "morphological", "conditional"
+    enable_ground_filtering: true
+    distance_threshold: 0.08
+    angle_threshold_deg: 15.0
+    max_iterations: 200
+    mars_terrain_mode: false
   
-  # Ground Filtering (in base_link_frame)
-  enable_ground_filtering: true
-  # MARS ROVER: Ground detection method (options: "ransac", "morphological", "conditional")
-  ground_detection_method: "ransac"       # For Mars: consider "morphological" for uneven terrain
-  ground_filter_distance_threshold: 0.05  # Distance threshold for ground plane (meters)
-  ground_filter_angle_threshold_deg: 10.0 # Angle threshold around Z-axis (degrees)
-  # MARS ROVER: Increased RANSAC iterations for complex terrain (hills, craters, rocks)
-  ground_filter_max_iterations: 50       # Increased from 50 for Mars terrain complexity
+  # Clustering
+  clustering:
+    cluster_tolerance: 0.3
+    min_cluster_size: 20
+    max_cluster_size: 15000
   
-  # Clustering (in base_link_frame)
-  # MARS ROVER: Increased tolerances for larger rocks and slower movement
-  cluster_tolerance: 0.4        # Increased from 0.25 for Mars rocks (meters)
-  min_cluster_size: 25          # Increased from 15 for more reliable rock detection
-  max_cluster_size: 10000       # Maximum points for a valid cluster
+  # Tracking
+  tracking:
+    association_distance: 1.5
+    timeout_sec: 30.0
+    position_smoothing_factor: 0.2
+    min_detections_for_confirmation: 3
   
-  # Tracking Parameters (in world_frame)
-  # MARS ROVER: Increased distances for slower rover movement and static obstacles
-  obstacle_association_distance: 0.5      # Reduced from 2.5 for precise tracking (meters)
-  obstacle_timeout_sec: 60.0              # Increased from 30.0 for static Mars obstacles
-  position_smoothing_factor: 0.3          # Smoothing for radius (0.0=all old, 1.0=all new)
-  min_detections_for_confirmation: 2      # Detections needed to confirm an obstacle
+  # Transform
+  transform:
+    tf_lookup_timeout: 0.05
+    tf_buffer_duration: 5.0
+    enable_transformations: true
   
-  # PERFORMANCE IMPROVEMENT #3: Early exit thresholds
-  enable_early_exit: true                 # Enable early exit if cloud is too small
-  min_points_for_processing: 100          # Minimum points required to continue processing
-  max_points_for_processing: 50000        # Maximum points before aggressive downsampling
+  # Monitoring
+  monitoring:
+    enable_detailed_timing: false
+    enable_debug_publishers: false
+    timing_report_interval: 30.0
+    enable_performance_logging: true
+    log_file_path: "/tmp/zed_obstacle_detector.log"
   
-  # PERFORMANCE IMPROVEMENT #4: Debug and timing parameters
-  enable_detailed_timing: true            # Enable detailed timing output
-  enable_debug_publishers: true           # Enable debug point cloud publishers
-  timing_report_interval: 2.0             # How often to report timing (seconds)
-  
-  # PERFORMANCE IMPROVEMENT #5: TF timeout optimization
-  tf_lookup_timeout: 0.1                  # TF lookup timeout (seconds) - reduced from default
-  tf_buffer_duration: 1.0                 # TF buffer duration (seconds)
-  
-  # MARS ROVER: Terrain-specific parameters
-  mars_terrain_mode: true                 # Enable Mars-specific optimizations
-  max_ground_slope_deg: 25.0             # Maximum ground slope to consider as "ground" (degrees)
-  min_obstacle_height: 0.15              # Minimum height above ground to be considered obstacle (meters)
+  # Debug
+  debug:
+    enable_debug_output: false 

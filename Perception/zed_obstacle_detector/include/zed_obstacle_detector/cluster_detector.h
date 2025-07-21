@@ -15,10 +15,10 @@
 namespace zed_obstacle_detector {
 
 struct ClusterParams {
-    double cluster_tolerance = 0.25;
-    int min_cluster_size = 15;
-    int max_cluster_size = 10000;
-    bool enable_debug_output = false;
+    double cluster_tolerance;
+    int min_cluster_size;
+    int max_cluster_size;
+    bool enable_debug_output;
 };
 
 struct ClusterTiming {

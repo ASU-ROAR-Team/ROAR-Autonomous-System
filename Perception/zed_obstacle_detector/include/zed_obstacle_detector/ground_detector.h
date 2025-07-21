@@ -9,20 +9,14 @@
 
 namespace zed_obstacle_detector {
 
-enum class GroundDetectionMethod {
-    RANSAC,
-    MORPHOLOGICAL,
-    CONDITIONAL
-};
-
 struct GroundDetectionParams {
-    std::string method = "ransac";
-    double distance_threshold = 0.05;
-    double angle_threshold_deg = 10.0;
-    int max_iterations = 150;
-    double max_ground_slope_deg = 25.0;
-    double min_obstacle_height = 0.15;
-    bool mars_terrain_mode = true;
+    std::string method;  // "ransac", "morphological", or "conditional"
+    double distance_threshold;
+    double angle_threshold_deg;
+    int max_iterations;
+    double max_ground_slope_deg;
+    double min_obstacle_height;
+    bool mars_terrain_mode;
 };
 
 class GroundDetector {
@@ -51,7 +45,6 @@ private:
 
     // Utility functions
     double deg2rad(double degrees) const;
-    GroundDetectionMethod parseMethod(const std::string& method_str) const;
 
     GroundDetectionParams params_;
 };

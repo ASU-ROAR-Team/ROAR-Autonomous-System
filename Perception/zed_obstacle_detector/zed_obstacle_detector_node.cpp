@@ -39,7 +39,6 @@ void print_parameters(const zed_obstacle_detector::ObstacleDetectorParams& param
     ROS_INFO("--------------------------------------------------------");
 }
 
-
 // Helper function to load/update parameters with defaults for initialization
 void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorParams& params, 
                  std::string& point_cloud_topic, std::string& camera_frame, bool is_initialization = false) {
@@ -52,37 +51,38 @@ void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorPar
         // General settings with defaults
         nh.param<std::string>("base_link_frame", params.base_link_frame, "base_link");
         nh.param<std::string>("world_frame", params.world_frame, "world");
-        nh.param<bool>("enable_ground_filtering", params.enable_ground_filtering, true);
-        nh.param<bool>("enable_debug_output", params.enable_debug_output, false);
+        nh.param<bool>("ground_detection/enable_ground_filtering", params.enable_ground_filtering, true);
+        nh.param<bool>("debug/enable_debug_output", params.enable_debug_output, false);
         
         // Set input frame
         params.input_frame_id = camera_frame;
         
         // Processing parameters with defaults
-        nh.param("passthrough_z_min_camera", params.processing_params.passthrough_z_min, 0.2);
-        nh.param("passthrough_z_max_camera", params.processing_params.passthrough_z_max, 7.0);
-        nh.param("voxel_leaf_size", params.processing_params.voxel_leaf_size, 0.08);
-        nh.param("enable_uniform_downsampling", params.processing_params.enable_uniform_downsampling, false);
-        nh.param("uniform_sampling_radius", params.processing_params.uniform_sampling_radius, 0.08);
-        nh.param("enable_early_exit", params.processing_params.enable_early_exit, true);
-        nh.param("min_points_for_processing", params.processing_params.min_points_for_processing, 200);
-        nh.param("max_points_for_processing", params.processing_params.max_points_for_processing, 15000);
+        nh.param("processing/passthrough_z_min_camera", params.processing_params.passthrough_z_min, 0.2);
+        nh.param("processing/passthrough_z_max_camera", params.processing_params.passthrough_z_max, 7.0);
+        nh.param("processing/voxel_leaf_size", params.processing_params.voxel_leaf_size, 0.08);
+        nh.param("processing/enable_uniform_downsampling", params.processing_params.enable_uniform_downsampling, false);
+        nh.param("processing/uniform_sampling_radius", params.processing_params.uniform_sampling_radius, 0.08);
+        nh.param("processing/enable_early_exit", params.processing_params.enable_early_exit, true);
+        nh.param("processing/min_points_for_processing", params.processing_params.min_points_for_processing, 200);
+        nh.param("processing/max_points_for_processing", params.processing_params.max_points_for_processing, 15000);
         
         // Ground detection parameters with defaults
-        nh.param("ground_filter_distance_threshold", params.ground_params.distance_threshold, 0.08);
-        nh.param("ground_filter_angle_threshold_deg", params.ground_params.angle_threshold_deg, 15.0);
-        nh.param("ground_filter_max_iterations", params.ground_params.max_iterations, 200);
-        nh.param("mars_terrain_mode", params.ground_params.mars_terrain_mode, false);
+        nh.param<std::string>("ground_detection/method", params.ground_params.method, "ransac");
+        nh.param("ground_detection/distance_threshold", params.ground_params.distance_threshold, 0.08);
+        nh.param("ground_detection/angle_threshold_deg", params.ground_params.angle_threshold_deg, 15.0);
+        nh.param("ground_detection/max_iterations", params.ground_params.max_iterations, 200);
+        nh.param("ground_detection/mars_terrain_mode", params.ground_params.mars_terrain_mode, false);
         
         // Clustering parameters with defaults
-        nh.param("cluster_tolerance", params.cluster_params.cluster_tolerance, 0.3);
-        nh.param("min_cluster_size", params.cluster_params.min_cluster_size, 20);
-        nh.param("max_cluster_size", params.cluster_params.max_cluster_size, 15000);
+        nh.param("clustering/cluster_tolerance", params.cluster_params.cluster_tolerance, 0.3);
+        nh.param("clustering/min_cluster_size", params.cluster_params.min_cluster_size, 20);
+        nh.param("clustering/max_cluster_size", params.cluster_params.max_cluster_size, 15000);
         
         // Transform parameters with defaults
-        nh.param("tf_lookup_timeout", params.transform_params.tf_lookup_timeout, 0.05);
-        nh.param("tf_buffer_duration", params.transform_params.tf_buffer_duration, 5.0);
-        nh.param("enable_transformations", params.transform_params.enable_transformations, true);
+        nh.param("transform/tf_lookup_timeout", params.transform_params.tf_lookup_timeout, 0.05);
+        nh.param("transform/tf_buffer_duration", params.transform_params.tf_buffer_duration, 5.0);
+        nh.param("transform/enable_transformations", params.transform_params.enable_transformations, true);
         nh.param<std::string>("camera_frame", params.transform_params.camera_frame, camera_frame);
         
         // Set transform frame references
@@ -93,59 +93,65 @@ void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorPar
         
         // Tracking parameters with defaults
         double assoc_dist;
-        nh.param("obstacle_association_distance", assoc_dist, 1.5);
+        nh.param("tracking/association_distance", assoc_dist, 0.5);
         params.tracking_params.association_distance_sq = assoc_dist * assoc_dist;
-        nh.param("obstacle_timeout_sec", params.tracking_params.timeout_sec, 30.0);
-        nh.param("position_smoothing_factor", params.tracking_params.position_smoothing_factor, 0.2);
-        nh.param("min_detections_for_confirmation", params.tracking_params.min_detections_for_confirmation, 3);
+        nh.param("tracking/timeout_sec", params.tracking_params.timeout_sec, 30.0);
+        nh.param("tracking/position_smoothing_factor", params.tracking_params.position_smoothing_factor, 0.2);
+        nh.param("tracking/min_detections_for_confirmation", params.tracking_params.min_detections_for_confirmation, 3);
         
         // Monitor parameters with defaults
-        nh.param("enable_detailed_timing", params.monitor_params.enable_detailed_timing, false);
-        nh.param("enable_debug_publishers", params.monitor_params.enable_debug_publishers, false);
-        nh.param("timing_report_interval", params.monitor_params.timing_report_interval, 30.0);
-        nh.param("enable_performance_logging", params.monitor_params.enable_performance_logging, true);
-        nh.param<std::string>("log_file_path", params.monitor_params.log_file_path, "/tmp/zed_obstacle_detector.log");
+        nh.param("monitoring/enable_detailed_timing", params.monitor_params.enable_detailed_timing, false);
+        nh.param("monitoring/enable_debug_publishers", params.monitor_params.enable_debug_publishers, false);
+        nh.param("monitoring/timing_report_interval", params.monitor_params.timing_report_interval, 30.0);
+        nh.param("monitoring/enable_performance_logging", params.monitor_params.enable_performance_logging, true);
+        nh.param<std::string>("monitoring/log_file_path", params.monitor_params.log_file_path, "/tmp/zed_obstacle_detector.log");
         
         // Set derived parameters
         params.cluster_params.enable_debug_output = params.enable_debug_output;
         
     } else {
         // Update existing parameters (preserve current values if not found)
-        nh.getParam("voxel_leaf_size", params.processing_params.voxel_leaf_size);
-        nh.getParam("enable_uniform_downsampling", params.processing_params.enable_uniform_downsampling);
-        nh.getParam("uniform_sampling_radius", params.processing_params.uniform_sampling_radius);
-        nh.getParam("enable_early_exit", params.processing_params.enable_early_exit);
-        nh.getParam("min_points_for_processing", params.processing_params.min_points_for_processing);
-        nh.getParam("max_points_for_processing", params.processing_params.max_points_for_processing);
-        nh.getParam("passthrough_z_min_camera", params.processing_params.passthrough_z_min);
-        nh.getParam("passthrough_z_max_camera", params.processing_params.passthrough_z_max);
+        nh.getParam("processing/voxel_leaf_size", params.processing_params.voxel_leaf_size);
+        nh.getParam("processing/enable_uniform_downsampling", params.processing_params.enable_uniform_downsampling);
+        nh.getParam("processing/uniform_sampling_radius", params.processing_params.uniform_sampling_radius);
+        nh.getParam("processing/enable_early_exit", params.processing_params.enable_early_exit);
+        nh.getParam("processing/min_points_for_processing", params.processing_params.min_points_for_processing);
+        nh.getParam("processing/max_points_for_processing", params.processing_params.max_points_for_processing);
+        nh.getParam("processing/passthrough_z_min_camera", params.processing_params.passthrough_z_min);
+        nh.getParam("processing/passthrough_z_max_camera", params.processing_params.passthrough_z_max);
         
         // Ground
-        nh.getParam("enable_ground_filtering", params.enable_ground_filtering);
-        nh.getParam("ground_filter_distance_threshold", params.ground_params.distance_threshold);
-        nh.getParam("ground_filter_angle_threshold_deg", params.ground_params.angle_threshold_deg);
-        nh.getParam("ground_filter_max_iterations", params.ground_params.max_iterations);
-        nh.getParam("mars_terrain_mode", params.ground_params.mars_terrain_mode);
+        nh.getParam("ground_detection/enable_ground_filtering", params.enable_ground_filtering);
+        nh.getParam("ground_detection/method", params.ground_params.method);
+        nh.getParam("ground_detection/distance_threshold", params.ground_params.distance_threshold);
+        nh.getParam("ground_detection/angle_threshold_deg", params.ground_params.angle_threshold_deg);
+        nh.getParam("ground_detection/max_iterations", params.ground_params.max_iterations);
+        nh.getParam("ground_detection/mars_terrain_mode", params.ground_params.mars_terrain_mode);
         
         // Clustering
-        nh.getParam("cluster_tolerance", params.cluster_params.cluster_tolerance);
-        nh.getParam("min_cluster_size", params.cluster_params.min_cluster_size);
-        nh.getParam("max_cluster_size", params.cluster_params.max_cluster_size);
+        nh.getParam("clustering/cluster_tolerance", params.cluster_params.cluster_tolerance);
+        nh.getParam("clustering/min_cluster_size", params.cluster_params.min_cluster_size);
+        nh.getParam("clustering/max_cluster_size", params.cluster_params.max_cluster_size);
         
         // Tracking
         double assoc_dist = sqrt(params.tracking_params.association_distance_sq);
-        if (nh.getParam("obstacle_association_distance", assoc_dist))
+        if (nh.getParam("tracking/association_distance", assoc_dist))
             params.tracking_params.association_distance_sq = assoc_dist * assoc_dist;
-        nh.getParam("obstacle_timeout_sec", params.tracking_params.timeout_sec);
-        nh.getParam("position_smoothing_factor", params.tracking_params.position_smoothing_factor);
-        nh.getParam("min_detections_for_confirmation", params.tracking_params.min_detections_for_confirmation);
+        nh.getParam("tracking/timeout_sec", params.tracking_params.timeout_sec);
+        nh.getParam("tracking/position_smoothing_factor", params.tracking_params.position_smoothing_factor);
+        nh.getParam("tracking/min_detections_for_confirmation", params.tracking_params.min_detections_for_confirmation);
         
         // Monitor
-        nh.getParam("enable_detailed_timing", params.monitor_params.enable_detailed_timing);
-        nh.getParam("enable_debug_publishers", params.monitor_params.enable_debug_publishers);
-        nh.getParam("timing_report_interval", params.monitor_params.timing_report_interval);
-        nh.getParam("enable_performance_logging", params.monitor_params.enable_performance_logging);
-        nh.getParam("log_file_path", params.monitor_params.log_file_path);
+        nh.getParam("monitoring/enable_detailed_timing", params.monitor_params.enable_detailed_timing);
+        nh.getParam("monitoring/enable_debug_publishers", params.monitor_params.enable_debug_publishers);
+        nh.getParam("monitoring/timing_report_interval", params.monitor_params.timing_report_interval);
+        nh.getParam("monitoring/enable_performance_logging", params.monitor_params.enable_performance_logging);
+        nh.getParam("monitoring/log_file_path", params.monitor_params.log_file_path);
+        
+        // Transform
+        nh.getParam("transform/tf_lookup_timeout", params.transform_params.tf_lookup_timeout);
+        nh.getParam("transform/tf_buffer_duration", params.transform_params.tf_buffer_duration);
+        nh.getParam("transform/enable_transformations", params.transform_params.enable_transformations);
         
         // Update derived parameters
         params.cluster_params.enable_debug_output = params.enable_debug_output;
@@ -223,9 +229,9 @@ int main(int argc, char** argv) {
     // Setup subscribers and publishers
     ros::Subscriber sub = nh.subscribe(point_cloud_topic, 2, pointCloudCallback);
     
-    pub_obstacle_array = nh.advertise<roar_msgs::ObstacleArray>("/zed_obstacle/obstacle_array", 10);
-    pub_markers = nh.advertise<visualization_msgs::MarkerArray>("/zed_obstacle/markers", 10);
-    
+    pub_obstacle_array = nh.advertise<roar_msgs::ObstacleArray>("/zed_obstacle/obstacle_array", 10); 
+    pub_markers = nh.advertise<visualization_msgs::MarkerArray>("/zed_obstacle/markers", 10); 
+
     // Debug publishers (only if enabled)
     if (params.monitor_params.enable_debug_publishers) {
         pub_filtered_transformed = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/filtered_transformed_pc", 1);
