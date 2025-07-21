@@ -45,10 +45,12 @@ ObstacleDetectorResult ObstacleDetector::processPointCloud(const sensor_msgs::Po
     monitor_->endTimer("input_validation");
     monitor_->recordOutputPoints(processed_cloud->size());
 
-    // Fill debug cloud for publishing
-    pcl::toROSMsg(*processed_cloud, result.filtered_transformed_cloud);
-    result.filtered_transformed_cloud.header.stamp = input_msg->header.stamp;
-    result.filtered_transformed_cloud.header.frame_id = params_.input_frame_id;
+    // Fill debug cloud for publishing (only if debug publishers are enabled)
+    if (params_.monitor_params.enable_debug_publishers) {
+        pcl::toROSMsg(*processed_cloud, result.filtered_transformed_cloud);
+        result.filtered_transformed_cloud.header.stamp = input_msg->header.stamp;
+        result.filtered_transformed_cloud.header.frame_id = params_.input_frame_id;
+    }
 
     // Stage 2: Ground detection and obstacle extraction
     monitor_->startTimer("ground_filter");
@@ -89,7 +91,7 @@ ObstacleDetectorResult ObstacleDetector::processPointCloud(const sensor_msgs::Po
 
     // Fill debug cluster cloud for publishing
     if (params_.monitor_params.enable_debug_publishers) {
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr debug_cloud = cluster_detector_->createDebugCloud(clusters);
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr debug_cloud = cluster_detector_->createDebugCloud(clusters, monitor_);
         pcl::toROSMsg(*debug_cloud, result.clusters_debug_cloud);
         result.clusters_debug_cloud.header.stamp = input_msg->header.stamp;
         result.clusters_debug_cloud.header.frame_id = params_.input_frame_id;
@@ -152,8 +154,7 @@ bool ObstacleDetector::detectClusters(const pcl::PointCloud<pcl::PointXYZ>::Ptr&
         return false;
     }
 
-    ClusterTiming cluster_timing;
-    clusters = cluster_detector_->detectClusters(obstacle_cloud, cluster_timing);
+    clusters = cluster_detector_->detectClusters(obstacle_cloud, monitor_);
     return !clusters.empty();
 }
 

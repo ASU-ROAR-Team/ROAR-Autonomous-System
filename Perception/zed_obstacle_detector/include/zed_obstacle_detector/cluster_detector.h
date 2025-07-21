@@ -3,14 +3,13 @@
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
-#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/PointIndices.h>
 #include <pcl/search/kdtree.h>
-#include <pcl/common/centroid.h>
-#include <pcl/common/geometry.h>
+#include <pcl/segmentation/extract_clusters.h>
 #include <geometry_msgs/Point.h>
-#include <chrono>
+#include "zed_obstacle_detector/performance_monitor.h"
 #include <vector>
-#include <utility>
+#include <memory>
 
 namespace zed_obstacle_detector {
 
@@ -21,24 +20,13 @@ struct ClusterParams {
     bool enable_debug_output;
 };
 
-struct ClusterTiming {
-    std::chrono::high_resolution_clock::time_point start_clustering;
-    std::chrono::high_resolution_clock::time_point end_clustering;
-    
-    // Helper function to get duration in milliseconds
-    template<typename T>
-    static long getDurationMs(const T& start, const T& end) {
-        return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000;
-    }
-};
-
 struct Cluster {
+    int id;
     pcl::PointCloud<pcl::PointXYZ>::Ptr points;
     geometry_msgs::Point centroid;
     float radius;
-    int id;
     
-    Cluster() : points(new pcl::PointCloud<pcl::PointXYZ>), radius(0.0f), id(0) {}
+    Cluster() : id(-1), points(new pcl::PointCloud<pcl::PointXYZ>), radius(0.0f) {}
 };
 
 class ClusterDetector {
@@ -46,36 +34,50 @@ public:
     ClusterDetector(const ClusterParams& params);
     ~ClusterDetector() = default;
 
-    // Main clustering interface
+    // Main interface
     std::vector<Cluster> detectClusters(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                                       ClusterTiming& timing);
+                                       std::shared_ptr<PerformanceMonitor> monitor = nullptr);
 
-    // Individual processing steps (for testing and debugging)
-    std::vector<pcl::PointIndices> extractClusterIndices(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud);
-    Cluster processCluster(const pcl::PointIndices& cluster_indices,
-                          const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                          int cluster_id);
-    Cluster processClusterOptimized(const pcl::PointIndices& cluster_indices,
-                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                                   int cluster_id);
-
-    // Parameter management
+    // Set parameters
     void setParams(const ClusterParams& params);
     ClusterParams getParams() const { return params_; }
 
-    // Utility functions
-    geometry_msgs::Point computeCentroid(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points) const;
-    float computeRadius(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points,
-                       const geometry_msgs::Point& centroid) const;
-    std::pair<geometry_msgs::Point, float> computeCentroidAndRadiusOptimized(
-        const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points) const;
-    
-    // Debug output
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr createDebugCloud(const std::vector<Cluster>& clusters) const;
+    // Debug interface
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr createDebugCloud(const std::vector<Cluster>& clusters,
+                                                            std::shared_ptr<PerformanceMonitor> monitor = nullptr) const;
 
 private:
+    // Cluster extraction
+    std::vector<pcl::PointIndices> extractClusterIndices(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud);
+    
+    // Optimized cluster processing
+    Cluster processCluster(const pcl::PointIndices& cluster_indices,
+                          const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+                          int cluster_id,
+                          std::shared_ptr<PerformanceMonitor> monitor = nullptr);
+
+    // Optimized batch processing
+    void processClustersBatch(const std::vector<pcl::PointIndices>& cluster_indices,
+                             const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+                             std::vector<Cluster>& clusters,
+                             std::shared_ptr<PerformanceMonitor> monitor = nullptr);
+
+    // Single-pass geometry computation (optimized)
+    std::pair<geometry_msgs::Point, float> computeCentroidAndRadius(
+        const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points,
+        std::shared_ptr<PerformanceMonitor> monitor = nullptr) const;
+
+    // KdTree management
+    void updateCachedKdTree(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud);
+    bool isKdTreeValid(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud) const;
+
     ClusterParams params_;
-    int next_cluster_id_ = 0;
+    int next_cluster_id_;
+    
+    // Cached KdTree for performance
+    mutable pcl::search::KdTree<pcl::PointXYZ>::Ptr cached_tree_;
+    mutable pcl::PointCloud<pcl::PointXYZ>::Ptr last_input_cloud_;
+    mutable size_t last_cloud_size_;
 };
 
 } // namespace zed_obstacle_detector
