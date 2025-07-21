@@ -33,7 +33,7 @@ zed_obstacle_detector:
   
   # Tracking Parameters (in world_frame)
   # MARS ROVER: Increased distances for slower rover movement and static obstacles
-  obstacle_association_distance: 2.5      # Increased from 1.5 for Mars rover (meters)
+  obstacle_association_distance: 0.5      # Reduced from 2.5 for precise tracking (meters)
   obstacle_timeout_sec: 60.0              # Increased from 30.0 for static Mars obstacles
   position_smoothing_factor: 0.3          # Smoothing for radius (0.0=all old, 1.0=all new)
   min_detections_for_confirmation: 2      # Detections needed to confirm an obstacle

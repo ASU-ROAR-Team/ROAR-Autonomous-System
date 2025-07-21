@@ -26,7 +26,7 @@ zed_obstacle_detector:
   max_cluster_size: 5000             # Smaller max size for precision
   
   # Conservative Tracking
-  obstacle_association_distance: 1.5     # Tighter tracking
+  obstacle_association_distance: 0.5     # Tighter tracking
   obstacle_timeout_sec: 120.0            # Longer memory
   position_smoothing_factor: 0.1         # Less smoothing for accuracy
   min_detections_for_confirmation: 3     # More confirmations needed
