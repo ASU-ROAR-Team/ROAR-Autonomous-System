@@ -32,7 +32,6 @@ public:
 
     // Main interface
     bool detectGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                     pcl::PointCloud<pcl::PointXYZ>::Ptr& ground_cloud,
                      pcl::PointCloud<pcl::PointXYZ>::Ptr& obstacle_cloud);
 
     // Set parameters
@@ -42,15 +41,12 @@ public:
 private:
     // Different ground detection methods
     bool detectGroundRANSAC(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                           pcl::PointCloud<pcl::PointXYZ>::Ptr& ground_cloud,
                            pcl::PointCloud<pcl::PointXYZ>::Ptr& obstacle_cloud);
     
     bool detectGroundMorphological(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                                  pcl::PointCloud<pcl::PointXYZ>::Ptr& ground_cloud,
                                   pcl::PointCloud<pcl::PointXYZ>::Ptr& obstacle_cloud);
     
     bool detectGroundConditional(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                                pcl::PointCloud<pcl::PointXYZ>::Ptr& ground_cloud,
                                 pcl::PointCloud<pcl::PointXYZ>::Ptr& obstacle_cloud);
 
     // Utility functions

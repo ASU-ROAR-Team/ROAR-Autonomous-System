@@ -53,11 +53,9 @@ ObstacleDetectorResult ObstacleDetector::processPointCloud(const sensor_msgs::Po
     // Stage 2: Ground detection and obstacle extraction
     monitor_->startTimer("ground_filter");
     pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud(new pcl::PointCloud<pcl::PointXYZ>); // For debug
     bool ground_success = false;
     if (params_.enable_ground_filtering) {
-        // Use ground_cloud for debug
-        ground_success = ground_detector_->detectGround(processed_cloud, ground_cloud, obstacle_cloud);
+        ground_success = ground_detector_->detectGround(processed_cloud, obstacle_cloud);
     } else {
         *obstacle_cloud = *processed_cloud;
         ground_success = true;
@@ -144,8 +142,7 @@ bool ObstacleDetector::detectGroundAndObstacles(const pcl::PointCloud<pcl::Point
 
     // Ground detection BEFORE transformation (all modes)
     // Detect ground directly in camera frame
-    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    return ground_detector_->detectGround(input_cloud, ground_cloud, obstacle_cloud);
+    return ground_detector_->detectGround(input_cloud, obstacle_cloud);
 }
 
 bool ObstacleDetector::detectClusters(const pcl::PointCloud<pcl::PointXYZ>::Ptr& obstacle_cloud,
