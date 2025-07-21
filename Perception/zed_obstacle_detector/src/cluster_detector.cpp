@@ -62,16 +62,8 @@ std::vector<pcl::PointIndices> ClusterDetector::extractClusterIndices(const pcl:
     std::vector<pcl::PointIndices> cluster_indices;
     
     try {
-        // Performance optimization: limit input cloud size for clustering
+        // Use full point cloud for clustering
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_for_clustering = input_cloud;
-        if (input_cloud->size() > 30000) {
-            ROS_WARN_THROTTLE(1.0, "Large point cloud (%zu points), using first 30000 points for clustering", input_cloud->size());
-            cloud_for_clustering = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-            cloud_for_clustering->points.assign(input_cloud->points.begin(), input_cloud->points.begin() + 30000);
-            cloud_for_clustering->width = 30000;
-            cloud_for_clustering->height = 1;
-            cloud_for_clustering->is_dense = input_cloud->is_dense;
-        }
 
         // Create KdTree for search
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
