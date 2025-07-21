@@ -86,12 +86,6 @@ std::vector<pcl::PointIndices> ClusterDetector::extractClusterIndices(const pcl:
         ec.setInputCloud(cloud_for_clustering);
         ec.extract(cluster_indices);
         
-        // Limit number of clusters for performance
-        if (cluster_indices.size() > 50) {
-            ROS_WARN_THROTTLE(1.0, "Too many clusters (%zu), limiting to first 50", cluster_indices.size());
-            cluster_indices.resize(50);
-        }
-        
     } catch (const std::exception& e) {
         ROS_ERROR_THROTTLE(1.0, "Cluster extraction exception: %s", e.what());
     }
