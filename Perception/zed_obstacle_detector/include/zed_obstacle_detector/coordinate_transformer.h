@@ -21,13 +21,13 @@
 namespace zed_obstacle_detector {
 
 struct TransformParams {
-    std::string source_frame = "camera_frame";
-    std::string target_frame = "base_link";
-    std::string world_frame = "world";
-    double tf_lookup_timeout = 0.1;
-    double tf_buffer_duration = 10.0;
-    bool enable_debug_output = false;
-    bool enable_transformations = true;  // New parameter to properly disable transformations
+    std::string source_frame;
+    std::string target_frame;
+    std::string world_frame;
+    double tf_lookup_timeout;
+    double tf_buffer_duration;
+    bool enable_debug_output;
+    bool enable_transformations;
 };
 
 struct TransformTiming {
