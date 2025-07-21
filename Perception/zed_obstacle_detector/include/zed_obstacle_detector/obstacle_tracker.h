@@ -23,10 +23,10 @@ struct TrackedObstacle {
 };
 
 struct TrackingParams {
-    double association_distance_sq = 4.0;  // Squared distance for association
-    double timeout_sec = 60.0;             // Timeout for obstacles
-    double position_smoothing_factor = 0.3; // Smoothing factor for radius
-    int min_detections_for_confirmation = 2; // Min detections to confirm
+    double association_distance_sq;  // Squared distance for association
+    double timeout_sec;             // Timeout for obstacles
+    double position_smoothing_factor; // Smoothing factor for radius
+    int min_detections_for_confirmation; // Min detections to confirm
 };
 
 class ObstacleTracker {
