@@ -83,6 +83,7 @@ void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorPar
         nh.param("tf_lookup_timeout", params.transform_params.tf_lookup_timeout, 0.05);
         nh.param("tf_buffer_duration", params.transform_params.tf_buffer_duration, 5.0);
         nh.param("enable_transformations", params.transform_params.enable_transformations, true);
+        nh.param<std::string>("camera_frame", params.transform_params.camera_frame, camera_frame);
         
         // Set transform frame references
         params.transform_params.source_frame = camera_frame;

@@ -161,18 +161,18 @@ bool ObstacleDetector::transformAndTrack(const std::vector<Cluster>& clusters,
                                         const ros::Time& timestamp,
                                         ObstacleDetectorResult& result) {
     // Convert clusters to detection pairs
-    std::vector<std::pair<geometry_msgs::Point, float>> clusters_base_link;
-    clusters_base_link.reserve(clusters.size());
+    std::vector<std::pair<geometry_msgs::Point, float>> clusters_camera;
+    clusters_camera.reserve(clusters.size());
     
     for (const auto& cluster : clusters) {
-        clusters_base_link.push_back({cluster.centroid, cluster.radius});
+        clusters_camera.push_back({cluster.centroid, cluster.radius});
     }
 
-    // Transform clusters to world frame (or keep in input frame if transformations disabled)
+    // Transform clusters from camera frame to world frame (or keep in input frame if transformations disabled)
     std::vector<std::pair<geometry_msgs::Point, float>> clusters_world;
-    if (!transformer_->transformClustersToWorld(clusters_base_link, params_.base_link_frame,
+    if (!transformer_->transformClustersToWorld(clusters_camera, params_.input_frame_id,
                                                clusters_world, timestamp, monitor_)) {
-        ROS_WARN_THROTTLE(1.0, "Failed to transform clusters to world frame");
+        ROS_WARN_THROTTLE(1.0, "Failed to transform clusters from camera to world frame");
         return false;
     }
 

@@ -65,12 +65,13 @@ void poseCallback(){
     geometry_msgs::TransformStamped transformStamped;
     
     transformStamped.header.stamp = ros::Time::now();
-    transformStamped.header.frame_id = "base_link";
-    transformStamped.child_frame_id = "camera_link";
-    transformStamped.transform.translation.x = ukf.x_post[7];
-    transformStamped.transform.translation.y = ukf.x_post[8];
-    transformStamped.transform.translation.z = 0.0;
+    transformStamped.header.frame_id = "world";               // ✅ CORRECT: Parent frame
+    transformStamped.child_frame_id = "base_link";            // ✅ CORRECT: Child frame (rover)
+    transformStamped.transform.translation.x = ukf.x_post[7]; // Rover's X position in world
+    transformStamped.transform.translation.y = ukf.x_post[8]; // Rover's Y position in world
+    transformStamped.transform.translation.z = 0.0;           // Rover's Z position in world (assuming flat ground)
 
+    // Rover's orientation in world frame
     tf2::Quaternion q(ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[0]);
     transformStamped.transform.rotation.x = q.x();
     transformStamped.transform.rotation.y = q.y();

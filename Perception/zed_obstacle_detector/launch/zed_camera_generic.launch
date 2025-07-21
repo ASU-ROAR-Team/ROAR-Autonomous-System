@@ -1,5 +1,11 @@
 <?xml version="1.0"?>
 <launch>
+  <!-- Load the ROAR URDF to the parameter server -->
+  <param name="robot_description" command="$(find xacro)/xacro '$(find roar_simulation)/urdf/roar.urdf'" />
+
+  <!-- Start robot_state_publisher to publish static transforms from URDF -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+
   <!-- Generic ZED Camera Obstacle Detector Launch File -->
   <!-- Works with ZED, ZED2, ZED2i, ZED Mini, etc. -->
   

@@ -22,6 +22,7 @@ struct TransformParams {
     std::string source_frame;
     std::string target_frame;
     std::string world_frame;
+    std::string camera_frame;  // URDF camera frame name
     double tf_lookup_timeout;
     double tf_buffer_duration;
     bool enable_debug_output;
@@ -34,8 +35,8 @@ public:
     ~CoordinateTransformer() = default;
 
     // Main transformation interface - only transform cluster centroids
-    bool transformClustersToWorld(const std::vector<std::pair<geometry_msgs::Point, float>>& clusters_base_link,
-                                 const std::string& base_frame,
+    bool transformClustersToWorld(const std::vector<std::pair<geometry_msgs::Point, float>>& clusters_camera,
+                                 const std::string& camera_frame,
                                  std::vector<std::pair<geometry_msgs::Point, float>>& clusters_world,
                                  const ros::Time& timestamp,
                                  std::shared_ptr<PerformanceMonitor> monitor = nullptr);
