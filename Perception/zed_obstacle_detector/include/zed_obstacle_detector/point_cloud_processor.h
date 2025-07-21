@@ -13,20 +13,20 @@ namespace zed_obstacle_detector {
 
 struct ProcessingParams {
     // PassThrough filter parameters
-    double passthrough_z_min = 0.2;
-    double passthrough_z_max = 7.0;
+    double passthrough_z_min;
+    double passthrough_z_max;
     
     // Voxel grid parameters
-    double voxel_leaf_size = 0.05;
+    double voxel_leaf_size;
     
     // Uniform sampling parameters (optional)
-    bool enable_uniform_downsampling = false;
-    double uniform_sampling_radius = 0.05;
+    bool enable_uniform_downsampling;
+    double uniform_sampling_radius;
     
     // Performance thresholds
-    bool enable_early_exit = false;
-    int min_points_for_processing = 100;
-    int max_points_for_processing = 10000;
+    bool enable_early_exit;
+    int min_points_for_processing;
+    int max_points_for_processing;
     
     // Frame information
     std::string input_frame_id;

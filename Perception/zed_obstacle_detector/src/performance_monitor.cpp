@@ -7,9 +7,11 @@ namespace zed_obstacle_detector {
 
 PerformanceMonitor::PerformanceMonitor(const MonitorParams& params)
     : params_(params) {
-    ROS_DEBUG("PerformanceMonitor initialized with detailed timing: %s, debug publishers: %s",
+    ROS_DEBUG("PerformanceMonitor initialized with detailed timing: %s, debug publishers: %s, timing report interval: %.1f s, performance logging: %s",
               params_.enable_detailed_timing ? "enabled" : "disabled",
-              params_.enable_debug_publishers ? "enabled" : "disabled");
+              params_.enable_debug_publishers ? "enabled" : "disabled",
+              params_.timing_report_interval,
+              params_.enable_performance_logging ? "enabled" : "disabled");
 }
 
 void PerformanceMonitor::startFrame() {

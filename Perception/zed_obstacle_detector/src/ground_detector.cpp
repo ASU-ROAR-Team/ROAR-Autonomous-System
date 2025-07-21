@@ -22,6 +22,7 @@ bool GroundDetector::detectGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr& inp
         return false;
     }
 
+
     GroundDetectionMethod method = parseMethod(params_.method);
     
     switch (method) {
@@ -53,7 +54,7 @@ bool GroundDetector::detectGroundRANSAC(const pcl::PointCloud<pcl::PointXYZ>::Pt
     pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
     
-    seg.setInputCloud(input_cloud);
+    seg.setInputCloud(input_cloud);                                       
     seg.segment(*inliers, *coefficients);
 
     if (inliers->indices.empty()) {
