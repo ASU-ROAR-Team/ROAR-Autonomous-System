@@ -41,7 +41,7 @@ void PerformanceMonitor::startTimer(const std::string& stage) {
     active_timers_[stage] = std::chrono::high_resolution_clock::now();
 }
 
-void PerformanceMonitor::endTimer(const std::string& stage) {
+long PerformanceMonitor::endTimer(const std::string& stage) {
     auto it = active_timers_.find(stage);
     if (it != active_timers_.end()) {
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -60,7 +60,9 @@ void PerformanceMonitor::endTimer(const std::string& stage) {
         else if (stage == "output") current_metrics_.output_ms = duration_ms;
         
         active_timers_.erase(it);
+        return duration_ms;
     }
+    return 0;  // Return 0 if timer not found
 }
 
 void PerformanceMonitor::recordInputPoints(size_t count) {

@@ -169,10 +169,9 @@ bool ObstacleDetector::transformAndTrack(const std::vector<Cluster>& clusters,
     }
 
     // Transform clusters to world frame (or keep in input frame if transformations disabled)
-    TransformTiming world_transform_timing;
     std::vector<std::pair<geometry_msgs::Point, float>> clusters_world;
     if (!transformer_->transformClustersToWorld(clusters_base_link, params_.base_link_frame,
-                                               clusters_world, timestamp, world_transform_timing)) {
+                                               clusters_world, timestamp, monitor_)) {
         ROS_WARN_THROTTLE(1.0, "Failed to transform clusters to world frame");
         return false;
     }

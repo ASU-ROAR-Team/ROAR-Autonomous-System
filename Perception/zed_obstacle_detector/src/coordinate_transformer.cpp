@@ -24,7 +24,7 @@ bool CoordinateTransformer::transformPointCloud(const pcl::PointCloud<pcl::Point
                                                const std::string& target_frame,
                                                pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
                                                const ros::Time& timestamp,
-                                               TransformTiming& timing) {
+                                               std::shared_ptr<PerformanceMonitor> monitor) {
     if (!input_cloud || input_cloud->empty()) {
         ROS_WARN_THROTTLE(1.0, "Input cloud is empty or null for transformation!");
         return false;
@@ -43,13 +43,17 @@ bool CoordinateTransformer::transformPointCloud(const pcl::PointCloud<pcl::Point
         return true;
     }
 
-    timing.start_transform = std::chrono::high_resolution_clock::now();
+    // Start timing if monitor is provided
+    if (monitor) {
+        monitor->startTimer("transform");
+    }
 
     try {
         // Check if transform is available
         if (!isTransformAvailable(source_frame, target_frame, timestamp)) {
             ROS_WARN_THROTTLE(1.0, "Transform from %s to %s not available at time %.3f",
                              source_frame.c_str(), target_frame.c_str(), timestamp.toSec());
+            if (monitor) monitor->endTimer("transform");
             return false;
         }
 
@@ -58,21 +62,27 @@ bool CoordinateTransformer::transformPointCloud(const pcl::PointCloud<pcl::Point
         if (!pcl_ros::transformPointCloud(target_frame, *input_cloud, *output_cloud, *tf_buffer_)) {
             ROS_ERROR_THROTTLE(1.0, "Failed to transform point cloud from %s to %s",
                               source_frame.c_str(), target_frame.c_str());
+            if (monitor) monitor->endTimer("transform");
             return false;
         }
 
-        timing.end_transform = std::chrono::high_resolution_clock::now();
+        // End timing if monitor is provided
+        long transform_duration = 0;
+        if (monitor) {
+            transform_duration = monitor->endTimer("transform");
+        }
         
-        ROS_DEBUG_THROTTLE(5.0, "Transformed point cloud: %s -> %s (%zu points) in %.2ld ms",
-                          source_frame.c_str(), target_frame.c_str(), output_cloud->size(),
-                          TransformTiming::getDurationMs(timing.start_transform, timing.end_transform));
+        ROS_DEBUG_THROTTLE(5.0, "Transformed point cloud: %s -> %s (%zu points) in %ld ms",
+                          source_frame.c_str(), target_frame.c_str(), output_cloud->size(), transform_duration);
         return true;
 
     } catch (const tf2::TransformException& ex) {
         ROS_ERROR_THROTTLE(1.0, "TF transform exception: %s", ex.what());
+        if (monitor) monitor->endTimer("transform");
         return false;
     } catch (const std::exception& e) {
         ROS_ERROR_THROTTLE(1.0, "Point cloud transform exception: %s", e.what());
+        if (monitor) monitor->endTimer("transform");
         return false;
     }
 }
@@ -105,7 +115,7 @@ bool CoordinateTransformer::transformClustersToWorld(const std::vector<std::pair
                                                     const std::string& base_frame,
                                                     std::vector<std::pair<geometry_msgs::Point, float>>& clusters_world,
                                                     const ros::Time& timestamp,
-                                                    TransformTiming& timing) {
+                                                    std::shared_ptr<PerformanceMonitor> monitor) {
     clusters_world.clear();
     clusters_world.reserve(clusters_base_link.size());
 
@@ -116,7 +126,10 @@ bool CoordinateTransformer::transformClustersToWorld(const std::vector<std::pair
         return true;
     }
 
-    timing.start_world_transform = std::chrono::high_resolution_clock::now();
+    // Start timing if monitor is provided
+    if (monitor) {
+        monitor->startTimer("world_transform");
+    }
 
     // Try to get cached transform for efficiency
     geometry_msgs::TransformStamped transform;
@@ -165,11 +178,14 @@ bool CoordinateTransformer::transformClustersToWorld(const std::vector<std::pair
         }
     }
 
-    timing.end_world_transform = std::chrono::high_resolution_clock::now();
+    // End timing if monitor is provided
+    long world_transform_duration = 0;
+    if (monitor) {
+        world_transform_duration = monitor->endTimer("world_transform");
+    }
     
-    ROS_DEBUG_THROTTLE(5.0, "Transformed %zu/%zu clusters to world frame in %.2ld ms (%s)",
-                      clusters_world.size(), clusters_base_link.size(),
-                      TransformTiming::getDurationMs(timing.start_world_transform, timing.end_world_transform),
+    ROS_DEBUG_THROTTLE(5.0, "Transformed %zu/%zu clusters to world frame in %ld ms (%s)",
+                      clusters_world.size(), clusters_base_link.size(), world_transform_duration,
                       transform_cached ? "cached" : "individual");
     
     return !clusters_world.empty();

@@ -58,7 +58,7 @@ public:
     
     // Timing measurement
     void startTimer(const std::string& stage);
-    void endTimer(const std::string& stage);
+    long endTimer(const std::string& stage);  // Returns duration in milliseconds
     
     // Metrics collection
     void recordInputPoints(size_t count);

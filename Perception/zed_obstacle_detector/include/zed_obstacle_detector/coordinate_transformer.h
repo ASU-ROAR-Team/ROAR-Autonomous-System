@@ -17,6 +17,7 @@
 #include <vector>
 #include <memory>
 #include <Eigen/Dense>
+#include "zed_obstacle_detector/performance_monitor.h"
 
 namespace zed_obstacle_detector {
 
@@ -30,19 +31,6 @@ struct TransformParams {
     bool enable_transformations;
 };
 
-struct TransformTiming {
-    std::chrono::high_resolution_clock::time_point start_transform;
-    std::chrono::high_resolution_clock::time_point end_transform;
-    std::chrono::high_resolution_clock::time_point start_world_transform;
-    std::chrono::high_resolution_clock::time_point end_world_transform;
-    
-    // Helper function to get duration in milliseconds
-    template<typename T>
-    static long getDurationMs(const T& start, const T& end) {
-        return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000;
-    }
-};
-
 class CoordinateTransformer {
 public:
     CoordinateTransformer(const TransformParams& params);
@@ -54,7 +42,7 @@ public:
                             const std::string& target_frame,
                             pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
                             const ros::Time& timestamp,
-                            TransformTiming& timing);
+                            std::shared_ptr<PerformanceMonitor> monitor = nullptr);
 
     bool transformPointToWorld(const geometry_msgs::Point& point_base_link,
                               const std::string& base_frame,
@@ -65,7 +53,7 @@ public:
                                  const std::string& base_frame,
                                  std::vector<std::pair<geometry_msgs::Point, float>>& clusters_world,
                                  const ros::Time& timestamp,
-                                 TransformTiming& timing);
+                                 std::shared_ptr<PerformanceMonitor> monitor = nullptr);
 
     // Individual transformation steps (for testing and debugging)
     bool transformSinglePoint(const geometry_msgs::PointStamped& point_in,
