@@ -66,8 +66,8 @@ void poseCallback(){
     geometry_msgs::TransformStamped transformStamped;
     
     transformStamped.header.stamp = ros::Time::now();
-    transformStamped.header.frame_id = "base_link";
-    transformStamped.child_frame_id = "camera_link";
+    transformStamped.header.frame_id = "world";
+    transformStamped.child_frame_id = "base_link";
     transformStamped.transform.translation.x = ukf.x_post[7];
     transformStamped.transform.translation.y = ukf.x_post[8];
     transformStamped.transform.translation.z = 0.0;
@@ -307,37 +307,13 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     poseCallback(); // Call pose callback to publish the transform
 }
 
-void trueLandmarkCallback(const roar_msgs::LandmarkArray::ConstPtr& msg){
-
-    //Set the landmarks
-    ROVlandmarks = msg->landmarks;
-    std::cout << "[*] Landmarks recieved! \n";
-
-    nav_msgs::Odometry state_msg;
-
-    state_msg.pose.pose.orientation.x = ukf.x_post[0];
-    state_msg.pose.pose.orientation.y = ukf.x_post[1];
-    state_msg.pose.pose.orientation.z = ukf.x_post[2];
-    state_msg.pose.pose.orientation.w = ukf.x_post[3];
-    state_msg.twist.twist.angular.x = ukf.x_post[4];
-    state_msg.twist.twist.angular.y = ukf.x_post[5];
-    state_msg.twist.twist.angular.z = ukf.x_post[6];
-    state_msg.pose.pose.position.x = ukf.x_post[7];
-    state_msg.pose.pose.position.y = ukf.x_post[8];
-
-    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
-    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
-    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
-    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
-
-    state_publisher.publish(state_msg);
-}
-
 Eigen::Vector3d roverToWorld(const Eigen::Vector3d& rel_pos_rover, const tf2::Quaternion& rover_quat) {
     // Convert tf2 quaternion to Eigen quaternion
     Eigen::Quaterniond q(rover_quat.x(), rover_quat.y(), rover_quat.z(), rover_quat.w());
     // Get rotation matrix
     Eigen::Matrix3d R = q.toRotationMatrix();
+
+    std::cout << "R: \n" << R << std::endl;
     // Transform the vector
     return R * rel_pos_rover;
 }
@@ -360,10 +336,10 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         // Get rover orientation as quaternion (from your UKF state or message)
         //make sure which is w and which is x y z
         tf2::Quaternion rover_quat(
+            ukf.x_post[0], // w
             ukf.x_post[1], // x
             ukf.x_post[2], // y
-            ukf.x_post[3], // z
-            ukf.x_post[0]  // w
+            ukf.x_post[3]  // z
         );
 
         // Transform to world frame
@@ -442,20 +418,20 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
                 minDist = dist;
                 nearestPos = rel_pos_all[i];
             }
-            std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << std::endl;
+            std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << " | minDist: " << minDist << std::endl;
         }
         
         z_measurement[11] = nearestPos[0];
         z_measurement[12] = nearestPos[1];
         z_measurement[13] = 0;
 
-        if (dist < 0.5){
-            ukf.LL_Callback(z_measurement);
-            std::cout << "LL-> X: " << z_measurement[11] << " | Y: " << z_measurement[12] << " | minDist: " << minDist << std::endl;
-            std::cout << "[*] Landmark Updated !" << std::endl;
-            std::cout << ukf.P_post.col(7)(7) << std::endl;
-            std::cout << "****************************" << std::endl;
-        }
+        //if (dist < 0.5){
+        ukf.LL_Callback(z_measurement);
+        std::cout << "LL-> X: " << z_measurement[11] << " | Y: " << z_measurement[12] << " | minDist: " << minDist << std::endl;
+        std::cout << "[*] Landmark Updated !" << std::endl;
+        std::cout << ukf.P_post.col(7)(7) << std::endl;
+        std::cout << "****************************" << std::endl;
+        //}
         
 
         nav_msgs::Odometry state_msg;
@@ -501,7 +477,6 @@ int main(int argc, char **argv)
     gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
     imu_sub = nh.subscribe("/imu", 1000, imuCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
-    //trueLandmarkSub = nh.subscribe("/landmark_array_topic", 1000, trueLandmarkCallback);
     landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
 
     if (!nh.getParam("landmarks", landmarks)) {
