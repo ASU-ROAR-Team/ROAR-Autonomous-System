@@ -1,4 +1,6 @@
 <?xml version="1.0"?>
 <launch>
+    <rosparam file="$(find localization)/config/landmarks.yaml" command="load" />
+
     <node pkg="localization" type="main" name="main" output="screen" />
 </launch>

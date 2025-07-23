@@ -229,7 +229,7 @@ UKF::UKF(MerwedSigmaPoints merwed_sigma_points)
     Z_sigma = Eigen::MatrixXd::Zero(z_dim, sigma_points.num_sigma_points); // Measurement sigma points
 
     // Initialize noise matrices
-    Q = Eigen::MatrixXd::Identity(x_dim, x_dim) * 1e-3;    // Process Noise Matrix //research
+    Q = Eigen::MatrixXd::Identity(x_dim, x_dim) * 1e-2;    // Process Noise Matrix //research
 
     R = Eigen::MatrixXd::Identity(z_dim, z_dim) * 0.7;      // Measurement Noise Matrix //add noise covariance for each sensor from datasheet
 
@@ -533,8 +533,8 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitc
         double linear_velocity = rover.rover_speeds(0);
 
         // Calculate change in x and y positions
-        double dx = linear_velocity * cos(yaw) * cos(pitch) * dt; //the bno reads 0 from the -y so I added a -ve and switched the sin and cos
-        double dy = - linear_velocity * sin(yaw) * cos(pitch) * dt;
+        double dx = - linear_velocity * sin(yaw) * cos(pitch) * dt; //the bno reads 0 from the -y so I added a -ve and switched the sin and cos
+        double dy = - linear_velocity * cos(yaw) * cos(pitch) * dt;
 
         // Update x and y positions
         X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
@@ -554,7 +554,7 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitc
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
 }
-void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt)
+void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double yaw, double pitch)
 {
         /***
     Predict with wheel odometry process model
@@ -572,12 +572,12 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
 
     ROVER rover;    
-    std::cout<<"wheel is :    "<<std::endl<< w<<std::endl<<"dt  "<<dt<<std::endl;
+    //std::cout<<"wheel is :    "<<std::endl<< w<<std::endl<<"dt  "<<dt<<std::endl;
     rover.calculate_wheel_change(w, dt);
     //position
     // Update x and y positions
     double linear_velocity = rover.rover_speeds(0);
-    std::cout<<"Linear v is:   "<<linear_velocity<<std::endl;
+    //std::cout<<"Linear v is:   "<<linear_velocity<<std::endl;
 
     // Pass sigmas into f(x) for wheel odometry
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
@@ -607,30 +607,30 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
         X_sigma.col(i)(2) = attitude.v_2;
         X_sigma.col(i)(3) = attitude.v_3;
 
-        //position
-        UnitQuaternion invq = attitude.inverse();
+        // //position
+        // UnitQuaternion invq = attitude.inverse();
 
-        Eigen::Vector3d acc_body = invq.vector_rotation_by_quaternion(g0);
-        Eigen::Vector3d mag_body = invq.vector_rotation_by_quaternion(m0);
+        // Eigen::Vector3d acc_body = invq.vector_rotation_by_quaternion(g0);
+        // Eigen::Vector3d mag_body = invq.vector_rotation_by_quaternion(m0);
 
-        acc_body.normalize();
-        mag_body.normalize();
+        // acc_body.normalize();
+        // mag_body.normalize();
 
-        double pitch = asin(-acc_body(0));
-        double roll  = atan2(acc_body(1), acc_body(2));
+        // double pitch = asin(-acc_body(0));
+        // double roll  = atan2(acc_body(1), acc_body(2));
 
-        double mag_x = mag_body(0)*cos(pitch) + 
-                       mag_body(1)*sin(roll)*sin(pitch) + 
-                       mag_body(2)*cos(roll)*sin(pitch);
+        // double mag_x = mag_body(0)*cos(pitch) + 
+        //                mag_body(1)*sin(roll)*sin(pitch) + 
+        //                mag_body(2)*cos(roll)*sin(pitch);
 
-        double mag_y = mag_body(1)*cos(roll) - 
-                       mag_body(2)*sin(roll);
+        // double mag_y = mag_body(1)*cos(roll) - 
+        //                mag_body(2)*sin(roll);
 
-        double yaw = atan2(-mag_y, mag_x);
+        // double yaw = atan2(-mag_y, mag_x);
 
         // Calculate change in x and y positions
-        double dx = linear_velocity * cos(yaw) * dt;
-        double dy = linear_velocity * sin(yaw) * dt;
+        double dx = - linear_velocity * sin(yaw) * cos(pitch) * dt;
+        double dy = - linear_velocity * cos(yaw) * cos(pitch) * dt;
         
         // Update x and y positions
         X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
@@ -744,6 +744,7 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     x_post = x_hat;
     P_post = P;
 
+    /*
     std::cout<<"Quat"<<std::endl;
     std::cout<<x_post(0)<<std::endl;
     std::cout<<x_post(1)<<std::endl;
@@ -756,17 +757,19 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     std::cout<<"position X,Y"<<std::endl;
     std::cout<<x_post(7)<<std::endl;
     std::cout<<x_post(8)<<std::endl;
+    */
+    
 
     x_prior = x_post;
     P_prior = P_post;
                 
-    double roll, pitch, yaw;
+    double roll, pitch2, yaw2;
     tf2::Quaternion quat_out(x_post(1), x_post(2), x_post(3), x_post(0));
-    tf2::Matrix3x3(quat_out).getRPY(roll, pitch, yaw);
-    std::cout<<"YAW IS:   "<< yaw<<endl
-             <<" Cos(Yaw) IS:    "<<cos(yaw)<<endl
-             <<" Sin(Yaw) IS:     "<<sin(yaw)
-             <<std::endl<<endl;
+    tf2::Matrix3x3(quat_out).getRPY(roll, pitch2, yaw2);
+    //std::cout<<"YAW IS:   "<< yaw2<<endl
+    //         <<" Cos(Yaw) IS:    "<<cos(yaw2)<<endl
+    //         <<" Sin(Yaw) IS:     "<<sin(yaw2)
+    //         <<std::endl<<endl;
 }
 
 void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
@@ -784,8 +787,10 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
 
     std::array<double, 2> WGS84Reference{lon0, lat0};
     std::array<double, 2> result{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
+    result[1] = result[1] *2/3;
     z_measurement[11] = result[0];
     z_measurement[12] = result[1];
+
 
     std::cout << "Lon0: " << lon0 << " | lat0: " << lat0 << std::endl;
     std::cout << "Lon: " << z_measurement[10] << " | lat: " << z_measurement[9] << std::endl;
@@ -812,10 +817,10 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
         sigma_points.Wc,
         Q);
     
-    P_post.col(7) = P.col(7);
-    P_post.col(8) = P.col(8);
-    P_post.row(7) = P.row(7);
-    P_post.row(8) = P.row(8);
+    //P_post.col(7) = P.col(7);
+    //P_post.col(8) = P.col(8);
+    //P_post.row(7) = P.row(7);
+    //P_post.row(8) = P.row(8);
 
     // GPS measurement
     Eigen::Vector2d z_gps(result[0], result[1]);
@@ -871,8 +876,8 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     x_post.tail(2) = x_hat.tail(2);
 
     // Update P_post only for x and y rows/cols (indices 7 and 8)
-    //P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);
-    //P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
+    P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);
+    P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
 
 }
 
