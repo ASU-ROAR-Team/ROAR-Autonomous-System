@@ -369,8 +369,8 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         double rovCurrentX = ukf.x_post[7];
         double rovCurrentY = ukf.x_post[8];
 
-        std::cout << "x_post[7]: " << rovCurrentX << " | x_post[8]: " << rovCurrentY << std::endl; 
-        std::cout << "rel_x: " << rel_x << " | rel_y: " << rel_y << std::endl; 
+        //std::cout << "x_post[7]: " << rovCurrentX << " | x_post[8]: " << rovCurrentY << std::endl; 
+        //std::cout << "rel_x: " << rel_x << " | rel_y: " << rel_y << std::endl; 
 
         for (int i = 0; i < 32; i++){
             //calc dist
@@ -381,7 +381,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
                 minDist = dist;
                 nearestPos = rel_pos_all[i];
             }
-            std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << " | minDist: " << minDist << std::endl;
+            //std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << " | minDist: " << minDist << std::endl;
         }
         
         z_measurement[11] = nearestPos[0];
@@ -391,9 +391,9 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         //if (dist < 0.5){
         ukf.LL_Callback(z_measurement);
         std::cout << "LL-> X: " << z_measurement[11] << " | Y: " << z_measurement[12] << " | minDist: " << minDist << std::endl;
-        std::cout << "[*] Landmark Updated !" << std::endl;
-        std::cout << ukf.P_post.col(7)(7) << std::endl;
-        std::cout << "****************************" << std::endl;
+        //std::cout << "[*] Landmark Updated !" << std::endl;
+        //std::cout << ukf.P_post.col(7)(7) << std::endl;
+        //std::cout << "****************************" << std::endl;
         //}
         
 
