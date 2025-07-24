@@ -234,7 +234,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     z_measurement[2] = msg->angular_velocity.z;
     z_measurement[3] = msg->linear_acceleration.x;
     z_measurement[4] = msg->linear_acceleration.y;
-    z_measurement[5] = msg->linear_acceleration.z;
+    z_measurement[5] = msg->linear_acceleration.z + 9.81;
 
     ukf.imu_callback(encoder_measurement, z_measurement, dt_imu, yaw, pitch); //////////need to be fixed
     prev_time_stamp = current_time_stamp;
@@ -257,8 +257,8 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 
     state_publisher.publish(state_msg);
 
-    std::cout <<  "[*] IMU UPDATED !" << std::endl;
-    std::cout << ukf.P_post.col(7)(7) << std::endl;
+    // std::cout <<  "[*] IMU UPDATED !" << std::endl;
+    // std::cout << ukf.P_post.col(7)(7) << std::endl;
 }
 
 void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
@@ -474,14 +474,14 @@ int main(int argc, char **argv)
     
     // Initialize ROS subscribers
     mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
-    gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
+    // gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
     imu_sub = nh.subscribe("/imu", 1000, imuCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
-    landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
+    // landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
 
-    if (!nh.getParam("landmarks", landmarks)) {
-    ROS_ERROR("Could not find 'landmarks' parameter");
-    }
+    // if (!nh.getParam("landmarks", landmarks)) {
+    // ROS_ERROR("Could not find 'landmarks' parameter");
+    // }
 
     // Initialize ROS publisher
     state_publisher = nh.advertise<nav_msgs::Odometry>("/filtered_state", 1000);
