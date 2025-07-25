@@ -58,7 +58,7 @@ private:
 
     // Optimized batch processing
     void processClustersBatch(const std::vector<pcl::PointIndices>& cluster_indices,
-                             const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
                              std::vector<Cluster>& clusters,
                              std::shared_ptr<PerformanceMonitor> monitor = nullptr);
 

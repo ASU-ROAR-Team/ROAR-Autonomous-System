@@ -4,7 +4,7 @@ zed_obstacle_detector:
   camera_frame: "camera_link"
   base_link_frame: "base_link"
   world_frame: "world"
-
+  
   # Processing parameters
   processing:
     passthrough_z_min_camera: 0.1
@@ -24,7 +24,7 @@ zed_obstacle_detector:
     angle_threshold_deg: 5.0
     max_iterations: 300
     mars_terrain_mode: false
-
+  
   # Clustering
   clustering:
     cluster_tolerance: 0.15

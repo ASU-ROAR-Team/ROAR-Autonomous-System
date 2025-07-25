@@ -85,7 +85,7 @@ std::vector<pcl::PointIndices> ClusterDetector::extractClusterIndices(const pcl:
 }
 
 void ClusterDetector::processClustersBatch(const std::vector<pcl::PointIndices>& cluster_indices,
-                                          const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+                                       const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
                                           std::vector<Cluster>& clusters,
                                           std::shared_ptr<PerformanceMonitor> monitor) {
     // Pre-allocate clusters vector
@@ -102,8 +102,8 @@ void ClusterDetector::processClustersBatch(const std::vector<pcl::PointIndices>&
         // Early exit for clusters that are too small (already filtered by PCL, but double-check)
         if (cluster_idx.indices.size() < static_cast<size_t>(params_.min_cluster_size)) {
             continue;
-        }
-        
+    }
+
         Cluster cluster = processCluster(cluster_idx, input_cloud, next_cluster_id_++, monitor);
         if (!cluster.points->empty()) {
             clusters.push_back(std::move(cluster)); // Use move semantics for better performance
@@ -112,7 +112,7 @@ void ClusterDetector::processClustersBatch(const std::vector<pcl::PointIndices>&
 }
 
 Cluster ClusterDetector::processCluster(const pcl::PointIndices& cluster_indices,
-                                       const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+                                                const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
                                        int cluster_id,
                                        std::shared_ptr<PerformanceMonitor> monitor) {
     Cluster cluster;
@@ -184,7 +184,7 @@ std::pair<geometry_msgs::Point, float> ClusterDetector::computeCentroidAndRadius
             float current_centroid_x = sum_x / (i + 1);
             float current_centroid_y = sum_y / (i + 1);
             float current_centroid_z = sum_z / (i + 1);
-            
+        
             // Compute distance from current point to current centroid estimate
             float dx = point.x - current_centroid_x;
             float dy = point.y - current_centroid_y;
@@ -230,7 +230,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr ClusterDetector::createDebugCloud(const s
     // Start timing if monitor is provided
     if (monitor) {
         monitor->startTimer("debug_cloud_creation");
-    }
+            }
 
     // Calculate total points for pre-allocation
     size_t total_points = 0;

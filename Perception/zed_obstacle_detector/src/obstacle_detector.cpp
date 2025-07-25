@@ -47,9 +47,9 @@ ObstacleDetectorResult ObstacleDetector::processPointCloud(const sensor_msgs::Po
 
     // Fill debug cloud for publishing (only if debug publishers are enabled)
     if (params_.monitor_params.enable_debug_publishers) {
-        pcl::toROSMsg(*processed_cloud, result.filtered_transformed_cloud);
-        result.filtered_transformed_cloud.header.stamp = input_msg->header.stamp;
-        result.filtered_transformed_cloud.header.frame_id = params_.input_frame_id;
+    pcl::toROSMsg(*processed_cloud, result.filtered_transformed_cloud);
+    result.filtered_transformed_cloud.header.stamp = input_msg->header.stamp;
+    result.filtered_transformed_cloud.header.frame_id = params_.input_frame_id;
     }
 
     // Stage 2: Ground detection and obstacle extraction

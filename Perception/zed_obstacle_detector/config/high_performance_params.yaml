@@ -4,7 +4,7 @@ zed_obstacle_detector:
   camera_frame: "camera_link"
   base_link_frame: "base_link"
   world_frame: "world"
-
+  
   # Processing parameters
   processing:
     passthrough_z_min_camera: 0.2
@@ -19,18 +19,18 @@ zed_obstacle_detector:
   # Ground detection
   ground_detection:
     method: "ransac"  # Options: "ransac", "morphological", "conditional"
-    enable_ground_filtering: true
+  enable_ground_filtering: true
     distance_threshold: 0.1
     angle_threshold_deg: 20.0
     max_iterations: 250
     mars_terrain_mode: false
-
+  
   # Clustering
   clustering:
     cluster_tolerance: 0.4
     min_cluster_size: 25
     max_cluster_size: 20000
-
+  
   # Tracking
   tracking:
     association_distance: 1.0
@@ -46,8 +46,8 @@ zed_obstacle_detector:
 
   # Monitoring
   monitoring:
-    enable_detailed_timing: false
-    enable_debug_publishers: false
+  enable_detailed_timing: false
+  enable_debug_publishers: false
     timing_report_interval: 60.0
     enable_performance_logging: true
     log_file_path: "/tmp/zed_obstacle_detector_high_performance.log"

@@ -47,11 +47,11 @@ bool CoordinateTransformer::transformClustersToWorld(const std::vector<std::pair
         point_camera.header.frame_id = camera_frame;
         point_camera.header.stamp = timestamp;
         point_camera.point = centroid_camera;
-
+            
         geometry_msgs::PointStamped point_world;
         if (transformSinglePoint(point_camera, point_world, params_.world_frame)) {
             clusters_world.push_back({point_world.point, radius_camera});
-        } else {
+    } else {
             ROS_WARN_THROTTLE(1.0, "Failed to transform cluster centroid from camera to world frame");
         }
     }
