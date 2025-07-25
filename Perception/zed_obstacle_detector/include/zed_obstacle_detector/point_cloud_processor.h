@@ -6,7 +6,8 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/uniform_sampling.h>
-#include <chrono>
+#include "zed_obstacle_detector/performance_monitor.h"
+#include <memory>
 #include <string>
 
 namespace zed_obstacle_detector {
@@ -33,21 +34,6 @@ struct ProcessingParams {
     std::string target_frame_id;
 };
 
-struct ProcessingTiming {
-    std::chrono::high_resolution_clock::time_point start_passthrough;
-    std::chrono::high_resolution_clock::time_point end_passthrough;
-    std::chrono::high_resolution_clock::time_point start_uniform_sampling;
-    std::chrono::high_resolution_clock::time_point end_uniform_sampling;
-    std::chrono::high_resolution_clock::time_point start_voxel_grid;
-    std::chrono::high_resolution_clock::time_point end_voxel_grid;
-    
-    // Helper function to get duration in milliseconds
-    template<typename T>
-    static long getDurationMs(const T& start, const T& end) {
-        return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000;
-    }
-};
-
 class PointCloudProcessor {
 public:
     PointCloudProcessor(const ProcessingParams& params);
@@ -56,17 +42,20 @@ public:
     // Main processing interface
     bool processPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
                           pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
-                          ProcessingTiming& timing);
+                          std::shared_ptr<PerformanceMonitor> monitor = nullptr);
 
     // Individual processing steps (for testing and debugging)
     bool applyPassThroughFilter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                               pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud);
+                               pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
+                               std::shared_ptr<PerformanceMonitor> monitor = nullptr);
     
     bool applyUniformSampling(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                             pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud);
+                             pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
+                             std::shared_ptr<PerformanceMonitor> monitor = nullptr);
     
     bool applyVoxelGridFilter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                             pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud);
+                             pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
+                             std::shared_ptr<PerformanceMonitor> monitor = nullptr);
 
     // Parameter management
     void setParams(const ProcessingParams& params);

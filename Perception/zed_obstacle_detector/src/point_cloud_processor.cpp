@@ -16,7 +16,7 @@ PointCloudProcessor::PointCloudProcessor(const ProcessingParams& params)
 
 bool PointCloudProcessor::processPointCloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
                                            pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
-                                           ProcessingTiming& timing) {
+                                           std::shared_ptr<PerformanceMonitor> monitor) {
     if (!input_cloud || input_cloud->empty()) {
         ROS_WARN_THROTTLE(1.0, "Input cloud is empty or null!");
         return false;
@@ -28,47 +28,94 @@ bool PointCloudProcessor::processPointCloud(const pcl::PointCloud<pcl::PointXYZ>
         return false;
     }
 
+    // Start timing if monitor is provided
+    if (monitor) {
+        monitor->startTimer("point_cloud_processing");
+    }
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_processed = input_cloud;
 
     // 1. Apply PassThrough filter
-    timing.start_passthrough = std::chrono::high_resolution_clock::now();
-    if (!applyPassThroughFilter(cloud_processed, cloud_processed)) {
+    if (monitor) {
+        monitor->startTimer("passthrough_filter");
+    }
+    if (!applyPassThroughFilter(cloud_processed, cloud_processed, monitor)) {
         ROS_WARN_THROTTLE(1.0, "PassThrough filter failed!");
+        if (monitor) {
+            monitor->endTimer("point_cloud_processing");
+        }
         return false;
     }
-    timing.end_passthrough = std::chrono::high_resolution_clock::now();
+    if (monitor) {
+        double duration_ms = monitor->endTimer("passthrough_filter");
+        ROS_INFO("PassThrough filter: %.2f ms (%zu -> %zu points)", 
+                 duration_ms, input_cloud->size(), cloud_processed->size());
+    }
 
     if (cloud_processed->empty()) {
         ROS_WARN_THROTTLE(1.0, "Cloud empty after PassThrough filter!");
+        if (monitor) {
+            monitor->endTimer("point_cloud_processing");
+        }
         return false;
     }
 
     // 2. Optional Uniform Sampling
     if (params_.enable_uniform_downsampling) {
-        timing.start_uniform_sampling = std::chrono::high_resolution_clock::now();
-        if (!applyUniformSampling(cloud_processed, cloud_processed)) {
+        if (monitor) {
+            monitor->startTimer("uniform_sampling");
+        }
+        if (!applyUniformSampling(cloud_processed, cloud_processed, monitor)) {
             ROS_WARN_THROTTLE(1.0, "Uniform sampling failed!");
+            if (monitor) {
+                monitor->endTimer("point_cloud_processing");
+            }
             return false;
         }
-        timing.end_uniform_sampling = std::chrono::high_resolution_clock::now();
+        if (monitor) {
+            double duration_ms = monitor->endTimer("uniform_sampling");
+            ROS_INFO("Uniform sampling: %.2f ms", duration_ms);
+        }
 
         if (cloud_processed->empty()) {
             ROS_WARN_THROTTLE(1.0, "Cloud empty after uniform sampling!");
+            if (monitor) {
+                monitor->endTimer("point_cloud_processing");
+            }
             return false;
         }
     }
 
     // 3. Apply VoxelGrid filter
-    timing.start_voxel_grid = std::chrono::high_resolution_clock::now();
-    if (!applyVoxelGridFilter(cloud_processed, output_cloud)) {
+    if (monitor) {
+        monitor->startTimer("voxel_grid_filter");
+    }
+    if (!applyVoxelGridFilter(cloud_processed, output_cloud, monitor)) {
         ROS_WARN_THROTTLE(1.0, "VoxelGrid filter failed!");
+        if (monitor) {
+            monitor->endTimer("point_cloud_processing");
+        }
         return false;
     }
-    timing.end_voxel_grid = std::chrono::high_resolution_clock::now();
+    if (monitor) {
+        double duration_ms = monitor->endTimer("voxel_grid_filter");
+        ROS_INFO("VoxelGrid filter: %.2f ms (%zu -> %zu points)", 
+                 duration_ms, cloud_processed->size(), output_cloud->size());
+    }
 
     if (output_cloud->empty()) {
         ROS_WARN_THROTTLE(1.0, "Cloud empty after VoxelGrid filter!");
+        if (monitor) {
+            monitor->endTimer("point_cloud_processing");
+        }
         return false;
+    }
+
+    // End timing if monitor is provided
+    if (monitor) {
+        double duration_ms = monitor->endTimer("point_cloud_processing");
+        ROS_INFO("PointCloud processing complete: %.2f ms (%zu -> %zu points)", 
+                 duration_ms, input_cloud->size(), output_cloud->size());
     }
 
     ROS_DEBUG_THROTTLE(5.0, "PointCloud processing complete: %zu -> %zu points", 
@@ -77,7 +124,8 @@ bool PointCloudProcessor::processPointCloud(const pcl::PointCloud<pcl::PointXYZ>
 }
 
 bool PointCloudProcessor::applyPassThroughFilter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                                                pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud) {
+                                                pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
+                                                std::shared_ptr<PerformanceMonitor> monitor) {
     try {
         pcl::PassThrough<pcl::PointXYZ> pass;
         pass.setInputCloud(input_cloud);
@@ -92,7 +140,8 @@ bool PointCloudProcessor::applyPassThroughFilter(const pcl::PointCloud<pcl::Poin
 }
 
 bool PointCloudProcessor::applyUniformSampling(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                                              pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud) {
+                                              pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
+                                              std::shared_ptr<PerformanceMonitor> monitor) {
     try {
         pcl::UniformSampling<pcl::PointXYZ> uniform;
         uniform.setInputCloud(input_cloud);
@@ -106,7 +155,8 @@ bool PointCloudProcessor::applyUniformSampling(const pcl::PointCloud<pcl::PointX
 }
 
 bool PointCloudProcessor::applyVoxelGridFilter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
-                                              pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud) {
+                                              pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
+                                              std::shared_ptr<PerformanceMonitor> monitor) {
     try {
         pcl::VoxelGrid<pcl::PointXYZ> voxel;
         voxel.setInputCloud(input_cloud);

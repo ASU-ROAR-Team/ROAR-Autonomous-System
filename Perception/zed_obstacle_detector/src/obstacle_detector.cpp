@@ -130,8 +130,7 @@ bool ObstacleDetector::preprocessPointCloud(const sensor_msgs::PointCloud2ConstP
     }
 
     // Process point cloud
-    ProcessingTiming processing_timing;
-    return processor_->processPointCloud(input_cloud, processed_cloud, processing_timing);
+    return processor_->processPointCloud(input_cloud, processed_cloud, monitor_);
 }
 
 bool ObstacleDetector::detectGroundAndObstacles(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
