@@ -55,17 +55,19 @@ class APFPlanner:
             "costmap": pd.read_csv(
                 rospy.get_param("~costmapFile", "~/ttt/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/total_cost.csv"), header=None # Use absolute path or find_package
             ).values,
-            "apfParams": [
-                rospy.get_param("~KATT", 8.0),
-                rospy.get_param("~KREP", 120.0),
-                rospy.get_param("~QSTAR", 2.0),
-                rospy.get_param("~M", 1.0),
-                rospy.get_param("~LOOKAHEADDIST", 2.0),
-                rospy.get_param("~KGRADIENT", 0.1),
-                rospy.get_param("~KENHANCED", 80.0),
-                rospy.get_param("~TAU", 0.1),
-                rospy.get_param("~CHECKPOINTDIST", 1.8),
-            ],
+            "apfParams": {
+                "KATT": rospy.get_param("~KATT", 8.0),
+                "KREP": rospy.get_param("~KREP", 120.0),
+                "QSTAR": rospy.get_param("~QSTAR", 2.0),
+                "M": rospy.get_param("~M", 1.0),
+                "LOOKAHEADDIST": rospy.get_param("~LOOKAHEADDIST", 2.0),
+                "KGRADIENT": rospy.get_param("~KGRADIENT", 0.1),
+                "KENHANCED": rospy.get_param("~KENHANCED", 80.0),
+                "TAU": rospy.get_param("~TAU", 0.1),
+                "CHECKPOINTDIST": rospy.get_param("~CHECKPOINTDIST", 1.8),
+                "PIXEL_SCALE": rospy.get_param("~PIXEL_SCALE", 20.2),
+                "GRADIENT_RADIUS": rospy.get_param("~GRADIENT_RADIUS", 1)
+            },
         }
 
         # Robot state management
@@ -89,7 +91,7 @@ class APFPlanner:
         self.vizComponents: Dict[str, Any] = self.initVisualization()
         rospy.loginfo("APF Planner Initialized. Target frame: %s", self.target_frame)
         rospy.loginfo("APF Params: KATT=%.1f, KREP=%.1f, QSTAR=%.1f",
-                      self.config["apfParams"][0], self.config["apfParams"][1], self.config["apfParams"][2])
+                      self.config["apfParams"]["KATT"], self.config["apfParams"]["KREP"], self.config["apfParams"]["QSTAR"])
 
 
     def initAPFForces(self) -> Dict[str, Expr]:
@@ -110,7 +112,7 @@ class APFPlanner:
         # This is a standard formula for repulsive force from a potential field.
         # It pushes the robot directly away from the obstacle.
         # KREP is parameters[1]
-        rep_force_magnitude_when_active = parameters[1] * (1/obsDist - 1/rangeEff) * (1/obsDist**2) # Note: common formula uses 1/obsDist**3 not **2 for the last term when derived from U_rep.
+        rep_force_magnitude_when_active = parameters["KREP"] * (1/obsDist - 1/rangeEff) * (1/obsDist**2) # Note: common formula uses 1/obsDist**3 not **2 for the last term when derived from U_rep.
                                                                                                  # Using your form: (1/obsDist**2)
 
         # Repulsive force vector components (pushing robot away from obstacle)
@@ -121,8 +123,8 @@ class APFPlanner:
         repY_active = rep_force_magnitude_when_active * (yRob - yObs) # Simplified: magnitude * component of unit vector
 
         return {
-            "attX": parameters[0] * attVal * cos(attAngle),
-            "attY": parameters[0] * attVal * sin(attAngle),
+            "attX": parameters["KATT"] * attVal * cos(attAngle),
+            "attY": parameters["KATT"] * attVal * sin(attAngle),
             # Use Piecewise for conditional symbolic expression
             # Piecewise((expression, condition), (default_expression, True))
             "repX": Piecewise((repX_active, obsDist < rangeEff), (0, True)),
@@ -161,8 +163,8 @@ class APFPlanner:
             "limits": (xMin, xMax, yMin, yMax),
         }
 
-    def modelCallback(self, msg: ModelStates) -> None:
-        """Handle robot state updates from Gazebo ModelStates"""
+    def modelCallback(self, msg: Odometry) -> None:
+        """Handle robot state updates from Odometry"""
         try:
             self.robotState["position"] = [
                 msg.pose.pose.position.x,
@@ -178,10 +180,6 @@ class APFPlanner:
             if not self.robotState["isActive"]:
                 rospy.loginfo(f"Robot pose received: x={msg.pose.pose.position.x:.2f}, y={msg.pose.pose.position.y:.2f}")
             self.robotState["isActive"] = True
-            # else: # This can be noisy if other models are present
-                # rospy.logwarn_throttle(10.0, f"Robot model '{robot_model_name}' not found in ModelStates.")
-        except ValueError:
-            rospy.logwarn_throttle(10.0, f"Robot model '{robot_model_name}' not found in ModelStates (ValueError).")
         except Exception as e:
             rospy.logerr(f"Error in modelCallback: {e}")
 
@@ -189,7 +187,7 @@ class APFPlanner:
     def obstacleArrayCallback(self, msg: ObstacleArray) -> None:
         with self.obstacleData["lock"]:
             new_obstacle_data: Dict[int, List[float]] = {} # Key: obs_id, Value: [x, y, true_r, eff_r]
-            Qstar = self.config["apfParams"][2]
+            Qstar = self.config["apfParams"]["QSTAR"]
 
             if msg.header.frame_id != self.target_frame:
                 rospy.logwarn_throttle(5.0,
@@ -255,7 +253,8 @@ class APFPlanner:
 
     def realToPixel(self, x: float, y: float) -> Tuple[int, int]:
         """Convert real-world coordinates to pixel indices"""
-        return int(208 + 20.2 * x), int(761 - 20.2 * y)
+        pixel_scale = self.config["apfParams"]["PIXEL_SCALE"]
+        return int(208 + pixel_scale * x), int(761 - pixel_scale * y)
 
     def calculateGradientForce(self, position: List[float]) -> Tuple[float, float]:
             """Calculate costmap gradient forces"""
@@ -264,7 +263,7 @@ class APFPlanner:
 
             xPixel, yPixel = self.realToPixel(position[0], position[1])
             xGradient, yGradient = 0.0, 0.0
-            radius_pixels = int(1 * 20.2)
+            radius_pixels = int(self.config["apfParams"]["GRADIENT_RADIUS"] * self.config["apfParams"]["PIXEL_SCALE"])
 
             if not (0 <= xPixel < self.config["costmap"].shape[1] and \
                     0 <= yPixel < self.config["costmap"].shape[0]):
@@ -283,9 +282,9 @@ class APFPlanner:
                     costDiff = neighbor_cost - current_cost
 
                     if dx_pixel != 0:
-                        xGradient -= self.config["apfParams"][5] * costDiff * np.sign(dx_pixel)
+                        xGradient -= self.config["apfParams"]["KGRADIENT"] * costDiff * np.sign(dx_pixel)
                     if dy_pixel_map_axis != 0:
-                        yGradient -= self.config["apfParams"][5] * costDiff * np.sign(-dy_pixel_map_axis)
+                        yGradient -= self.config["apfParams"]["KGRADIENT"] * costDiff * np.sign(-dy_pixel_map_axis)
             return (xGradient, yGradient)
 
 
@@ -299,9 +298,9 @@ class APFPlanner:
 
             distance_to_checkpoint = math.hypot(vec_to_checkpoint_x, vec_to_checkpoint_y)
 
-            if distance_to_checkpoint <= self.config["apfParams"][8] and distance_to_checkpoint > 0.01: # CHECKPOINTDIST
+            if distance_to_checkpoint <= self.config["apfParams"]["CHECKPOINTDIST"] and distance_to_checkpoint > 0.01: # CHECKPOINTDIST
                 angle_to_checkpoint = math.atan2(vec_to_checkpoint_y, vec_to_checkpoint_x)
-                gain = self.config["apfParams"][6] * self.config["apfParams"][0] * distance_to_checkpoint # KENHANCED * KATT * distance
+                gain = self.config["apfParams"]["KENHANCED"] * self.config["apfParams"]["KATT"] * distance_to_checkpoint # KENHANCED * KATT * distance
                 xEnhanced = gain * math.cos(angle_to_checkpoint)
                 yEnhanced = gain * math.sin(angle_to_checkpoint)
         return (xEnhanced, yEnhanced)
@@ -355,7 +354,7 @@ class APFPlanner:
 
         self.robotState["currentIndex"] = closest_idx
 
-        lookahead_dist = self.config["apfParams"][4] # LOOKAHEADDIST
+        lookahead_dist = self.config["apfParams"]["LOOKAHEADDIST"] # LOOKAHEADDIST
         for idx in range(self.robotState["currentIndex"], len(candidates)):
             point_tuple = candidates[idx]
             point = (float(point_tuple[0]), float(point_tuple[1])) # Ensure floats
@@ -524,7 +523,7 @@ class APFPlanner:
             posCopy = list(currentPos)
 
             num_simulation_steps = 10
-            step_size = self.config["apfParams"][7] # TAU
+            step_size = self.config["apfParams"]["TAU"] # TAU
 
             for _ in range(num_simulation_steps):
                 forces_x, forces_y = self.calculateForces(posCopy, lookaheadPoint)

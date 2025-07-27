@@ -1,0 +1,13 @@
+digraph G {
+"rocker_lhs" -> "bogie_lhs"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1753627657.226 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "rocker_lhs"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1753627657.226 sec old)\nBuffer length: 0.000 sec\n"];
+"rocker_rhs" -> "bogie_rhs"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1753627657.226 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "rocker_rhs"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1753627657.226 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_link" -> "camera_depth_optical_frame"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1753627657.226 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "camera_link"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1753627657.226 sec old)\nBuffer length: 0.000 sec\n"];
+"dummy_root" -> "base_link"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1753627657.226 sec old)\nBuffer length: 0.000 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1753627657.226"[ shape=plaintext ] ;
+ }->"dummy_root";
+}

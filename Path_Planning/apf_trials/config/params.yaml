@@ -17,3 +17,7 @@ APF_update:
 
   # Time parameters
   TAU: 0.1               # Time step for simulation (seconds)
+
+  # Pixel scale
+  PIXEL_SCALE: 20.2
+  GRADIENT_RADIUS: 1
