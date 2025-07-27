@@ -68,7 +68,8 @@ ObstacleDetectorResult ObstacleDetector::processPointCloud(const sensor_msgs::Po
         monitor_->endFrame();
         return result;
     }
-    monitor_->endTimer("ground_filter");
+    double ground_filter_duration = monitor_->endTimer("ground_filter");
+    ROS_INFO("Ground filter duration: %.2f ms", ground_filter_duration);
 
     // Fill no-ground debug cloud for publishing
     if (params_.monitor_params.enable_debug_publishers) {

@@ -42,7 +42,7 @@ bool GroundDetector::detectGroundRANSAC(const pcl::PointCloud<pcl::PointXYZ>::Pt
     seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
     seg.setMethodType(pcl::SAC_RANSAC);
     seg.setDistanceThreshold(params_.distance_threshold);
-    seg.setAxis(Eigen::Vector3f(0.0, 0.0, 1.0));
+    seg.setAxis(Eigen::Vector3f(0.0, 1.0, 0.0));  
     seg.setEpsAngle(deg2rad(params_.angle_threshold_deg));
     seg.setMaxIterations(params_.max_iterations);
 

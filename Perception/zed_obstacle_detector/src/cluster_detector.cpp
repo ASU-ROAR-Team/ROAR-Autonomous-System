@@ -143,13 +143,13 @@ Cluster ClusterDetector::processCluster(const pcl::PointIndices& cluster_indices
         return cluster;
     }
 
-    // Compute centroid and radius in a single pass (optimization)
-    std::tie(cluster.centroid, cluster.radius) = computeCentroidAndRadius(cluster.points, monitor);
+    // Compute centroid and radius with improved 2-pass logic
+    std::tie(cluster.centroid, cluster.radius) = computeCentroidRadius(cluster.points, monitor);
 
     return cluster;
 }
 
-std::pair<geometry_msgs::Point, float> ClusterDetector::computeCentroidAndRadius(
+std::pair<geometry_msgs::Point, float> ClusterDetector::computeCentroidRadius(
     const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points,
     std::shared_ptr<PerformanceMonitor> monitor) const {
     
@@ -166,40 +166,40 @@ std::pair<geometry_msgs::Point, float> ClusterDetector::computeCentroidAndRadius
     }
 
     try {
-        // Single-pass computation using incremental centroid and radius tracking
+        // First pass: compute centroid
         float sum_x = 0.0f, sum_y = 0.0f, sum_z = 0.0f;
-        float max_radius_sq = 0.0f;
         size_t num_points = cluster_points->size();
         
-        // Single pass: compute centroid incrementally and track max distance
+        // Single pass: compute centroid
         for (size_t i = 0; i < num_points; ++i) {
             const auto& point = cluster_points->points[i];
             
-            // Update running sums
+            // Update running sums for centroid
             sum_x += point.x;
             sum_y += point.y;
             sum_z += point.z;
-            
-            // Compute current centroid estimate
-            float current_centroid_x = sum_x / (i + 1);
-            float current_centroid_y = sum_y / (i + 1);
-            float current_centroid_z = sum_z / (i + 1);
-        
-            // Compute distance from current point to current centroid estimate
-            float dx = point.x - current_centroid_x;
-            float dy = point.y - current_centroid_y;
-            float dz = point.z - current_centroid_z;
-            float dist_sq = dx*dx + dy*dy + dz*dz;
-            
-            if (dist_sq > max_radius_sq) {
-                max_radius_sq = dist_sq;
-            }
         }
         
         // Final centroid
         centroid.x = sum_x / num_points;
         centroid.y = sum_y / num_points;
         centroid.z = sum_z / num_points;
+        
+        // Second pass: compute radius using final centroid
+        float max_radius_sq = 0.0f;
+        for (size_t i = 0; i < num_points; ++i) {
+            const auto& point = cluster_points->points[i];
+            
+            // Compute distance from point to final centroid
+            float dx = point.x - centroid.x;
+            float dy = point.y - centroid.y;
+            float dz = point.z - centroid.z;
+            float dist_sq = dx*dx + dy*dy + dz*dz;
+            
+            if (dist_sq > max_radius_sq) {
+                max_radius_sq = dist_sq;
+            }
+        }
         
         radius = std::sqrt(max_radius_sq);
         

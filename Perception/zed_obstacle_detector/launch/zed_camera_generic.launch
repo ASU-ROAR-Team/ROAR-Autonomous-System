@@ -6,14 +6,6 @@
   <!-- Start robot_state_publisher to publish static transforms from URDF -->
   <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
 
-  <!-- Generic ZED Camera Obstacle Detector Launch File -->
-  <!-- Works with ZED, ZED2, ZED2i, ZED Mini, etc. -->
-  
-  <!-- Camera Configuration -->
-  <arg name="camera_model" default="zed2i" doc="Camera model (zed, zed2, zed2i, zed_mini)" />
-  <arg name="camera_frame" default="$(arg camera_model)_left_camera_frame" doc="Camera frame name" />
-  <arg name="point_cloud_topic" default="/$(arg camera_model)/zed_node/point_cloud/cloud_registered" doc="Point cloud topic" />
-  
   <!-- Performance Mode -->
   <arg name="performance_mode" default="production" doc="Performance mode (production, debug, high_performance)" />
   
@@ -21,8 +13,12 @@
   <arg name="enable_transformations" default="" doc="Override enable_transformations (true/false). If empty, uses performance mode default" />
   
   <!-- Frame Configuration -->
-  <arg name="base_link_frame" default="base_link" doc="Base link frame" />
-  <arg name="world_frame" default="world" doc="World frame" />
+  <arg name="base_link_frame" default="" doc="Base link frame. If empty, uses config file default" />
+  <arg name="world_frame" default="" doc="World frame. If empty, uses config file default" />
+  
+  <!-- Topic and Frame Configuration -->
+  <arg name="point_cloud_topic" default="" doc="Point cloud topic. If empty, uses config file default" />
+  <arg name="camera_frame" default="" doc="Camera frame. If empty, uses config file default" />
   
   <!-- Load parameters based on performance mode -->
   <group if="$(eval arg('performance_mode') == 'debug')">
@@ -32,23 +28,19 @@
   <group if="$(eval arg('performance_mode') == 'production')">
     <rosparam command="load" file="$(find zed_obstacle_detector)/config/params.yaml" />
   </group>
-  
+
   <group if="$(eval arg('performance_mode') == 'high_performance')">
     <rosparam command="load" file="$(find zed_obstacle_detector)/config/high_performance_params.yaml" />
   </group>
   
   <node name="zed_obstacle_detector" pkg="zed_obstacle_detector" type="zed_obstacle_detector_node" output="screen">
     
-    <!-- Input/Output Topics -->
-    <param name="point_cloud_topic" value="$(arg point_cloud_topic)" />
-    
-    <!-- Frame Configuration -->
-    <param name="base_link_frame" value="$(arg base_link_frame)" />
-    <param name="world_frame" value="$(arg world_frame)" />
-    <param name="camera_frame" value="$(arg camera_frame)" />
-    
-    <!-- Override enable_transformations if specified -->
-    <param name="enable_transformations" value="$(arg enable_transformations)" unless="$(eval arg('enable_transformations') == '')" />
+    <!-- Only override YAML values if arguments are provided -->
+    <param name="point_cloud_topic" value="$(arg point_cloud_topic)" if="$(eval arg('point_cloud_topic') != '')" />
+    <param name="camera_frame" value="$(arg camera_frame)" if="$(eval arg('camera_frame') != '')" />
+    <param name="base_link_frame" value="$(arg base_link_frame)" if="$(eval arg('base_link_frame') != '')" />
+    <param name="world_frame" value="$(arg world_frame)" if="$(eval arg('world_frame') != '')" />
+    <param name="enable_transformations" value="$(arg enable_transformations)" if="$(eval arg('enable_transformations') != '')" />
     
   </node>
   

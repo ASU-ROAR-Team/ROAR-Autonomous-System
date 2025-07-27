@@ -63,7 +63,7 @@ private:
                              std::shared_ptr<PerformanceMonitor> monitor = nullptr);
 
     // Single-pass geometry computation (optimized)
-    std::pair<geometry_msgs::Point, float> computeCentroidAndRadius(
+    std::pair<geometry_msgs::Point, float> computeCentroidRadius(
         const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points,
         std::shared_ptr<PerformanceMonitor> monitor = nullptr) const;
 
