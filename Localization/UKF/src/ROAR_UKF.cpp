@@ -365,9 +365,6 @@ Eigen::VectorXd UKF::process_model(Eigen::VectorXd x, Eigen::VectorXd w, double 
     tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
 
-    // Update position based on linear and angular velocities
-    // cout << "yaw: " << yaw << endl;
-
     // Update x and y positions
     double linear_velocity = round(rover.rover_speeds(0)*100)/100;
     double angular_velocity = round(rover.rover_speeds(1)*100)/100;
@@ -381,129 +378,7 @@ Eigen::VectorXd UKF::process_model(Eigen::VectorXd x, Eigen::VectorXd w, double 
     x_pred_sigma(8) = x(8) + dy;
     return x_pred_sigma;
 }
-void UKF::predict_measurement(double dt, Eigen::VectorXd w, double lon0, double lat0, double X0, double Y0, double Z0)
-{
-    /***
-    Update step of UKF with Quaternion + Angular Velocity model i.e state space is:
 
-    x = [q0 q1 q2 q3 omega_x omega_y omega_z].T
-    z = [z_gyro z_acc z_mag].T
-
-    Inputs:
-    z_measurement: Sensor measurements from gyroscope, accelerometer and magnetometer
-    ***/
-   
-    // Pass the transformed sigmas into measurement function
-    for (int i = 0; i < sigma_points.num_sigma_points; i++)
-    {
-        // Update sigmas with measurement model
-        Z_sigma.col(i) = UKF::measurment_model(X_sigma.col(i) , w, lon0, lat0, X0, Y0, Z0, dt);
-    }
-
-    std::tie(z_prior, S) = unscented_transform(Z_sigma,
-        sigma_points.Wm,
-        sigma_points.Wc,
-        R);
-}
-// Measurement Model
-Eigen::VectorXd UKF::measurment_model(Eigen::VectorXd x, Eigen::VectorXd w, double lon0, double lat0, double X0, double Y0, double Z0, double dt)
-{
-    /***
-    Nonlinear measurement model for Orientation estimation with Quaternions
-
-    Inputs:
-    x: current sigma point of state estimate x = [q0 q1 q2 q3 omega_x omega_y omega_z].T
-
-    Outputs:
-    z_pred_sigma: sigma point after being propagated through nonlinear measurement model
-    ***/
-    // --- Measurement model ---
-    // Extract quaternion from current state estimates 
-    UnitQuaternion attitude(x(0),
-        x(1),
-        x(2),
-        x(3));
-
-    // Inverse: {B} to {0}
-    UnitQuaternion invq = attitude.inverse();
-
-    // Accelerometer
-    Eigen::VectorXd acc_pred = invq.vector_rotation_by_quaternion(g0);
-
-    // Magnetomer
-    Eigen::VectorXd mag_pred = invq.vector_rotation_by_quaternion(m0);
-
-    // Gyroscope
-    Eigen::VectorXd gyro_pred(3);
-    gyro_pred << x(4), x(5), x(6);
-
-    // float yaw = atan2(2 * (x(0) * x(3) + x(1) * x(2)), 1 - 2 * (x(2) * x(2) + x(3) * x(3)));
-    // yaw += round(rover.rover_speeds(1) * dt*100)/100; // Update orientation
-
-
-    ROVER rover;
-    rover.calculate_wheel_change(w, dt);
-    
-    // Update position based on linear and angular velocities
-    yaw += rover.rover_speeds(1) * dt; // Update orientation
-
-    // Update x and y positions
-    double linear_velocity = rover.rover_speeds(0);
-    double angular_velocity = rover.rover_speeds(1);
-
-    // Calculate change in x and y positions
-    double dx = linear_velocity * cos(yaw) * dt;
-    double dy = linear_velocity * sin(yaw) * dt;
-    double lat = lat0 + (180 / PI) * (dy / 6378137);
-    double lon = lon0 + (180 / PI) * (dx / 6378137) / cos(lat0);
-
-    // Calculate change in x and y positions for LL
-    double dxLandmark = X0 - x(7);
-    double dyLandmark = Y0 - x(8);
-    double X = X0 + dxLandmark;
-    double Y = Y0 + dyLandmark;
-    double Z = Z0;
-
-    // Z prediction
-    Eigen::VectorXd z_pred_sigma(14);
-    z_pred_sigma << gyro_pred, acc_pred, mag_pred, lat, lon, X, Y, Z;
-
-    return z_pred_sigma;
-
-}
-void UKF::update(Eigen::MatrixXd z_measurement)
-{
-	/***
-    	Update step of UKF with Quaternion + Angular Velocity model i.e state space is:
-        
-        	x = [q0 q1 q2 q3 omega_x omega_y omega_z].T
-            	z = [z_gyro z_acc z_mag].T
-                
-                	Inputs:
-                    	z_measurement: Sensor measurements from gyroscope, accelerometer and magnetometer
-                        	***/
-
-	// Compute cross covariance
-	Eigen::MatrixXd T = Eigen::MatrixXd::Zero(x_dim, z_dim);
-    for (int i = 0; i < sigma_points.num_sigma_points; i++)
-    {
-		T = T + sigma_points.Wc(i) * (X_sigma.col(i) - x_hat) * (Z_sigma.col(i) - z_prior).transpose();
-	}
-
-	// Compute Kalman gain
-	Eigen::MatrixXd K = T * S.inverse();
-
-	// Update state estimate
-	x_hat = x_hat + K * (z_measurement - z_prior);
-
-	// Update covariance
-	P = P - K * S * K.transpose();
-
-	// Save posterior
-	x_post = x_hat.replicate(1, 1);
-	P_post = P.replicate(1, 1); 
-
-}
 void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch)
 {
     /***
@@ -554,7 +429,8 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitc
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
 }
-void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double yaw, double pitch)
+
+void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double roll, double yaw, double pitch)
 {
         /***
     Predict with wheel odometry process model
@@ -572,12 +448,10 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
 
     ROVER rover;    
-    //std::cout<<"wheel is :    "<<std::endl<< w<<std::endl<<"dt  "<<dt<<std::endl;
     rover.calculate_wheel_change(w, dt);
     //position
     // Update x and y positions
     double linear_velocity = rover.rover_speeds(0);
-    //std::cout<<"Linear v is:   "<<linear_velocity<<std::endl;
 
     // Pass sigmas into f(x) for wheel odometry
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
@@ -607,31 +481,9 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
         X_sigma.col(i)(2) = attitude.v_2;
         X_sigma.col(i)(3) = attitude.v_3;
 
-        // //position
-        // UnitQuaternion invq = attitude.inverse();
-
-        // Eigen::Vector3d acc_body = invq.vector_rotation_by_quaternion(g0);
-        // Eigen::Vector3d mag_body = invq.vector_rotation_by_quaternion(m0);
-
-        // acc_body.normalize();
-        // mag_body.normalize();
-
-        // double pitch = asin(-acc_body(0));
-        // double roll  = atan2(acc_body(1), acc_body(2));
-
-        // double mag_x = mag_body(0)*cos(pitch) + 
-        //                mag_body(1)*sin(roll)*sin(pitch) + 
-        //                mag_body(2)*cos(roll)*sin(pitch);
-
-        // double mag_y = mag_body(1)*cos(roll) - 
-        //                mag_body(2)*sin(roll);
-
-        // double yaw = atan2(-mag_y, mag_x);
-
         // Calculate change in x and y positions
         double dx = - linear_velocity * sin(yaw) * cos(pitch) * dt;
         double dy = - linear_velocity * cos(yaw) * cos(pitch) * dt;
-        
         // Update x and y positions
         X_sigma.col(i)(7) = sigmas.col(i)(7) + dx;
         X_sigma.col(i)(8) = sigmas.col(i)(8) + dy;
@@ -665,7 +517,6 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
         gyro_pred << X_sigma.col(i)(4), X_sigma.col(i)(5), X_sigma.col(i)(6);
         Eigen::VectorXd acc_pred = invq_pred.vector_rotation_by_quaternion(g0);
         Eigen::VectorXd mag_pred = invq_pred.vector_rotation_by_quaternion(m0);
-
         Z_sigma.col(i) << gyro_pred, acc_pred, mag_pred, 
                          Z_sigma(9,i), Z_sigma(10,i), Z_sigma(11,i), Z_sigma(12,i), Z_sigma(13,i);
     }
@@ -741,35 +592,18 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     x_hat.head<4>() = uq_hat.to_quaternion_vector();
 
     // Save posterior
-    x_post = x_hat;
-    P_post = P;
+    //x_post = x_hat;
+    //P_post = P;
 
-    /*
-    std::cout<<"Quat"<<std::endl;
-    std::cout<<x_post(0)<<std::endl;
-    std::cout<<x_post(1)<<std::endl;
-    std::cout<<x_post(2)<<std::endl;
-    std::cout<<x_post(3)<<std::endl;
-    std::cout<<"Angular velocity"<<std::endl;
-    std::cout<<x_post(4)<<std::endl;
-    std::cout<<x_post(5)<<std::endl;
-    std::cout<<x_post(6)<<std::endl;
-    std::cout<<"position X,Y"<<std::endl;
-    std::cout<<x_post(7)<<std::endl;
-    std::cout<<x_post(8)<<std::endl;
-    */
-    
+    Quaternion q(roll, pitch, yaw);
+    x_post(0) = q.s;
+    x_post(1) = q.v_1;
+    x_post(2) = q.v_2;
+    x_post(3) = q.v_3;
 
     x_prior = x_post;
     P_prior = P_post;
-                
-    double roll, pitch2, yaw2;
-    tf2::Quaternion quat_out(x_post(1), x_post(2), x_post(3), x_post(0));
-    tf2::Matrix3x3(quat_out).getRPY(roll, pitch2, yaw2);
-    //std::cout<<"YAW IS:   "<< yaw2<<endl
-    //         <<" Cos(Yaw) IS:    "<<cos(yaw2)<<endl
-    //         <<" Sin(Yaw) IS:     "<<sin(yaw2)
-    //         <<std::endl<<endl;
+    
 }
 
 void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
@@ -816,11 +650,6 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
         sigma_points.Wm,
         sigma_points.Wc,
         Q);
-    
-    //P_post.col(7) = P.col(7);
-    //P_post.col(8) = P.col(8);
-    //P_post.row(7) = P.row(7);
-    //P_post.row(8) = P.row(8);
 
     // GPS measurement
     Eigen::Vector2d z_gps(result[0], result[1]);
@@ -880,7 +709,6 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
 
 }
-
 
 void UKF::bno_callback(double roll, double pitch ,double yaw)
 {

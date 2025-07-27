@@ -140,16 +140,9 @@ public:
 	void predict_states(Eigen::VectorXd w, double dt);
 	Eigen::VectorXd process_model(Eigen::VectorXd x, Eigen::VectorXd w, double dt);
 
-	/** measurnment prediction*/
-	void predict_measurement(double dt, Eigen::VectorXd w, double lon0, double lat0, double X0, double Y0, double Z0);
-	Eigen::VectorXd measurment_model(Eigen::VectorXd x, Eigen::VectorXd w, double lon0, double lat0, double X0, double Y0, double Z0, double dt);
-
-	/*** update step***/
-	void update(Eigen::MatrixXd z_measurement);
-
 	/*** Sensors Callbacks ***/
 	void encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch);
-	void imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double yaw, double pitch);
+	void imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double roll, double yaw, double pitch);
 	void gps_callback(Eigen::VectorXd z_measurement, double lon0, double lat0);
 	void bno_callback(double roll, double pitch, double yaw);
 	void LL_Callback( Eigen::VectorXd z_measurement);

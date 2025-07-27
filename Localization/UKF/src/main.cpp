@@ -46,6 +46,8 @@ XmlRpc::XmlRpcValue landmarks;
 MerwedSigmaPoints sigma_points(n_state_dim, alpha, beta_, kappa); // Initialize sigma points
 UKF ukf(sigma_points); // Initialize UKF
 
+nav_msgs::Odometry state_msg;
+
 // Define ROS subscribers
 ros::Subscriber encoder_sub; // Encoder subscriber
 ros::Subscriber imu_sub; // IMU subscriber
@@ -53,9 +55,47 @@ ros::Subscriber gps_sub; // GPS subscriber
 ros::Subscriber trueLandmarkSub; // Landmarks true position subscriber
 ros::Subscriber landmarkSub; // Landmark subscriber
 ros::Subscriber mag_sub; // Magnetometer subscriber
-
 // Define ROS publisher
 ros::Publisher state_publisher; // State publisher
+
+
+void publishState(bool showInPlotter = false)
+{
+    // Initialize state message
+    state_msg.header.stamp = ros::Time::now();
+    state_msg.header.frame_id = "world";
+    state_msg.child_frame_id = "base_link";
+    // Publish the state message
+    state_msg.pose.pose.orientation.w = ukf.x_post[0];
+    state_msg.pose.pose.orientation.x = ukf.x_post[1];
+    state_msg.pose.pose.orientation.y = ukf.x_post[2];
+    state_msg.pose.pose.orientation.z = ukf.x_post[3];
+    state_msg.twist.twist.angular.x = ukf.x_post[4];
+    state_msg.twist.twist.angular.y = ukf.x_post[5];
+    state_msg.twist.twist.angular.z = ukf.x_post[6];
+    state_msg.pose.pose.position.x = ukf.x_post[7];
+    state_msg.pose.pose.position.y = ukf.x_post[8];
+
+    // Publish covariance
+    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
+    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
+    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
+    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
+    state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
+    state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
+    state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
+    state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
+    /***
+    Publish the state message to the /filtered_state topic
+    ***/
+    if (showInPlotter) {
+        state_msg.pose.covariance[35] = 1;
+    } else {
+        state_msg.pose.covariance[35] = 0;
+    }
+    // Publish the message
+    state_publisher.publish(state_msg);
+}
 
 //Pose callback function
 void poseCallback(){
@@ -80,8 +120,6 @@ void poseCallback(){
 // Callback function for encoder data
 void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
 {
-    //std::cout << "encoooder" << endl;
-    nav_msgs::Odometry state_msg;
     double reading_left = msg->position[1];
     double reading_right = msg->position[4];
     
@@ -111,27 +149,10 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         encoder_prev_measurement[0] = reading_left;
         encoder_prev_measurement[1] = reading_right;
         
-        // Publish state message
-        state_msg.pose.pose.orientation.w = ukf.x_post[0];
-        state_msg.pose.pose.orientation.x = ukf.x_post[1];
-        state_msg.pose.pose.orientation.y = ukf.x_post[2];
-        state_msg.pose.pose.orientation.z = ukf.x_post[3];
-        state_msg.twist.twist.angular.x = ukf.x_post[4];
-        state_msg.twist.twist.angular.y = ukf.x_post[5];
-        state_msg.twist.twist.angular.z = ukf.x_post[6];
-        state_msg.pose.pose.position.x = ukf.x_post[7];
-        state_msg.pose.pose.position.y = ukf.x_post[8];
+        publishState(); // Publish the state message
 
-        state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
-        state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
-        state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
-        state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
-        state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
-        state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
-        state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
-        state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
-        
-        state_publisher.publish(state_msg);
+        std::cout << "Encoder Updated" << std::endl;
+        std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
     }
     
     
@@ -140,8 +161,6 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
 // Callback function for GPS data
 void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 {
-    nav_msgs::Odometry state_msg;
-
     if (initial_measurement == true)
     {
         lat0 = msg->latitude; // Initialize lat0
@@ -156,37 +175,15 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     // Call UKF GPS callback function
     ukf.gps_callback(z_measurement, lon0, lat0);
 
-    // Publish state message
-    state_msg.pose.pose.orientation.w = ukf.x_post[0];
-    state_msg.pose.pose.orientation.x = ukf.x_post[1];
-    state_msg.pose.pose.orientation.y = ukf.x_post[2];
-    state_msg.pose.pose.orientation.z = ukf.x_post[3];
-    state_msg.twist.twist.angular.x = ukf.x_post[4];
-    state_msg.twist.twist.angular.y = ukf.x_post[5];
-    state_msg.twist.twist.angular.z = ukf.x_post[6];
-    
-    state_msg.pose.pose.position.x = ukf.x_post[7];
-    state_msg.pose.pose.position.y = ukf.x_post[8];
+    publishState(true); // Publish the state message
 
-    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
-    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
-    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
-    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
-    state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
-    state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
-    state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
-    state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
-
-    state_msg.pose.covariance[35] = 1; //Used to update the plotter only
-
-    state_publisher.publish(state_msg);
+    std::cout << "GPS Updated" << std::endl;
+    std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
 }
 
 // Callback function for IMU data
 void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
-    // yaw = msg->orientation.z;
-    // yaw = yaw * PI / 180.0;
     if (prev_time_stamp.isZero()) 
     {
         prev_time_stamp = msg->header.stamp; // Initialize prev_time_stamp
@@ -196,7 +193,6 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     // Calculate time difference
     ros::Time current_time_stamp = msg->header.stamp;
     dt_imu = (current_time_stamp - prev_time_stamp).toSec();
-    nav_msgs::Odometry state_msg;
 
     tf2::Quaternion quat (msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
     tf2::Matrix3x3 m(quat);
@@ -209,65 +205,30 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     z_measurement[4] = msg->linear_acceleration.y;
     z_measurement[5] = msg->linear_acceleration.z;
 
-    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu, yaw, pitch); //////////need to be fixed
+    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu, roll, yaw, pitch);
     prev_time_stamp = current_time_stamp;
 
-    // Publish state message
-    state_msg.pose.pose.orientation.w = ukf.x_post[0];
-    state_msg.pose.pose.orientation.x = ukf.x_post[1];
-    state_msg.pose.pose.orientation.y = ukf.x_post[2];
-    state_msg.pose.pose.orientation.z = ukf.x_post[3];
-    state_msg.twist.twist.angular.x = ukf.x_post[4];
-    state_msg.twist.twist.angular.y = ukf.x_post[5];
-    state_msg.twist.twist.angular.z = ukf.x_post[6];
-    state_msg.pose.pose.position.x = ukf.x_post[7];
-    state_msg.pose.pose.position.y = ukf.x_post[8];
+    publishState(); // Publish the state message
+    poseCallback(); // Call pose callback to publish the transform
 
-    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
-    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
-    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
-    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
-
-    state_publisher.publish(state_msg);
+    std::cout << "IMU Updated" << std::endl;
+    std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
 }
 
 void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
-    nav_msgs::Odometry state_msg;
-
     tf2::Quaternion quat (msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
     tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
 
-    // (yaw = msg->orientation.z;)
-    // yaw = yaw * PI / 180.0;
-    // pitch = msg->orientation.y; //????????????
-    // pitch = pitch * PI / 180.0;  //???????????
     ukf.bno_callback(roll, pitch, yaw);
 
-    // Publish state message
-    state_msg.pose.pose.orientation.w = ukf.x_post[0];
-    state_msg.pose.pose.orientation.x = ukf.x_post[1];
-    state_msg.pose.pose.orientation.y = ukf.x_post[2];
-    state_msg.pose.pose.orientation.z = ukf.x_post[3];
-    state_msg.twist.twist.angular.x = ukf.x_post[4];
-    state_msg.twist.twist.angular.y = ukf.x_post[5];
-    state_msg.twist.twist.angular.z = ukf.x_post[6];
-    state_msg.pose.pose.position.x = ukf.x_post[7];
-    state_msg.pose.pose.position.y = ukf.x_post[8];
-
-    state_msg.pose.covariance[2] = ukf.P_post.col(0)(0);
-    state_msg.pose.covariance[3] = ukf.P_post.col(1)(1);
-    state_msg.pose.covariance[4] = ukf.P_post.col(2)(2);
-    state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
-    state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
-    state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
-    state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
-    state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
-
-    state_publisher.publish(state_msg);
+    publishState(); // Publish the state message
 
     poseCallback(); // Call pose callback to publish the transform
+
+    std::cout << "BNO Updated" << std::endl;
+    std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
 }
 
 Eigen::Vector3d roverToWorld(const Eigen::Vector3d& rel_pos_rover, const tf2::Quaternion& rover_quat) {
@@ -308,13 +269,8 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         // Transform to world frame
         Eigen::Vector3d rel_pos_world = roverToWorld(rel_pos_rover, rover_quat);
 
-        rel_x = rel_pos_world.x();
-        rel_y = rel_pos_world.y() ; // Adjusting y position to match the gps postion 
-
-        std::cout << "Relative position in world frame: " 
-                  << rel_pos_world.x() << ", " 
-                  << rel_pos_world.y() << ", " 
-                  << rel_pos_world.z() << std::endl;
+        rel_x = rel_pos_world.x() + 0.0; // Adjusting y position to match the gps postion
+        rel_y = rel_pos_world.y() + 0.0; // Adjusting y position to match the gps postion 
 
         double rov_x = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["x"]);
         double rov_y = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["y"]);
@@ -369,54 +325,26 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         double rovCurrentX = ukf.x_post[7];
         double rovCurrentY = ukf.x_post[8];
 
-        //std::cout << "x_post[7]: " << rovCurrentX << " | x_post[8]: " << rovCurrentY << std::endl; 
-        //std::cout << "rel_x: " << rel_x << " | rel_y: " << rel_y << std::endl; 
-
         for (int i = 0; i < 32; i++){
             //calc dist
             dist = sqrt(pow((rel_pos_all[i][0] - rovCurrentX) ,2) + pow((rel_pos_all[i][1] - rovCurrentY) ,2));
 
-            if (dist < minDist) // Check if the distance is less than 0.5
+            if (dist < minDist)
             {
                 minDist = dist;
                 nearestPos = rel_pos_all[i];
             }
-            //std::cout << "case[" << i << "] X: " << rel_pos_all[i][0] << " | Y: " << rel_pos_all[i][1] << " | Dist: " << dist << " | minDist: " << minDist << std::endl;
         }
         
         z_measurement[11] = nearestPos[0];
         z_measurement[12] = nearestPos[1];
         z_measurement[13] = 0;
 
-        //if (dist < 0.5){
         ukf.LL_Callback(z_measurement);
-        std::cout << "LL-> X: " << z_measurement[11] << " | Y: " << z_measurement[12] << " | minDist: " << minDist << std::endl;
-        //std::cout << "[*] Landmark Updated !" << std::endl;
-        //std::cout << ukf.P_post.col(7)(7) << std::endl;
-        //std::cout << "****************************" << std::endl;
-        //}
-        
 
-        nav_msgs::Odometry state_msg;
-
-        state_msg.pose.pose.orientation.x = ukf.x_post[0];
-        state_msg.pose.pose.orientation.y = ukf.x_post[1];
-        state_msg.pose.pose.orientation.z = ukf.x_post[2];
-        state_msg.pose.pose.orientation.w = ukf.x_post[3];
-        state_msg.twist.twist.angular.x = ukf.x_post[4];
-        state_msg.twist.twist.angular.y = ukf.x_post[5];
-        state_msg.twist.twist.angular.z = ukf.x_post[6];
-        state_msg.pose.pose.position.x = ukf.x_post[7];
-        state_msg.pose.pose.position.y = ukf.x_post[8];
-
-        state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
-        state_msg.pose.covariance[1] = ukf.P_post.col(8)(7);
-        state_msg.pose.covariance[6] = ukf.P_post.col(7)(8);
-        state_msg.pose.covariance[7] = ukf.P_post.col(8)(8);
-
-        state_msg.pose.covariance[35] = 1; //Used to update the plotter only
-
-        state_publisher.publish(state_msg);
+        poseCallback();
+        std::cout << "Landmark Updated" << std::endl;
+        std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
     }
 
 }

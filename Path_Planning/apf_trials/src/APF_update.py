@@ -12,6 +12,7 @@ from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from sympy import symbols, sqrt, cos, sin, atan2, Expr, Piecewise # <<< IMPORT Piecewise
 import matplotlib.pyplot as plt # type: ignore
 from roar_msgs.msg import ObstacleArray
+from nav_msgs.msg import Odometry
 from gazebo_msgs.msg import ModelStates
 import pandas as pd # type: ignore
 import numpy as np # type: ignore
@@ -35,7 +36,7 @@ class APFPlanner:
         # ROS components
         self.rosComponents: Dict[str, Any] = {
             "pathPub": rospy.Publisher("/Path", Path, queue_size=10),
-            "modelSub": rospy.Subscriber("/gazebo/model_states", ModelStates, self.modelCallback),
+            "modelSub": rospy.Subscriber("/filtered_state", Odometry, self.modelCallback),
             "obstacleArraySub": rospy.Subscriber(
                 rospy.get_param("~obstacleArrayTopic", "/zed_obstacle/obstacle_array"),
                 ObstacleArray,
@@ -49,10 +50,10 @@ class APFPlanner:
         self.config: Dict[str, Any] = {
             "checkpoints": [(7.58, 10.874), (0.211, 9.454), (0.83, 19.867), (6.71, 19.515)],
             "goalPoints": self.loadWaypoints(
-                rospy.get_param("~pathFile", "~/Results/real_path.csv") # Use absolute path or find_package
+                rospy.get_param("~pathFile", "~/ttt/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/real_path.csv") # Use absolute path or find_package
             ),
             "costmap": pd.read_csv(
-                rospy.get_param("~costmapFile", "~/Results/total_cost.csv"), header=None # Use absolute path or find_package
+                rospy.get_param("~costmapFile", "~/ttt/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/total_cost.csv"), header=None # Use absolute path or find_package
             ).values,
             "apfParams": [
                 rospy.get_param("~KATT", 8.0),
@@ -163,24 +164,20 @@ class APFPlanner:
     def modelCallback(self, msg: ModelStates) -> None:
         """Handle robot state updates from Gazebo ModelStates"""
         try:
-            robot_model_name = "roar" # Or get from param
-            if robot_model_name in msg.name:
-                idx = msg.name.index(robot_model_name)
-                pose = msg.pose[idx]
-                self.robotState["position"] = [
-                    pose.position.x,
-                    pose.position.y,
-                    pose.position.z,
-                    *euler_from_quaternion([
-                        pose.orientation.x,
-                        pose.orientation.y,
-                        pose.orientation.z,
-                        pose.orientation.w
-                    ]),
-                ]
-                if not self.robotState["isActive"]:
-                    rospy.loginfo(f"Robot pose received: x={pose.position.x:.2f}, y={pose.position.y:.2f}")
-                self.robotState["isActive"] = True
+            self.robotState["position"] = [
+                msg.pose.pose.position.x,
+                msg.pose.pose.position.y,
+                msg.pose.pose.position.z,
+                *euler_from_quaternion([
+                    msg.pose.pose.orientation.x,
+                    msg.pose.pose.orientation.y,
+                    msg.pose.pose.orientation.z,
+                    msg.pose.pose.orientation.w
+                ]),
+            ]
+            if not self.robotState["isActive"]:
+                rospy.loginfo(f"Robot pose received: x={msg.pose.pose.position.x:.2f}, y={msg.pose.pose.position.y:.2f}")
+            self.robotState["isActive"] = True
             # else: # This can be noisy if other models are present
                 # rospy.logwarn_throttle(10.0, f"Robot model '{robot_model_name}' not found in ModelStates.")
         except ValueError:
