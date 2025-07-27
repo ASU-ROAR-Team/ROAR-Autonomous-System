@@ -6,7 +6,7 @@ publishing_topics:
   left_mid_wheel: "/wheel_lhs_mid_velocity_controller/command"
   right_mid_wheel: "/wheel_rhs_mid_velocity_controller/command"
 subscribing_topics:
-  pose: "/gazebo/model_states"
+  pose: "/filtered_state"
   path: "/Path"
 meta_parameters:
   log: True

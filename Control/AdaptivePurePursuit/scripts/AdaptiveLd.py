@@ -11,6 +11,7 @@ import math
 import rospy
 from std_msgs.msg import Float64
 from nav_msgs.msg import Path
+from nav_msgs.msg import Odometry
 from gazebo_msgs.msg import ModelStates
 from tf.transformations import euler_from_quaternion
 import numpy as np
@@ -48,7 +49,7 @@ class Control:
         # Publishers
         self.subscribers = {
             "Pose": rospy.Subscriber(
-                rospy.get_param("subscribing_topics/pose"), ModelStates, self.updatePose
+                rospy.get_param("subscribing_topics/pose"), Odometry, self.updatePose
             ),
             "Path": rospy.Subscriber(
                 rospy.get_param("subscribing_topics/path"), Path, self.pathCallback
@@ -121,7 +122,7 @@ class Control:
         if self.visualize:
             self.updateWaypointsPlot()
 
-    def updatePose(self, msg: ModelStates):
+    def updatePose(self, msg: Odometry):
         """
         This is the callback function for the rover's position
 
@@ -134,11 +135,10 @@ class Control:
         None
         ----
         """
-        pose = msg
 
-        self.currentPosition[0] = pose.pose[2].position.x
-        self.currentPosition[1] = pose.pose[2].position.y
-        orientation = pose.pose[2].orientation
+        self.currentPosition[0] = msg.pose.pose.position.x
+        self.currentPosition[1] = msg.pose.pose.position.y
+        orientation = msg.pose.pose.orientation
         orientationList = [orientation.x, orientation.y, orientation.z, orientation.w]
         _, _, yaw = euler_from_quaternion(orientationList)
         self.currentPosition[2] = yaw

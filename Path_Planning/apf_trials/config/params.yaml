@@ -14,6 +14,10 @@ APF_update:
   LOOKAHEADDIST: 1.2      # Lookahead distance (meters)
   CHECKPOINTDIST: 1.2    # Checkpoint triggering distance (meters)
 
+  # Path file parameters
+  pathFile: "~/roar/roar_ws/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
+  costmapFile: "~/roar/roar_ws/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
+
 
   # Time parameters
   TAU: 0.1               # Time step for simulation (seconds)

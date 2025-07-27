@@ -74,7 +74,7 @@ void publishState(bool showInPlotter = false)
     state_msg.twist.twist.angular.y = ukf.x_post[5];
     state_msg.twist.twist.angular.z = ukf.x_post[6];
     state_msg.pose.pose.position.x = ukf.x_post[7];
-    state_msg.pose.pose.position.y = ukf.x_post[8];
+    state_msg.pose.pose.position.y = -ukf.x_post[8];
 
     // Publish covariance
     state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
