@@ -269,8 +269,8 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         // Transform to world frame
         Eigen::Vector3d rel_pos_world = roverToWorld(rel_pos_rover, rover_quat);
 
-        rel_x = rel_pos_world.x() + 0.0; // Adjusting y position to match the gps postion
-        rel_y = rel_pos_world.y() + 0.0; // Adjusting y position to match the gps postion 
+        rel_x = rel_pos_world.x() + 0.0; // Adjusting y position to match the gps postion "diff between camera and gps"
+        rel_y = rel_pos_world.y() + 0.0; // Adjusting y position to match the gps postion "diff between camera and gps"
 
         double rov_x = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["x"]);
         double rov_y = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["y"]);
