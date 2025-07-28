@@ -4,6 +4,7 @@
 #include <limits>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
+#include <XmlRpcValue.h>
 
 using namespace std;
 ROVER::ROVER()
@@ -197,9 +198,11 @@ UKF::UKF(MerwedSigmaPoints merwed_sigma_points)
     body frame. z_gps is the measurement from the GPS (latitude, longitude).
     ***/
     // Initialize x state vector
+
     x_dim = 9;
     x_hat = Eigen::VectorXd::Zero(x_dim);
-    x_hat << 1, 0, 0, 0, 0, 0, 0, 0, 0;   // Initial Quaterion: 1+0i+0j+0k and initial ang vel: [0 0 0].T
+    XmlRpc::XmlRpcValue initPose;
+    x_hat << initPose["orientation"]["w"], initPose["orientation"]["x"], initPose["orientation"]["y"], initPose["orientation"]["z"], 0, 0, 0, initPose["position"]["x"], initPose["position"]["y"];   // Initial Quaterion: 1+0i+0j+0k and initial ang vel: [0 0 0].T
 
     // Initialize z state vector
     z_dim = 14; //////////////////////////////////Hassan 11 -> 14
@@ -621,7 +624,7 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
 
     std::array<double, 2> WGS84Reference{lon0, lat0};
     std::array<double, 2> result{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
-    result[1] = result[1] *2/3;
+    result[1] = result[1] *2/3; //the 2/3 is for mapping the readings with gazebo world
     z_measurement[11] = result[0];
     z_measurement[12] = result[1];
 

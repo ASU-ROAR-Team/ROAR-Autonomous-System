@@ -50,10 +50,10 @@ class APFPlanner:
         self.config: Dict[str, Any] = {
             "checkpoints": [(7.58, 10.874), (0.211, 9.454), (0.83, 19.867), (6.71, 19.515)],
             "goalPoints": self.loadWaypoints(
-                rospy.get_param("~pathFile", "~/roar/roar_ws/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/real_path.csv") # Use absolute path or find_package
+                rospy.get_param("~pathFile", "~/ttt/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/real_path.csv") # Use absolute path or find_package
             ),
             "costmap": pd.read_csv(
-                rospy.get_param("~costmapFile", "~/roar/roar_ws/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/total_cost.csv"), header=None # Use absolute path or find_package
+                rospy.get_param("~costmapFile", "~/ttt/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/total_cost.csv"), header=None # Use absolute path or find_package
             ).values,
             "apfParams": {
                 "KATT": rospy.get_param("~KATT", 8.0),
@@ -431,6 +431,8 @@ class APFPlanner:
             if self.config["goalPoints"] and len(self.config["goalPoints"]) > 1 and len(self.config["goalPoints"][0]) == 2 :
                 axes.plot(*zip(*self.config["goalPoints"]), "y-", linewidth=1, label="Global Path")
 
+            rospy.logdebug(f"Robot position: {self.robotState['position'][:2]}")
+            # Plot robot position
             axes.plot(
                 self.robotState["position"][0],
                 self.robotState["position"][1],

@@ -12,6 +12,7 @@
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <Eigen/Geometry>
+#include <XmlRpcValue.h>
 
 #define PI 3.14159265358979323846
 
@@ -117,6 +118,8 @@ public:
 
 	double yaw;
 	double pitch;
+
+	XmlRpc::XmlRpcValue initPose;
 
 	UnitQuaternion uq_omega;
 

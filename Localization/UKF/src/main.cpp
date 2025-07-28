@@ -16,6 +16,7 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <XmlRpcValue.h>
+#include "WGS84toCartesian.hpp"
 
 using namespace std;
 
@@ -40,7 +41,11 @@ double lon0 = 0.0; // Initial longitude
 double yaw = 0.0;
 double pitch = 0.0; 
 double roll = 0.0;
+std::array<double, 2> WGS84Reference;
 XmlRpc::XmlRpcValue landmarks;
+XmlRpc::XmlRpcValue iPose;
+Eigen::Vector3d initialPosition;
+tf2::Quaternion initialOrientation;
 
 // Initialize Sigma Points and UKF
 MerwedSigmaPoints sigma_points(n_state_dim, alpha, beta_, kappa); // Initialize sigma points
@@ -58,6 +63,16 @@ ros::Subscriber mag_sub; // Magnetometer subscriber
 // Define ROS publisher
 ros::Publisher state_publisher; // State publisher
 
+Eigen::Vector3d rotateXYZbyXYZW(const Eigen::Vector3d& rel_pos_rover, const tf2::Quaternion& rover_quat) {
+    // Convert tf2 quaternion to Eigen quaternion
+    Eigen::Quaterniond q(rover_quat.x(), rover_quat.y(), rover_quat.z(), rover_quat.w());
+    // Get rotation matrix
+    Eigen::Matrix3d R = q.toRotationMatrix();
+
+    //std::cout << "R: \n" << R << std::endl;
+    // Transform the vector
+    return R * rel_pos_rover;
+}
 
 void publishState(bool showInPlotter = false)
 {
@@ -65,6 +80,8 @@ void publishState(bool showInPlotter = false)
     state_msg.header.stamp = ros::Time::now();
     state_msg.header.frame_id = "world";
     state_msg.child_frame_id = "base_link";
+    // Transform to world frame
+    Eigen::Vector3d rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
     // Publish the state message
     state_msg.pose.pose.orientation.w = ukf.x_post[0];
     state_msg.pose.pose.orientation.x = ukf.x_post[1];
@@ -73,8 +90,10 @@ void publishState(bool showInPlotter = false)
     state_msg.twist.twist.angular.x = ukf.x_post[4];
     state_msg.twist.twist.angular.y = ukf.x_post[5];
     state_msg.twist.twist.angular.z = ukf.x_post[6];
-    state_msg.pose.pose.position.x = ukf.x_post[7];
-    state_msg.pose.pose.position.y = -ukf.x_post[8];
+    state_msg.pose.pose.position.x = rotatedXYZ[0];
+    state_msg.pose.pose.position.y = rotatedXYZ[1];
+
+    std::cout << "State: " << state_msg.pose.pose.position.x << ", " << state_msg.pose.pose.position.y << std::endl;
 
     // Publish covariance
     state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
@@ -151,8 +170,8 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         
         publishState(); // Publish the state message
 
-        std::cout << "Encoder Updated" << std::endl;
-        std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
+        //std::cout << "Encoder Updated" << std::endl;
+        //std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
     }
     
     
@@ -166,11 +185,27 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
         lat0 = msg->latitude; // Initialize lat0
         lon0 = msg->longitude; // Initialize lon0
         initial_measurement = false;
+        WGS84Reference = {lon0, lat0};
     }
 
     // Store GPS measurements
     z_measurement[9] = msg->latitude;
     z_measurement[10] = msg->longitude;
+
+    //std::array<double, 2> gpsXYZ{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
+
+    // Transform to world frame
+    //Eigen::Vector3d rotatedXYZ = rotateXYZbyXYZW({gpsXYZ[0], -gpsXYZ[1], 0}, initialOrientation) + initialPosition;
+
+    //std::cout << "initial Position: " << initialPosition[0] << ", " << initialPosition[1] << ", " << initialPosition[2] << std::endl;
+
+    //std::cout << "GPS XYZ: " << rotatedXYZ[0] << ", " << rotatedXYZ[1] << ", " << rotatedXYZ[2] << std::endl;
+
+    //std::array<double, 2> rotatedLonLat{wgs84::fromCartesian(WGS84Reference, {rotatedXYZ[0], rotatedXYZ[1]})};
+
+    // Store GPS measurements
+    //z_measurement[9] = rotatedLonLat[0];
+    //z_measurement[10] = rotatedLonLat[1];
 
     // Call UKF GPS callback function
     ukf.gps_callback(z_measurement, lon0, lat0);
@@ -203,7 +238,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     z_measurement[2] = msg->angular_velocity.z;
     z_measurement[3] = msg->linear_acceleration.x;
     z_measurement[4] = msg->linear_acceleration.y;
-    z_measurement[5] = msg->linear_acceleration.z;
+    z_measurement[5] = msg->linear_acceleration.z + 9.81;
 
     ukf.imu_callback(encoder_measurement, z_measurement, dt_imu, roll, yaw, pitch);
     prev_time_stamp = current_time_stamp;
@@ -227,19 +262,8 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 
     poseCallback(); // Call pose callback to publish the transform
 
-    std::cout << "BNO Updated" << std::endl;
-    std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
-}
-
-Eigen::Vector3d roverToWorld(const Eigen::Vector3d& rel_pos_rover, const tf2::Quaternion& rover_quat) {
-    // Convert tf2 quaternion to Eigen quaternion
-    Eigen::Quaterniond q(rover_quat.x(), rover_quat.y(), rover_quat.z(), rover_quat.w());
-    // Get rotation matrix
-    Eigen::Matrix3d R = q.toRotationMatrix();
-
-    std::cout << "R: \n" << R << std::endl;
-    // Transform the vector
-    return R * rel_pos_rover;
+    //std::cout << "BNO Updated" << std::endl;
+    //std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
 }
 
 void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
@@ -267,7 +291,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         );
 
         // Transform to world frame
-        Eigen::Vector3d rel_pos_world = roverToWorld(rel_pos_rover, rover_quat);
+        Eigen::Vector3d rel_pos_world = rotateXYZbyXYZW(rel_pos_rover, rover_quat);
 
         rel_x = rel_pos_world.x() + 0.0; // Adjusting y position to match the gps postion "diff between camera and gps"
         rel_y = rel_pos_world.y() + 0.0; // Adjusting y position to match the gps postion "diff between camera and gps"
@@ -357,6 +381,51 @@ void magnetometerCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
 
 }
 
+bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quaternion& orientation) {
+    XmlRpc::XmlRpcValue iPose;
+    if (!nh.getParam("iPose", iPose)) {
+        ROS_ERROR("Failed to get param 'iPose'");
+        return false;
+    }
+
+    // --- Extract position ---
+    if (iPose.getType() != XmlRpc::XmlRpcValue::TypeStruct ||
+        !iPose.hasMember("position") ||
+        iPose["position"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
+        ROS_ERROR("Invalid or missing 'position' in iPose param");
+        return false;
+    }
+
+    try {
+        position.x() = static_cast<double>(iPose["position"]["x"]);
+        position.y() = static_cast<double>(iPose["position"]["y"]);
+        position.z() = static_cast<double>(iPose["position"]["z"]);
+    } catch (...) {
+        ROS_ERROR("Failed to read 'position' values from iPose");
+        return false;
+    }
+
+    // --- Extract orientation ---
+    if (!iPose.hasMember("orientation") ||
+        iPose["orientation"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
+        ROS_ERROR("Invalid or missing 'orientation' in iPose param");
+        return false;
+    }
+
+    try {
+        double w = static_cast<double>(iPose["orientation"]["w"]);
+        double x = static_cast<double>(iPose["orientation"]["x"]);
+        double y = static_cast<double>(iPose["orientation"]["y"]);
+        double z = static_cast<double>(iPose["orientation"]["z"]);
+        orientation = tf2::Quaternion(x, y, z, w);  // tf2 uses (x, y, z, w)
+    } catch (...) {
+        ROS_ERROR("Failed to read 'orientation' values from iPose");
+        return false;
+    }
+
+    return true;
+}
+
 // Main function
 int main(int argc, char **argv) 
 {
@@ -366,12 +435,19 @@ int main(int argc, char **argv)
     // Initialize ROS subscribers
     mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
     gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
-    imu_sub = nh.subscribe("/imu", 1000, imuCallback);
+    imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
 
-    if (!nh.getParam("landmarks", landmarks)) {
-    ROS_ERROR("Could not find 'landmarks' parameter");
+    if (loadInitialPose(nh, initialPosition, initialOrientation)) {
+        ROS_INFO_STREAM("Initial Position: " << initialPosition.transpose());
+        ROS_INFO_STREAM("Initial Orientation (x y z w): "
+                        << initialOrientation.x() << " "
+                        << initialOrientation.y() << " "
+                        << initialOrientation.z() << " "
+                        << initialOrientation.w());
+    } else {
+        ROS_ERROR("Could not load initial pose");
     }
 
     // Initialize ROS publisher

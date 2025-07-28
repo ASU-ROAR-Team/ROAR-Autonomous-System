@@ -15,8 +15,8 @@ APF_update:
   CHECKPOINTDIST: 1.2    # Checkpoint triggering distance (meters)
 
   # Path file parameters
-  pathFile: "~/roar/roar_ws/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
-  costmapFile: "~/roar/roar_ws/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
+  pathFile: "~/ttt/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
+  costmapFile: "~/ttt/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
 
 
   # Time parameters

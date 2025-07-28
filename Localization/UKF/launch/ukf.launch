@@ -1,6 +1,10 @@
 <?xml version="1.0"?>
 <launch>
-    <rosparam file="$(find localization)/config/landmarks.yaml" command="load" />
+    <arg name="landmarks" default="$(find localization)/config/landmarks.yaml" />
+    <arg name="initialPose" default="$(find localization)/config/initialPose.yaml" />
+
+    <rosparam file="$(arg landmarks)" command="load" />
+    <rosparam file="$(arg initialPose)" command="load" />
 
     <node pkg="localization" type="main" name="main" output="screen" />
 </launch>
