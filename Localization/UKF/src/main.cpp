@@ -94,7 +94,7 @@ void publishState(bool showInPlotter = false)
     state_msg.pose.pose.position.x = rotatedXYZ[0];
     state_msg.pose.pose.position.y = rotatedXYZ[1];
 
-    //std::cout << "State: " << state_msg.pose.pose.position.x << ", " << state_msg.pose.pose.position.y << std::endl;
+    std::cout << "State: " << state_msg.pose.pose.position.x << ", " << state_msg.pose.pose.position.y << std::endl;
 
     // Publish covariance
     state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
@@ -170,9 +170,6 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         encoder_prev_measurement[1] = reading_right;
         
         publishState(); // Publish the state message
-
-        std::cout << "Encoder Updated" << std::endl;
-        std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
     }
     
     
@@ -193,28 +190,11 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     z_measurement[9] = msg->latitude;
     z_measurement[10] = msg->longitude;
 
-    //std::array<double, 2> gpsXYZ{wgs84::toCartesian(WGS84Reference, {z_measurement[10], z_measurement[9]})};
-
-    // Transform to world frame
-    //Eigen::Vector3d rotatedXYZ = rotateXYZbyXYZW({gpsXYZ[0], -gpsXYZ[1], 0}, initialOrientation) + initialPosition;
-
-    //std::cout << "initial Position: " << initialPosition[0] << ", " << initialPosition[1] << ", " << initialPosition[2] << std::endl;
-
-    //std::cout << "GPS XYZ: " << rotatedXYZ[0] << ", " << rotatedXYZ[1] << ", " << rotatedXYZ[2] << std::endl;
-
-    //std::array<double, 2> rotatedLonLat{wgs84::fromCartesian(WGS84Reference, {rotatedXYZ[0], rotatedXYZ[1]})};
-
-    // Store GPS measurements
-    //z_measurement[9] = rotatedLonLat[0];
-    //z_measurement[10] = rotatedLonLat[1];
 
     // Call UKF GPS callback function
     ukf.gps_callback(z_measurement, lon0, lat0);
 
     publishState(true); // Publish the state message
-
-    std::cout << "GPS Updated" << std::endl;
-    std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
 }
 
 // Callback function for IMU data
@@ -248,9 +228,6 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 
     publishState(); // Publish the state message
     poseCallback(); // Call pose callback to publish the transform
-
-    std::cout << "IMU Updated" << std::endl;
-    std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
 }
 
 void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
@@ -264,9 +241,6 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
     publishState(); // Publish the state message
 
     poseCallback(); // Call pose callback to publish the transform
-
-    //std::cout << "BNO Updated" << std::endl;
-    //std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
 }
 
 void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
@@ -370,8 +344,6 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         ukf.LL_Callback(z_measurement);
 
         poseCallback();
-        std::cout << "Landmark Updated" << std::endl;
-        std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
     }
 
 }

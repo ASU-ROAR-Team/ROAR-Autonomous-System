@@ -137,12 +137,6 @@ public:
 			Eigen::MatrixXd Wc,
 			Eigen::MatrixXd noise_cov);
 
-
-	/*** Position Prediction ***/
-
-	void predict_states(Eigen::VectorXd w, double dt);
-	Eigen::VectorXd process_model(Eigen::VectorXd x, Eigen::VectorXd w, double dt);
-
 	/*** Sensors Callbacks ***/
 	void encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch);
 	void imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double roll, double yaw, double pitch);

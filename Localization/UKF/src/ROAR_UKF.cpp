@@ -205,7 +205,7 @@ UKF::UKF(MerwedSigmaPoints merwed_sigma_points)
     x_hat << initPose["orientation"]["w"], initPose["orientation"]["x"], initPose["orientation"]["y"], initPose["orientation"]["z"], 0, 0, 0, initPose["position"]["x"], initPose["position"]["y"];   // Initial Quaterion: 1+0i+0j+0k and initial ang vel: [0 0 0].T
 
     // Initialize z state vector
-    z_dim = 14; //////////////////////////////////Hassan 11 -> 14
+    z_dim = 14; 
     z = Eigen::VectorXd::Zero(z_dim); // Initial measurement in frame {B}, [z_gyro, z_acc, z_mag].T
 
     // Intialize Posteriori Estimate Covariance Matrix
@@ -289,98 +289,6 @@ std::tuple<Eigen::VectorXd, Eigen::MatrixXd> UKF::unscented_transform(Eigen::Mat
 
     return std::make_tuple(mu, P_cov);
 }
-void UKF::predict_states(Eigen::VectorXd w, double dt) // what is dt
-{
-    /***
-    Predict with wheel odometry process model
-    u_t: Measured wheels velocity as input
-    ***/
-    // Compute the sigma points for given mean and posteriori covariance
-    Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_hat, P);
-
-    // Pass sigmas into f(x) for wheel odometry
-    for (int i = 0; i < sigma_points.num_sigma_points; i++)
-    {
-        // Predict with wheel odometry process model for sigma points
-        X_sigma.col(i) = process_model(sigmas.col(i), w, dt);
-    }
-
-    // Compute unscented mean and covariance
-    std::tie(x_hat, P) = unscented_transform(X_sigma,
-        sigma_points.Wm,
-        sigma_points.Wc,
-        Q);
-
-    // Save prior
-    x_prior = x_hat.replicate(1, 1);
-    P_prior = P.replicate(1, 1);
-
-}
-// --- Process & Measurement Model with Wheel Odometry ---
-// Process Model
-Eigen::VectorXd UKF::process_model(Eigen::VectorXd x, Eigen::VectorXd w, double dt)
-{
-    /***
-    Nonlinear process model for Wheel Odometry
-
-    Inputs:
-    x: current sigma point of state estimate x = [q0 q1 q2 q3 omega_x omega_y omega_z x y].T
-    u_t: Current input to nonlinear process model
-    dt: delta time
-
-    ***/
-
-    // Process wheel speeds using Kinematic Model
-    ROVER rover;
-    rover.calculate_wheel_change(w, dt);
-
-    // considern changing this quaternion into UnitQuaternion
-    Quaternion attitude(x(0),
-        x(1),
-        x(2),
-        x(3));
-
-    // Estimated attitude update with incremental rotation update
-    // EQN 3.26 & EQN 3.17 (Exponential with skew matrix and delta_t)
-    //consider adding noise to the angular velocity and orientation
-    UnitQuaternion uq_omega = UnitQuaternion::omega(x(4) * dt,
-        x(5) * dt,
-        x(6) * dt);
-    attitude = attitude * uq_omega;
-
-    Eigen::VectorXd x_pred_sigma(9);
-
-    // Quaternions
-    x_pred_sigma(0) = attitude.s;
-    x_pred_sigma(1) = attitude.v_1;
-    x_pred_sigma(2) = attitude.v_2;
-    x_pred_sigma(3) = attitude.v_3;
-
-    // Angular velocity
-    x_pred_sigma(4) = x(4);
-    x_pred_sigma(5) = x(5);
-    x_pred_sigma(6) = x(6);
-
-    //position
-    //float yaw = atan2(2 * (x(0) * x(3) + x(1) * x(2)), (1 - 2 * (x(2) * x(2) + x(3) * x(3))));
-    double roll, pitch, yaw;
-    tf2::Quaternion quat (x(0), x(1), x(2), x(3));
-    tf2::Matrix3x3 m(quat);
-    m.getRPY(roll, pitch, yaw);
-
-    // Update x and y positions
-    double linear_velocity = round(rover.rover_speeds(0)*100)/100;
-    double angular_velocity = round(rover.rover_speeds(1)*100)/100;
-
-    // Calculate change in x and y positions
-    double dx = linear_velocity * cos(yaw) * dt;
-    double dy = linear_velocity * sin(yaw) * dt;
-
-    // Update x and y positions
-    x_pred_sigma(7) = x(7) + dx;
-    x_pred_sigma(8) = x(8) + dy;
-    return x_pred_sigma;
-}
 
 void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch)
 {
@@ -450,13 +358,11 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     }
     Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
 
-    ROVER rover;    
-    std::cout<<"wheel is :    "<<std::endl<< w<<std::endl<<"dt  "<<dt<<std::endl;
+    ROVER rover;
     rover.calculate_wheel_change(w, dt);
     //position
     // Update x and y positions
     double linear_velocity = rover.rover_speeds(0);
-    std::cout<<"Linear v is:   "<<linear_velocity<<std::endl;
 
     // Pass sigmas into f(x) for wheel odometry
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
@@ -486,27 +392,7 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
         X_sigma.col(i)(2) = attitude.v_2;
         X_sigma.col(i)(3) = attitude.v_3;
 
-        // //position
-        // UnitQuaternion invq = attitude.inverse();
-
-        // Eigen::Vector3d acc_body = invq.vector_rotation_by_quaternion(g0);
-        // Eigen::Vector3d mag_body = invq.vector_rotation_by_quaternion(m0);
-
-        // acc_body.normalize();
-        // mag_body.normalize();
-
-        // double pitch = asin(-acc_body(0));
-        // double roll  = atan2(acc_body(1), acc_body(2));
-
-        // double mag_x = mag_body(0)*cos(pitch) + 
-        //                mag_body(1)*sin(roll)*sin(pitch) + 
-        //                mag_body(2)*cos(roll)*sin(pitch);
-
-        // double mag_y = mag_body(1)*cos(roll) - 
-        //                mag_body(2)*sin(roll);
-
-        // double yaw = atan2(-mag_y, mag_x);
-
+        //position
         // Calculate change in x and y positions
         double dx = - linear_velocity * sin(yaw) * cos(pitch) * dt;
         double dy = - linear_velocity * cos(yaw) * cos(pitch) * dt;
@@ -621,12 +507,6 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     x_post = x_hat;
     P_post = P;
 
-    //Quaternion q(roll, pitch, yaw);
-    //x_post(0) = q.s;
-    //x_post(1) = q.v_1;
-    //x_post(2) = q.v_2;
-    //x_post(3) = q.v_3;
-
     x_prior = x_post;
     P_prior = P_post;
     
@@ -651,11 +531,6 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     z_measurement[11] = result[0];
     z_measurement[12] = result[1];
 
-
-    std::cout << "Lon0: " << lon0 << " | lat0: " << lat0 << std::endl;
-    std::cout << "Lon: " << z_measurement[10] << " | lat: " << z_measurement[9] << std::endl;
-    std::cout << "x: " << result[0] << " | y: " << result[1] << std::endl;
-
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
     {
         std::array<double, 2> result2{wgs84::fromCartesian(WGS84Reference, {sigmas.col(i)(7), sigmas.col(i)(8)})};
@@ -670,7 +545,6 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
                         sigmas.col(i)(7), sigmas.col(i)(8);
 
     }
-    
     
     std::tie(x_hat, P) = unscented_transform(X_sigma,
         sigma_points.Wm,
