@@ -1423,7 +1423,7 @@ bool GroundDetector::detectGroundRANSAC(const pcl::PointCloud<pcl::PointXYZ>::Pt
     seg.segment(*inliers, *coefficients);
 
     if (inliers->indices.empty()) {
-        ROS_WARN_THROTTLE(1.0, "RANSAC ground detection failed - no ground plane found");
+        ROS_WARN_THROTTLE(1.0, "RANSAC  - no ground plane found");
         *obstacle_cloud = *input_cloud; // Treat all points as obstacles
         ground_cloud->clear();
         return false;

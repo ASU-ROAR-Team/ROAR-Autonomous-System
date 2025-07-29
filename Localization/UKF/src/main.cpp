@@ -46,6 +46,7 @@ XmlRpc::XmlRpcValue landmarks;
 XmlRpc::XmlRpcValue iPose;
 Eigen::Vector3d initialPosition;
 tf2::Quaternion initialOrientation;
+tf2::Quaternion IMUorientation;
 
 // Initialize Sigma Points and UKF
 MerwedSigmaPoints sigma_points(n_state_dim, alpha, beta_, kappa); // Initialize sigma points
@@ -93,7 +94,7 @@ void publishState(bool showInPlotter = false)
     state_msg.pose.pose.position.x = rotatedXYZ[0];
     state_msg.pose.pose.position.y = rotatedXYZ[1];
 
-    std::cout << "State: " << state_msg.pose.pose.position.x << ", " << state_msg.pose.pose.position.y << std::endl;
+    //std::cout << "State: " << state_msg.pose.pose.position.x << ", " << state_msg.pose.pose.position.y << std::endl;
 
     // Publish covariance
     state_msg.pose.covariance[0] = ukf.P_post.col(7)(7);
@@ -170,8 +171,8 @@ void encoderCallback(const sensor_msgs::JointState::ConstPtr& msg)
         
         publishState(); // Publish the state message
 
-        //std::cout << "Encoder Updated" << std::endl;
-        //std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
+        std::cout << "Encoder Updated" << std::endl;
+        std::cout << "P: " << ukf.P_post.col(7)(7) << std::endl;
     }
     
     
@@ -219,6 +220,8 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 // Callback function for IMU data
 void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
+    // yaw = msg->orientation.z;
+    // yaw = yaw * PI / 180.0;
     if (prev_time_stamp.isZero()) 
     {
         prev_time_stamp = msg->header.stamp; // Initialize prev_time_stamp
@@ -230,7 +233,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     dt_imu = (current_time_stamp - prev_time_stamp).toSec();
 
     tf2::Quaternion quat (msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
-    tf2::Matrix3x3 m(quat);
+    tf2::Matrix3x3 m(IMUorientation * quat);
     m.getRPY(roll, pitch, yaw);
 
     z_measurement[0] = msg->angular_velocity.x;
@@ -240,7 +243,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
     z_measurement[4] = msg->linear_acceleration.y;
     z_measurement[5] = msg->linear_acceleration.z + 9.81;
 
-    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu, roll, yaw, pitch);
+    ukf.imu_callback(encoder_measurement, z_measurement, dt_imu, roll, yaw, pitch); //////////need to be fixed
     prev_time_stamp = current_time_stamp;
 
     publishState(); // Publish the state message
@@ -253,7 +256,7 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 {
     tf2::Quaternion quat (msg->orientation.x, msg->orientation.y, msg->orientation.z, msg->orientation.w);
-    tf2::Matrix3x3 m(quat);
+    tf2::Matrix3x3 m(IMUorientation * quat);
     m.getRPY(roll, pitch, yaw);
 
     ukf.bno_callback(roll, pitch, yaw);
@@ -381,7 +384,7 @@ void magnetometerCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
 
 }
 
-bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quaternion& orientation) {
+bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quaternion& orientation, tf2::Quaternion& IMUorientation) {
     XmlRpc::XmlRpcValue iPose;
     if (!nh.getParam("iPose", iPose)) {
         ROS_ERROR("Failed to get param 'iPose'");
@@ -423,6 +426,24 @@ bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quater
         return false;
     }
 
+    // --- Extract orientation ---
+    if (!iPose.hasMember("IMUorientation") ||
+        iPose["IMUorientation"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
+        ROS_ERROR("Invalid or missing 'IMUorientation' in iPose param");
+        return false;
+    }
+
+    try {
+        double w = static_cast<double>(iPose["IMUorientation"]["w"]);
+        double x = static_cast<double>(iPose["IMUorientation"]["x"]);
+        double y = static_cast<double>(iPose["IMUorientation"]["y"]);
+        double z = static_cast<double>(iPose["IMUorientation"]["z"]);
+        IMUorientation = tf2::Quaternion(x, y, z, w);  // tf2 uses (x, y, z, w)
+    } catch (...) {
+        ROS_ERROR("Failed to read 'orientation' values from iPose");
+        return false;
+    }
+
     return true;
 }
 
@@ -439,13 +460,18 @@ int main(int argc, char **argv)
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
 
-    if (loadInitialPose(nh, initialPosition, initialOrientation)) {
+    if (loadInitialPose(nh, initialPosition, initialOrientation, IMUorientation)) {
         ROS_INFO_STREAM("Initial Position: " << initialPosition.transpose());
         ROS_INFO_STREAM("Initial Orientation (x y z w): "
                         << initialOrientation.x() << " "
                         << initialOrientation.y() << " "
                         << initialOrientation.z() << " "
                         << initialOrientation.w());
+        ROS_INFO_STREAM("IMU Mounting (x y z w): "
+                        << IMUorientation.x() << " "
+                        << IMUorientation.y() << " "
+                        << IMUorientation.z() << " "
+                        << IMUorientation.w());
     } else {
         ROS_ERROR("Could not load initial pose");
     }

@@ -19,7 +19,7 @@ zed_obstacle_detector:
   # Ground detection
   ground_detection:
     method: "ransac"  # Options: "ransac", "morphological", "conditional"
-    enable_ground_filtering: true
+    enable_ground_filtering: false
     distance_threshold: 0.08
     angle_threshold_deg: 15.0
     max_iterations: 200

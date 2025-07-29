@@ -451,10 +451,12 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
 
     ROVER rover;    
+    std::cout<<"wheel is :    "<<std::endl<< w<<std::endl<<"dt  "<<dt<<std::endl;
     rover.calculate_wheel_change(w, dt);
     //position
     // Update x and y positions
     double linear_velocity = rover.rover_speeds(0);
+    std::cout<<"Linear v is:   "<<linear_velocity<<std::endl;
 
     // Pass sigmas into f(x) for wheel odometry
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
@@ -483,6 +485,27 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
         X_sigma.col(i)(1) = attitude.v_1;
         X_sigma.col(i)(2) = attitude.v_2;
         X_sigma.col(i)(3) = attitude.v_3;
+
+        // //position
+        // UnitQuaternion invq = attitude.inverse();
+
+        // Eigen::Vector3d acc_body = invq.vector_rotation_by_quaternion(g0);
+        // Eigen::Vector3d mag_body = invq.vector_rotation_by_quaternion(m0);
+
+        // acc_body.normalize();
+        // mag_body.normalize();
+
+        // double pitch = asin(-acc_body(0));
+        // double roll  = atan2(acc_body(1), acc_body(2));
+
+        // double mag_x = mag_body(0)*cos(pitch) + 
+        //                mag_body(1)*sin(roll)*sin(pitch) + 
+        //                mag_body(2)*cos(roll)*sin(pitch);
+
+        // double mag_y = mag_body(1)*cos(roll) - 
+        //                mag_body(2)*sin(roll);
+
+        // double yaw = atan2(-mag_y, mag_x);
 
         // Calculate change in x and y positions
         double dx = - linear_velocity * sin(yaw) * cos(pitch) * dt;
@@ -595,14 +618,14 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     x_hat.head<4>() = uq_hat.to_quaternion_vector();
 
     // Save posterior
-    //x_post = x_hat;
-    //P_post = P;
+    x_post = x_hat;
+    P_post = P;
 
-    Quaternion q(roll, pitch, yaw);
-    x_post(0) = q.s;
-    x_post(1) = q.v_1;
-    x_post(2) = q.v_2;
-    x_post(3) = q.v_3;
+    //Quaternion q(roll, pitch, yaw);
+    //x_post(0) = q.s;
+    //x_post(1) = q.v_1;
+    //x_post(2) = q.v_2;
+    //x_post(3) = q.v_3;
 
     x_prior = x_post;
     P_prior = P_post;
