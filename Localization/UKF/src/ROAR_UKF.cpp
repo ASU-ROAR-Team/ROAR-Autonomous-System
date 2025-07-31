@@ -292,6 +292,7 @@ std::tuple<Eigen::VectorXd, Eigen::MatrixXd> UKF::unscented_transform(Eigen::Mat
 
 void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch)
 {
+    ROS_DEBUG("[*] UKF -> Encoder Callback called");
     /***
     Predict with wheel odometry process model
     u_t: Measured wheels velocity as input
@@ -339,10 +340,14 @@ void UKF::encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitc
     P_post.col(8) = P.col(8);
     P_post.row(7) = P.row(7);
     P_post.row(8) = P.row(8);
+
+    ROS_DEBUG("[*] UKF -> Encoder Callback finished");
 }
 
 void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double roll, double yaw, double pitch)
 {
+    ROS_DEBUG("[*] UKF -> IMU Callback called");
+    ROS_DEBUG("[+] UKF -> IMU Callback: Position Started");
         /***
     Predict with wheel odometry process model
     u_t: Measured wheels velocity as input
@@ -465,6 +470,8 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
 
     P = P_prior - K * S_prior * K.transpose();
 
+    ROS_DEBUG("[*] UKF -> IMU Callback: Orientation Started");
+
     // -- Magnetometer yaw injection --
     // Fuse gyro-integrated roll/pitch with mag-based yaw
     UnitQuaternion q_gyro(x_hat(0), x_hat(1), x_hat(2), x_hat(3));
@@ -509,11 +516,20 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
 
     x_prior = x_post;
     P_prior = P_post;
+
+    ROS_DEBUG("[*] UKF -> IMU Callback finished");
+
+    //Quaternion q(roll, pitch, yaw);
+    //x_post(0) = q.s;
+    //x_post(1) = q.v_1;
+    //x_post(2) = q.v_2;
+    //x_post(3) = q.v_3;
     
 }
 
 void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
 {
+    ROS_DEBUG("[*] UKF -> GPS Callback called");
     /***
     Predict with wheel odometry process model
     u_t: Measured wheels velocity as input
@@ -608,6 +624,8 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
     P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);
     P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
 
+    ROS_DEBUG("[*] UKF -> GPS Callback Finished");
+
 }
 
 void UKF::bno_callback(double roll, double pitch ,double yaw)
@@ -619,7 +637,33 @@ void UKF::bno_callback(double roll, double pitch ,double yaw)
     x_post(3) = q.v_3;
 }
 
+void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0){
+    ROS_WARN("[*] UKF -> PLAN B CALLBACK STARTED");
+
+    // x = [q0 q1 q2 q3 omega_x, omega_y, omega_z x y].T
+    // Extract the state from planBstate
+    std::array<double, 2> result{wgs84::toCartesian({lon0, lat0}, {planBstate(8), planBstate(7)})};
+    result[1] = result[1] *2/3; //the 2/3 is for mapping the readings with gazebo world
+    
+    x_post(7) = result[0];
+    x_post(8) = result[1];
+
+    x_post(0) = planBstate(0);
+    x_post(1) = planBstate(1);
+    x_post(2) = planBstate(2);
+    x_post(3) = planBstate(3);
+    x_post(4) = planBstate(4);
+    x_post(5) = planBstate(5);
+    x_post(6) = planBstate(6);
+
+    P_post = Eigen::MatrixXd::Identity(x_dim, x_dim) * 0.5; // Reset covariance to identity scaled by 0.5
+    
+    ROS_WARN("[*] UKF -> PLAN B CALLBACK ENDDED");
+}
+
 void UKF::LL_Callback( Eigen::VectorXd z_measurement){
+
+    ROS_DEBUG("[*] UKF -> LL Callback called");
     
     //inputs: X and Y absolute positions of the rover 
 
@@ -714,5 +758,7 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
     // --- [13] Update post covariance (only x, y rows/cols) ---
     P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);
     P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
+
+    ROS_DEBUG("[*] UKF -> LL Callback finished");
 
 }
