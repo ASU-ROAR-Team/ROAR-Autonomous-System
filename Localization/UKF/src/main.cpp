@@ -87,11 +87,14 @@ void poseCallback(){
     static tf2_ros::TransformBroadcaster br;
     geometry_msgs::TransformStamped transformStamped;
     
+    Eigen::Vector3d rotatedXYZ;
+    rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
+
     transformStamped.header.stamp = ros::Time::now();
     transformStamped.header.frame_id = "world";
     transformStamped.child_frame_id = "base_link";
-    transformStamped.transform.translation.x = ukf.x_post[7];
-    transformStamped.transform.translation.y = ukf.x_post[8];
+    transformStamped.transform.translation.x = rotatedXYZ[0];
+    transformStamped.transform.translation.y = rotatedXYZ[1];
     transformStamped.transform.translation.z = 0.0;
 
     tf2::Quaternion q(ukf.x_post[1], ukf.x_post[2], ukf.x_post[3], ukf.x_post[0]);
@@ -528,9 +531,9 @@ int main(int argc, char **argv)
     ros::NodeHandle nh; // Create ROS node handle
     
     // Initialize ROS subscribers
-    mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
+    //mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
     gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
-    imu_sub = nh.subscribe("/imu", 1000, imuCallback);
+    imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
 
