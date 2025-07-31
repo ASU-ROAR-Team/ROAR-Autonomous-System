@@ -11,7 +11,8 @@ ObstacleTracker::ObstacleTracker(const TrackingParams& params)
 }
 
 void ObstacleTracker::updateTracks(const std::vector<std::pair<geometry_msgs::Point, float>>& current_detections,
-                                  const ros::Time& current_time) {
+                                  const ros::Time& current_time,
+                                  std::shared_ptr<PerformanceMonitor> monitor) {
     // Reset matched flags for all tracked obstacles
     for (auto& obs : tracked_obstacles_) {
         obs.matched_in_current_frame = false;
@@ -22,8 +23,18 @@ void ObstacleTracker::updateTracks(const std::vector<std::pair<geometry_msgs::Po
         const geometry_msgs::Point& detected_centroid = detection_pair.first;
         float detected_radius = detection_pair.second;
 
+        // Timer: Find best match
+        if (monitor) {
+            monitor->startTimer("find_best_match");
+        }
+
         // Find best match among tracked obstacles
         int best_match_idx = findBestMatch(detected_centroid, detected_radius);
+
+        if (monitor) {
+            double duration_ms = monitor->endTimer("find_best_match");
+            ROS_INFO("Find best match: %.2f ms", duration_ms);
+        }
 
         if (best_match_idx != -1) {
             // Update existing track
@@ -42,6 +53,14 @@ void ObstacleTracker::updateTracks(const std::vector<std::pair<geometry_msgs::Po
             // Smooth radius using exponential moving average
             matched_obs.radius_world = (1.0 - params_.position_smoothing_factor) * matched_obs.radius_world +
                                       params_.position_smoothing_factor * detected_radius;
+            
+            // Smooth position using exponential moving average
+            matched_obs.position_world.x = (1.0f - params_.position_smoothing_factor) * matched_obs.position_world.x +
+                                          params_.position_smoothing_factor * detected_centroid.x;
+            matched_obs.position_world.y = (1.0f - params_.position_smoothing_factor) * matched_obs.position_world.y +
+                                          params_.position_smoothing_factor * detected_centroid.y;
+            matched_obs.position_world.z = (1.0f - params_.position_smoothing_factor) * matched_obs.position_world.z +
+                                          params_.position_smoothing_factor * detected_centroid.z;
             matched_obs.matched_in_current_frame = true;
             
         } else {

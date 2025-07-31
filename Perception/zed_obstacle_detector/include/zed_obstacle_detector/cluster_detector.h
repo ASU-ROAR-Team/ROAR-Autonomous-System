@@ -20,6 +20,15 @@ struct ClusterParams {
     bool enable_debug_output;
 };
 
+struct BoundingBox{
+    float min_x = std::numeric_limits<float>::max();
+    float min_y = std::numeric_limits<float>::max();
+    float min_z = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float max_y = std::numeric_limits<float>::lowest();
+    float max_z = std::numeric_limits<float>::lowest();
+};
+
 struct Cluster {
     int id;
     pcl::PointCloud<pcl::PointXYZ>::Ptr points;
@@ -67,17 +76,8 @@ private:
         const pcl::PointCloud<pcl::PointXYZ>::Ptr& cluster_points,
         std::shared_ptr<PerformanceMonitor> monitor = nullptr) const;
 
-    // KdTree management
-    void updateCachedKdTree(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud);
-    bool isKdTreeValid(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud) const;
-
     ClusterParams params_;
     int next_cluster_id_;
-    
-    // Cached KdTree for performance
-    mutable pcl::search::KdTree<pcl::PointXYZ>::Ptr cached_tree_;
-    mutable pcl::PointCloud<pcl::PointXYZ>::Ptr last_input_cloud_;
-    mutable size_t last_cloud_size_;
 };
 
 } // namespace zed_obstacle_detector
