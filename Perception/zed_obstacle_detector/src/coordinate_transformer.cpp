@@ -72,19 +72,50 @@ bool CoordinateTransformer::transformSinglePoint(const geometry_msgs::PointStamp
                                                 geometry_msgs::PointStamped& point_out,
                                                 const std::string& target_frame) {
     try {
+        // Log input point details
+        ROS_DEBUG_THROTTLE(2.0, "Transforming point from %s to %s at time %.3f: (%.3f, %.3f, %.3f)",
+                          point_in.header.frame_id.c_str(), target_frame.c_str(), 
+                          point_in.header.stamp.toSec(),
+                          point_in.point.x, point_in.point.y, point_in.point.z);
+
         // Check if transform is available
         if (!isTransformAvailable(point_in.header.frame_id, target_frame, point_in.header.stamp)) {
             ROS_WARN_THROTTLE(1.0, "Transform from %s to %s not available at time %.3f",
                              point_in.header.frame_id.c_str(), target_frame.c_str(), point_in.header.stamp.toSec());
+            
+            // Log TF tree status for debugging
+            logTFTreeStatus(point_in.header.frame_id, target_frame, point_in.header.stamp);
             return false;
         }
 
+        // Log transform availability
+        ROS_DEBUG_THROTTLE(5.0, "Transform from %s to %s is available at time %.3f",
+                          point_in.header.frame_id.c_str(), target_frame.c_str(), point_in.header.stamp.toSec());
+
         // Perform transformation
         tf_buffer_->transform(point_in, point_out, target_frame, ros::Duration(params_.tf_lookup_timeout));
+        
+        // Log successful transformation with before/after comparison
+        ROS_DEBUG_THROTTLE(2.0, "Transform SUCCESS: (%.3f, %.3f, %.3f) -> (%.3f, %.3f, %.3f) [%s -> %s]",
+                          point_in.point.x, point_in.point.y, point_in.point.z,
+                          point_out.point.x, point_out.point.y, point_out.point.z,
+                          point_in.header.frame_id.c_str(), target_frame.c_str());
+        
         return true;
 
+    } catch (const tf2::LookupException& ex) {
+        ROS_ERROR_THROTTLE(1.0, "TF lookup exception (frame not found): %s", ex.what());
+        logTFTreeStatus(point_in.header.frame_id, target_frame, point_in.header.stamp);
+        return false;
+    } catch (const tf2::ConnectivityException& ex) {
+        ROS_ERROR_THROTTLE(1.0, "TF connectivity exception (no connection): %s", ex.what());
+        return false;
+    } catch (const tf2::ExtrapolationException& ex) {
+        ROS_ERROR_THROTTLE(1.0, "TF extrapolation exception (timestamp too old/new): %s", ex.what());
+        logTFTreeStatus(point_in.header.frame_id, target_frame, point_in.header.stamp);
+        return false;
     } catch (const tf2::TransformException& ex) {
-        ROS_ERROR_THROTTLE(1.0, "TF transform exception: %s", ex.what());
+        ROS_ERROR_THROTTLE(1.0, "TF transform exception (timeout or other): %s", ex.what());
         return false;
     }
 }
@@ -111,6 +142,63 @@ bool CoordinateTransformer::isTransformAvailable(const std::string& source_frame
         ROS_DEBUG_THROTTLE(1.0, "Transform availability check failed: %s", ex.what());
         return false;
     }
+}
+
+void CoordinateTransformer::logTFTreeStatus(const std::string& source_frame,
+                                           const std::string& target_frame,
+                                           const ros::Time& timestamp) const {
+    if (!params_.enable_debug_output) {
+        return;
+    }
+
+    ROS_WARN_THROTTLE(5.0, "=== TF Tree Debug Info ===");
+    
+    try {
+        // Get all frame IDs in the buffer
+        std::string frame_id;
+        if (tf_buffer_->_getFrameStrings(frame_id)) {
+            ROS_WARN_THROTTLE(5.0, "Available frames in TF buffer: %s", frame_id.c_str());
+        }
+        
+        // Check if source frame exists
+        if (tf_buffer_->_frameExists(source_frame)) {
+            ROS_WARN_THROTTLE(5.0, "Source frame '%s' EXISTS in TF tree", source_frame.c_str());
+        } else {
+            ROS_WARN_THROTTLE(5.0, "Source frame '%s' NOT FOUND in TF tree", source_frame.c_str());
+        }
+        
+        // Check if target frame exists
+        if (tf_buffer_->_frameExists(target_frame)) {
+            ROS_WARN_THROTTLE(5.0, "Target frame '%s' EXISTS in TF tree", target_frame.c_str());
+        } else {
+            ROS_WARN_THROTTLE(5.0, "Target frame '%s' NOT FOUND in TF tree", target_frame.c_str());
+        }
+        
+        // Try to get the latest transform time
+        ros::Time latest_time;
+        if (tf_buffer_->getLatestCommonTime(source_frame, target_frame, latest_time, nullptr)) {
+            ROS_WARN_THROTTLE(5.0, "Latest common time between %s and %s: %.3f (requested: %.3f)",
+                             source_frame.c_str(), target_frame.c_str(), 
+                             latest_time.toSec(), timestamp.toSec());
+            
+            double time_diff = std::abs(latest_time.toSec() - timestamp.toSec());
+            if (time_diff > 1.0) {
+                ROS_WARN_THROTTLE(5.0, "Large time difference: %.3f seconds", time_diff);
+            }
+        } else {
+            ROS_WARN_THROTTLE(5.0, "No common time found between %s and %s", 
+                             source_frame.c_str(), target_frame.c_str());
+        }
+        
+        // Check buffer cache length
+        ros::Duration cache_length = tf_buffer_->getCacheLength();
+        ROS_WARN_THROTTLE(5.0, "TF buffer cache length: %.3f seconds", cache_length.toSec());
+        
+    } catch (const std::exception& e) {
+        ROS_WARN_THROTTLE(5.0, "Error while logging TF tree status: %s", e.what());
+    }
+    
+    ROS_WARN_THROTTLE(5.0, "=== End TF Tree Debug Info ===");
 }
 
 } // namespace zed_obstacle_detector 

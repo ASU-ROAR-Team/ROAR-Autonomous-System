@@ -59,6 +59,11 @@ public:
                              const std::string& target_frame,
                              const ros::Time& timestamp) const;
 
+    // Debug logging functions
+    void logTFTreeStatus(const std::string& source_frame,
+                        const std::string& target_frame,
+                        const ros::Time& timestamp) const;
+
 private:
     TransformParams params_;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
