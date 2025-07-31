@@ -5,6 +5,7 @@
 #include <ros/time.h>
 #include <vector>
 #include <memory>
+#include "zed_obstacle_detector/performance_monitor.h"
 
 namespace zed_obstacle_detector {
 
@@ -36,7 +37,8 @@ public:
 
     // Main interface
     void updateTracks(const std::vector<std::pair<geometry_msgs::Point, float>>& current_detections,
-                     const ros::Time& current_time);
+                     const ros::Time& current_time,
+                     std::shared_ptr<PerformanceMonitor> monitor);
     
     // Get results
     std::vector<TrackedObstacle> getConfirmedObstacles() const;

@@ -8,7 +8,7 @@
 namespace zed_obstacle_detector {
 
 ClusterDetector::ClusterDetector(const ClusterParams& params)
-    : params_(params), next_cluster_id_(0), last_cloud_size_(0) {
+    : params_(params), next_cluster_id_(0) {
     ROS_DEBUG("ClusterDetector initialized with tolerance: %.3f, min_size: %d, max_size: %d",
               params_.cluster_tolerance, params_.min_cluster_size, params_.max_cluster_size);
 }
@@ -28,34 +28,39 @@ std::vector<Cluster> ClusterDetector::detectClusters(const pcl::PointCloud<pcl::
         return clusters;
     }
 
-    // Start timing if monitor is provided
+    // Timer: Extract cluster indices
     if (monitor) {
-        monitor->startTimer("clustering");
+        monitor->startTimer("extract_cluster_indices");
     }
 
     // Extract cluster indices with cached KdTree
     std::vector<pcl::PointIndices> cluster_indices = extractClusterIndices(input_cloud);
-    
+
+    if (monitor) {
+        double duration_ms = monitor->endTimer("extract_cluster_indices");
+        ROS_INFO("Extract cluster indices: %.2f ms", duration_ms);
+    }
+
     if (cluster_indices.empty()) {
         ROS_DEBUG_THROTTLE(2.0, "No clusters found in point cloud");
-        if (monitor) {
-            double duration_ms = monitor->endTimer("clustering");
-            ROS_INFO("Cluster detection completed in %.2f ms (no clusters found)", duration_ms);
-        }
         return clusters;
     }
 
     ROS_DEBUG("Found %zu raw clusters", cluster_indices.size());
 
-    // Process clusters in batch for better performance
-    clusters.reserve(cluster_indices.size());
-    processClustersBatch(cluster_indices, input_cloud, clusters, monitor);
-    
-    // End timing if monitor is provided and log the result
+    // Timer: Process clusters in batch
     if (monitor) {
-        double duration_ms = monitor->endTimer("clustering");
-        ROS_INFO("Cluster detection completed in %.2f ms (%zu clusters)", duration_ms, clusters.size());
+        monitor->startTimer("process_clusters_batch");
     }
+
+    // Process clusters in batch for better performance
+    processClustersBatch(cluster_indices, input_cloud, clusters, monitor);
+
+    if (monitor) {
+        double duration_ms = monitor->endTimer("process_clusters_batch");
+        ROS_INFO("Process clusters in batch: %.2f ms", duration_ms);
+    }
+
     
     ROS_DEBUG("Processed %zu valid clusters", clusters.size());
     return clusters;
@@ -66,14 +71,15 @@ std::vector<pcl::PointIndices> ClusterDetector::extractClusterIndices(const pcl:
     
     try {
         // Update cached KdTree if needed
-        updateCachedKdTree(input_cloud);
+        pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree (new pcl::search::KdTree<pcl::PointXYZ>);
+        kdtree->setInputCloud(input_cloud);
 
         // Extract clusters with optimized parameters using cached tree
         pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
         ec.setClusterTolerance(params_.cluster_tolerance);
         ec.setMinClusterSize(params_.min_cluster_size);
         ec.setMaxClusterSize(params_.max_cluster_size);
-        ec.setSearchMethod(cached_tree_);
+        ec.setSearchMethod(kdtree);
         ec.setInputCloud(input_cloud);
         ec.extract(cluster_indices);
         
@@ -123,21 +129,7 @@ Cluster ClusterDetector::processCluster(const pcl::PointIndices& cluster_indices
     }
 
     // Optimized point extraction with direct indexing
-    size_t num_points = cluster_indices.indices.size();
-    cluster.points->resize(num_points); // Direct resize instead of reserve + push_back
-    
-    size_t valid_points = 0;
-    for (const auto& idx : cluster_indices.indices) {
-        if (idx < input_cloud->size()) {
-            cluster.points->points[valid_points++] = input_cloud->points[idx];
-        }
-    }
-    
-    // Resize to actual number of valid points
-    cluster.points->resize(valid_points);
-    cluster.points->width = valid_points;
-    cluster.points->height = 1;
-    cluster.points->is_dense = true;
+    pcl::copyPointCloud(*input_cloud, cluster_indices.indices, *cluster.points);
 
     if (cluster.points->empty()) {
         return cluster;
@@ -169,6 +161,7 @@ std::pair<geometry_msgs::Point, float> ClusterDetector::computeCentroidRadius(
         // First pass: compute centroid
         float sum_x = 0.0f, sum_y = 0.0f, sum_z = 0.0f;
         size_t num_points = cluster_points->size();
+        BoundingBox bb;
         
         // Single pass: compute centroid
         for (size_t i = 0; i < num_points; ++i) {
@@ -178,30 +171,26 @@ std::pair<geometry_msgs::Point, float> ClusterDetector::computeCentroidRadius(
             sum_x += point.x;
             sum_y += point.y;
             sum_z += point.z;
+
+            // Update bounding box
+            bb.min_x = std::min(bb.min_x, point.x);
+            bb.min_y = std::min(bb.min_y, point.y);
+            bb.min_z = std::min(bb.min_z, point.z);
+            bb.max_x = std::max(bb.max_x, point.x);
+            bb.max_y = std::max(bb.max_y, point.y);
+            bb.max_z = std::max(bb.max_z, point.z);
         }
         
         // Final centroid
         centroid.x = sum_x / num_points;
         centroid.y = sum_y / num_points;
         centroid.z = sum_z / num_points;
-        
-        // Second pass: compute radius using final centroid
-        float max_radius_sq = 0.0f;
-        for (size_t i = 0; i < num_points; ++i) {
-            const auto& point = cluster_points->points[i];
-            
-            // Compute distance from point to final centroid
-            float dx = point.x - centroid.x;
-            float dy = point.y - centroid.y;
-            float dz = point.z - centroid.z;
-            float dist_sq = dx*dx + dy*dy + dz*dz;
-            
-            if (dist_sq > max_radius_sq) {
-                max_radius_sq = dist_sq;
-            }
-        }
-        
-        radius = std::sqrt(max_radius_sq);
+
+        // Calculate radius using bounding box
+        float radius_x = bb.max_x - bb.min_x;
+        float radius_y = bb.max_y - bb.min_y;
+        float radius_z = bb.max_z - bb.min_z;
+        radius = std::max(radius_x, std::max(radius_y, radius_z)) / 2.0f; // Divide by 2 for radius from diameter
         
     } catch (const std::exception& e) {
         ROS_ERROR_THROTTLE(1.0, "Centroid/radius computation exception: %s", e.what());
@@ -301,29 +290,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr ClusterDetector::createDebugCloud(const s
 void ClusterDetector::setParams(const ClusterParams& params) {
     params_ = params;
     ROS_DEBUG("ClusterDetector parameters updated");
-}
-
-void ClusterDetector::updateCachedKdTree(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud) {
-    // Check if we need to update the cached tree
-    if (!isKdTreeValid(input_cloud)) {
-        // Create new KdTree
-        cached_tree_.reset(new pcl::search::KdTree<pcl::PointXYZ>);
-        cached_tree_->setInputCloud(input_cloud);
-        
-        // Update cache info
-        last_input_cloud_ = input_cloud;
-        last_cloud_size_ = input_cloud->size();
-        
-        ROS_DEBUG("Updated cached KdTree for cloud with %zu points", input_cloud->size());
-    }
-}
-
-bool ClusterDetector::isKdTreeValid(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud) const {
-    // Check if tree exists and matches current cloud
-    return cached_tree_ && 
-           last_input_cloud_ && 
-           last_input_cloud_ == input_cloud && 
-           last_cloud_size_ == input_cloud->size();
 }
 
 } // namespace zed_obstacle_detector 

@@ -37,98 +37,113 @@ bool GroundDetector::detectGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr& inp
 bool GroundDetector::detectGroundRANSAC(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
                                        pcl::PointCloud<pcl::PointXYZ>::Ptr& obstacle_cloud) {
     
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
-    seg.setOptimizeCoefficients(true);
-    seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(params_.distance_threshold);
-    seg.setAxis(Eigen::Vector3f(0.0, 1.0, 0.0));  
-    seg.setEpsAngle(deg2rad(params_.angle_threshold_deg));
-    seg.setMaxIterations(params_.max_iterations);
+    try {
+        pcl::SACSegmentation<pcl::PointXYZ> seg;
+        seg.setOptimizeCoefficients(true);
+        seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
+        seg.setMethodType(pcl::SAC_RANSAC);
+        seg.setDistanceThreshold(params_.distance_threshold);
+        seg.setAxis(Eigen::Vector3f(0.0, 1.0, 0.0));  
+        seg.setEpsAngle(deg2rad(params_.angle_threshold_deg));
+        seg.setMaxIterations(params_.max_iterations);
 
-    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-    
-    seg.setInputCloud(input_cloud);                                       
-    seg.segment(*inliers, *coefficients);
+        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+        pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+        
+        seg.setInputCloud(input_cloud);                                       
+        seg.segment(*inliers, *coefficients);
 
-    if (inliers->indices.empty()) {
-        ROS_WARN_THROTTLE(1.0, "RANSAC ground detection failed - no ground plane found");
-        *obstacle_cloud = *input_cloud; // Treat all points as obstacles
+        if (inliers->indices.empty()) {
+            ROS_WARN_THROTTLE(1.0, "RANSAC ground detection failed - no ground plane found");
+            *obstacle_cloud = *input_cloud; // Treat all points as obstacles
+            return false;
+        }
+
+        // Extract obstacle points (non-ground) only
+        pcl::ExtractIndices<pcl::PointXYZ> extract;
+        extract.setInputCloud(input_cloud);
+        extract.setIndices(inliers);
+        extract.setNegative(true); // Extract non-ground points
+        extract.filter(*obstacle_cloud);
+
+        ROS_DEBUG("RANSAC ground detection: %zu obstacle points extracted", obstacle_cloud->size());
+    }
+    catch(const std::exception& e)
+    {
+        ROS_ERROR("RANSAC ground detection failed: %s", e.what());
         return false;
     }
-
-    // Extract obstacle points (non-ground) only
-    pcl::ExtractIndices<pcl::PointXYZ> extract;
-    extract.setInputCloud(input_cloud);
-    extract.setIndices(inliers);
-    extract.setNegative(true); // Extract non-ground points
-    extract.filter(*obstacle_cloud);
-
-    ROS_DEBUG("RANSAC ground detection: %zu obstacle points extracted", obstacle_cloud->size());
     
     return true;
+
 }
 
 bool GroundDetector::detectGroundMorphological(const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
                                               pcl::PointCloud<pcl::PointXYZ>::Ptr& obstacle_cloud) {
     
-    // Step 1: Remove statistical outliers
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
-    sor.setInputCloud(input_cloud);
-    sor.setMeanK(50);
-    sor.setStddevMulThresh(1.0);
-    sor.filter(*cloud_filtered);
+    try{
+        // Step 1: Remove statistical outliers
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+        sor.setInputCloud(input_cloud);
+        sor.setMeanK(50);
+        sor.setStddevMulThresh(1.0);
+        sor.filter(*cloud_filtered);
 
-    // Step 2: Create a grid-based morphological filter
-    // This is a simplified version - in practice you might want to use PCL's morphological filter
-    // or implement a more sophisticated algorithm
-    
-    // For now, we'll use a height-based approach with slope consideration
-    double min_z = std::numeric_limits<double>::max();
-    double max_z = std::numeric_limits<double>::lowest();
-    
-    // Find height range
-    for (const auto& point : cloud_filtered->points) {
-        min_z = std::min(min_z, static_cast<double>(point.z));
-        max_z = std::max(max_z, static_cast<double>(point.z));
-    }
-    
-    // Calculate height threshold based on Mars terrain parameters
-    double height_threshold = min_z + params_.min_obstacle_height;
-    if (params_.mars_terrain_mode) {
-        // For Mars, be more conservative with ground detection
-        height_threshold = min_z + (max_z - min_z) * 0.3; // 30% of height range
-    }
-    
-    // Step 3: Extract obstacles based on height and slope
-    obstacle_cloud->clear();
-    
-    for (const auto& point : cloud_filtered->points) {
-        bool is_ground = true;
+        // Step 2: Create a grid-based morphological filter
+        // This is a simplified version - in practice you might want to use PCL's morphological filter
+        // or implement a more sophisticated algorithm
         
-        // Height check
-        if (point.z > height_threshold) {
-            is_ground = false;
+        // For now, we'll use a height-based approach with slope consideration
+        double min_z = std::numeric_limits<double>::max();
+        double max_z = std::numeric_limits<double>::lowest();
+        
+        // Find height range
+        for (const auto& point : cloud_filtered->points) {
+            min_z = std::min(min_z, static_cast<double>(point.z));
+            max_z = std::max(max_z, static_cast<double>(point.z));
         }
         
-        // Slope check (if Mars terrain mode is enabled)
-        if (params_.mars_terrain_mode && !is_ground) {
-            // Additional slope-based filtering could be added here
-            // For now, we'll use the height-based approach
+        // Calculate height threshold based on Mars terrain parameters
+        double height_threshold = min_z + params_.min_obstacle_height;
+        if (params_.mars_terrain_mode) {
+            // For Mars, be more conservative with ground detection
+            height_threshold = min_z + (max_z - min_z) * 0.3; // 30% of height range
         }
         
-        if (!is_ground) {
-            obstacle_cloud->points.push_back(point);
+        // Step 3: Extract obstacles based on height and slope
+        obstacle_cloud->clear();
+        
+        for (const auto& point : cloud_filtered->points) {
+            bool is_ground = true;
+            
+            // Height check
+            if (point.z > height_threshold) {
+                is_ground = false;
+            }
+            
+            // Slope check (if Mars terrain mode is enabled)
+            if (params_.mars_terrain_mode && !is_ground) {
+                // Additional slope-based filtering could be added here
+                // For now, we'll use the height-based approach
+            }
+            
+            if (!is_ground) {
+                obstacle_cloud->points.push_back(point);
+            }
         }
+        
+        obstacle_cloud->width = obstacle_cloud->points.size();
+        obstacle_cloud->height = 1;
+        obstacle_cloud->is_dense = true;
+        
+        ROS_DEBUG("Morphological ground detection: %zu obstacle points extracted", obstacle_cloud->size());
     }
-    
-    obstacle_cloud->width = obstacle_cloud->points.size();
-    obstacle_cloud->height = 1;
-    obstacle_cloud->is_dense = true;
-    
-    ROS_DEBUG("Morphological ground detection: %zu obstacle points extracted", obstacle_cloud->size());
+    catch(const std::exception& e)
+    {
+        ROS_ERROR("Morphological ground detection failed: %s", e.what());
+        return false;
+    }
     
     return !obstacle_cloud->empty();
 }
