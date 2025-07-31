@@ -144,5 +144,8 @@ public:
 	void bno_callback(double roll, double pitch, double yaw);
 	void LL_Callback( Eigen::VectorXd z_measurement);
 
+	/*** PLAN B ***/
+	void planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0);
+
 };
 #endif
