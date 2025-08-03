@@ -155,10 +155,14 @@ void CoordinateTransformer::logTFTreeStatus(const std::string& source_frame,
     
     try {
         // Get all frame IDs in the buffer
-        std::string frame_id;
-        if (tf_buffer_->_getFrameStrings(frame_id)) {
-            ROS_WARN_THROTTLE(5.0, "Available frames in TF buffer: %s", frame_id.c_str());
+        std::vector<std::string> frame_ids;
+        tf_buffer_->_getFrameStrings(frame_ids);
+        std::string frame_list;
+        for (const auto& frame : frame_ids) {
+            if (!frame_list.empty()) frame_list += ", ";
+            frame_list += frame;
         }
+        ROS_WARN_THROTTLE(5.0, "Available frames in TF buffer: %s", frame_list.c_str());
         
         // Check if source frame exists
         if (tf_buffer_->_frameExists(source_frame)) {
@@ -176,18 +180,16 @@ void CoordinateTransformer::logTFTreeStatus(const std::string& source_frame,
         
         // Try to get the latest transform time
         ros::Time latest_time;
-        if (tf_buffer_->getLatestCommonTime(source_frame, target_frame, latest_time, nullptr)) {
-            ROS_WARN_THROTTLE(5.0, "Latest common time between %s and %s: %.3f (requested: %.3f)",
-                             source_frame.c_str(), target_frame.c_str(), 
-                             latest_time.toSec(), timestamp.toSec());
-            
-            double time_diff = std::abs(latest_time.toSec() - timestamp.toSec());
-            if (time_diff > 1.0) {
-                ROS_WARN_THROTTLE(5.0, "Large time difference: %.3f seconds", time_diff);
-            }
+        std::string error_string;
+        
+        // Check if transform is available at the requested time
+        bool transform_available = tf_buffer_->canTransform(target_frame, source_frame, timestamp, ros::Duration(0.1));
+        if (transform_available) {
+            ROS_WARN_THROTTLE(5.0, "Transform available between %s and %s at time %.3f",
+                             source_frame.c_str(), target_frame.c_str(), timestamp.toSec());
         } else {
-            ROS_WARN_THROTTLE(5.0, "No common time found between %s and %s", 
-                             source_frame.c_str(), target_frame.c_str());
+            ROS_WARN_THROTTLE(5.0, "Transform NOT available between %s and %s at time %.3f", 
+                             source_frame.c_str(), target_frame.c_str(), timestamp.toSec());
         }
         
         // Check buffer cache length

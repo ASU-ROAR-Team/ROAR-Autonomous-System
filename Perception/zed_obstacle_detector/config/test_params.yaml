@@ -1,7 +1,7 @@
 zed_obstacle_detector:
   # Core settings
   point_cloud_topic: "/camera/depth/points"
-  camera_frame: "camera_link"
+  camera_frame: "camera_depth_optical_frame"
   base_link_frame: "base_link"
   world_frame: "world" 
   

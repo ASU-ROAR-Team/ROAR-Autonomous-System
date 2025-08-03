@@ -92,7 +92,7 @@ void poseCallback(){
 
     transformStamped.header.stamp = ros::Time::now();
     transformStamped.header.frame_id = "world";
-    transformStamped.child_frame_id = "base_link";
+    transformStamped.child_frame_id = "dummy_root";
     transformStamped.transform.translation.x = rotatedXYZ[0];
     transformStamped.transform.translation.y = rotatedXYZ[1];
     transformStamped.transform.translation.z = 0.0;
