@@ -470,61 +470,30 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
 
     P = P_prior - K * S_prior * K.transpose();
 
+    ROS_DEBUG("[+] UKF -> IMU Callback: Position Finished");
+    ROS_WARN(x_post.allFinite() ? "[+] UKF -> IMU Callback: State is finite" : "[!] UKF -> IMU Callback: State is not finite");
+    ROS_WARN(P_post.allFinite() ? "[+] UKF -> IMU Callback: P is finite" : "[!] UKF -> IMU Callback: P is not finite");
+
     ROS_DEBUG("[*] UKF -> IMU Callback: Orientation Started");
-
-    // -- Magnetometer yaw injection --
-    // Fuse gyro-integrated roll/pitch with mag-based yaw
-    UnitQuaternion q_gyro(x_hat(0), x_hat(1), x_hat(2), x_hat(3));
-    q_gyro.normalize();
-    tf2::Quaternion tf_qgyro(q_gyro.v_1, q_gyro.v_2, q_gyro.v_3, q_gyro.s);
-    double roll_gyro, pitch_gyro, yaw_gyro;
-    tf2::Matrix3x3(tf_qgyro).getRPY(roll_gyro, pitch_gyro, yaw_gyro);
-
-    // Compute tilt-compensated heading from raw IMU measurements
-    Eigen::Vector3d acc_meas(z_measurement(3), z_measurement(4), z_measurement(5));
-    Eigen::Vector3d mag_meas(z_measurement(6), z_measurement(7), z_measurement(8));
-    acc_meas.normalize(); mag_meas.normalize();
-    double pitch_acc = asin(-acc_meas.x());
-    double roll_acc  = atan2(acc_meas.y(), acc_meas.z());
-    double mx =  mag_meas.x()*cos(pitch_acc)
-                + mag_meas.y()*sin(roll_acc)*sin(pitch_acc)
-                + mag_meas.z()*cos(roll_acc)*sin(pitch_acc);
-    double my =  mag_meas.y()*cos(roll_acc)
-                - mag_meas.z()*sin(roll_acc);
-    static double last_yaw = 0.0;
-    double raw_yaw_mag = atan2(-my, mx);
-    double yaw_mag = last_yaw + atan2(sin(raw_yaw_mag - last_yaw), cos(raw_yaw_mag - last_yaw));
-    last_yaw = yaw_mag;
     
-    // Inject magnetometer yaw
-    tf2::Quaternion tf_qfused;
-    tf_qfused.setRPY(roll_gyro, pitch_gyro, yaw_mag);
-    tf_qfused.normalize();
-
-    x_hat(0) = tf_qfused.getW();
-    x_hat(1) = tf_qfused.getX();
-    x_hat(2) = tf_qfused.getY();
-    x_hat(3) = tf_qfused.getZ();
-
-    UnitQuaternion uq_hat(x_hat(0), x_hat(1), x_hat(2), x_hat(3));
-    uq_hat.normalize();
-    x_hat.head<4>() = uq_hat.to_quaternion_vector();
-
-    // Save posterior
-    x_post = x_hat;
-    P_post = P;
-
+    Quaternion q(roll, pitch, yaw);
+    x_post(0) = q.s;
+    x_post(1) = q.v_1;
+    x_post(2) = q.v_2;
+    x_post(3) = q.v_3;
+    
     x_prior = x_post;
     P_prior = P_post;
 
-    ROS_DEBUG("[*] UKF -> IMU Callback finished");
-
-    //Quaternion q(roll, pitch, yaw);
-    //x_post(0) = q.s;
-    //x_post(1) = q.v_1;
-    //x_post(2) = q.v_2;
-    //x_post(3) = q.v_3;
+    ROS_DEBUG("[+] UKF -> IMU Callback: Orientation Finished");
     
+    ROS_DEBUG("[*] UKF -> IMU Callback finished");
+    
+    ROS_WARN(x_post.allFinite() ? "[+] UKF -> IMU Callback: State is finite" : "[!] UKF -> IMU Callback: State is not finite");
+    ROS_WARN(P_post.allFinite() ? "[+] UKF -> IMU Callback: P is finite" : "[!] UKF -> IMU Callback: P is not finite");
+
+    
+
 }
 
 void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)

@@ -533,7 +533,7 @@ int main(int argc, char **argv)
     // Initialize ROS subscribers
     //mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
     gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
-    imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
+    imu_sub = nh.subscribe("/imu", 1000, imuCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
 
