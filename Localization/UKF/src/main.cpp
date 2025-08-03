@@ -141,6 +141,12 @@ void publishState(bool showInPlotter = false)
         ROS_DEBUG("[+] Transforming state to world frame");
         // Transform to world frame
         rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
+
+        /*******
+        TALYEESA
+        *******/
+        rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
+
         // Publish the state message
         state_msg.pose.pose.orientation.w = ukf.x_post[0];
         state_msg.pose.pose.orientation.x = ukf.x_post[1];
@@ -153,12 +159,6 @@ void publishState(bool showInPlotter = false)
         state_msg.pose.pose.position.y = rotatedXYZ[1];
     }
 
-    /*******
-    TALYEESA
-    *******/
-   rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
-
-    
     ROS_WARN("[!] Current number of fails: %d", noOfFails);
     ROS_DEBUG("[*] Publishing state message to /filtered_state topic");
     // Print state for debugging
