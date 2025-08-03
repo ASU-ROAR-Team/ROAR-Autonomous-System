@@ -314,7 +314,7 @@ void ObstacleDetector::setParams(const ObstacleDetectorParams& params) {
 void ObstacleDetector::reset() {
     if (tracker_) {
         // Clear all tracked obstacles
-        tracker_->updateTracks({}, ros::Time::now());
+        tracker_->updateTracks({}, ros::Time::now(), nullptr);
     }
     if (monitor_) {
         monitor_->resetMetrics();

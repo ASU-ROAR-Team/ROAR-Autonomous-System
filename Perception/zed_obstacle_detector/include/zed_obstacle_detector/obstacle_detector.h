@@ -66,7 +66,8 @@ public:
     
     bool transformAndTrack(const std::vector<Cluster>& clusters,
                           const ros::Time& timestamp,
-                          ObstacleDetectorResult& result);
+                          ObstacleDetectorResult& result,
+                          std::shared_ptr<PerformanceMonitor> monitor);
 
     // Parameter management
     void setParams(const ObstacleDetectorParams& params);
