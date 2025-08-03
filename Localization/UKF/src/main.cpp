@@ -90,6 +90,11 @@ void poseCallback(){
     Eigen::Vector3d rotatedXYZ;
     rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
 
+    /*******
+    TALYEESA
+    *******/
+    rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
+
     transformStamped.header.stamp = ros::Time::now();
     transformStamped.header.frame_id = "world";
     transformStamped.child_frame_id = "base_link";
@@ -147,6 +152,11 @@ void publishState(bool showInPlotter = false)
         state_msg.pose.pose.position.x = rotatedXYZ[0];
         state_msg.pose.pose.position.y = rotatedXYZ[1];
     }
+
+    /*******
+    TALYEESA
+    *******/
+   rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
 
     
     ROS_WARN("[!] Current number of fails: %d", noOfFails);
@@ -531,7 +541,6 @@ int main(int argc, char **argv)
     ros::NodeHandle nh; // Create ROS node handle
     
     // Initialize ROS subscribers
-    //mag_sub = nh.subscribe("/magnetometer", 1000, magnetometerCallback);
     gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
     imu_sub = nh.subscribe("/imu", 1000, imuCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
