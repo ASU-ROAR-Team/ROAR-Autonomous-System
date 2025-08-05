@@ -12,7 +12,7 @@ meta_parameters:
   log: True
   visualize: True
 robot_parameters:
-  width: 0.8
+  width: 0.9
   maxVelocity: 1.57
 algorithm_parameters:
   KL: 0.25

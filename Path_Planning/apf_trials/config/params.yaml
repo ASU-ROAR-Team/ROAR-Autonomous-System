@@ -11,12 +11,12 @@ APF_update:
 
   # Path following parameters
   M: 1                   # Potential field exponent
-  LOOKAHEADDIST: 1.2      # Lookahead distance (meters)
+  LOOKAHEADDIST: 1.8     # Lookahead distance (meters)
   CHECKPOINTDIST: 1.2    # Checkpoint triggering distance (meters)
 
   # Path file parameters
-  pathFile: "~/ttt/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
-  costmapFile: "~/ttt/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
+  pathFile: "~/roar/roar_ws/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
+  costmapFile: "~/roar/roar_ws/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
 
 
   # Time parameters

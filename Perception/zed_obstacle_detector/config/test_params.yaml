@@ -33,7 +33,7 @@ zed_obstacle_detector:
 
   # Tracking
   tracking:
-    association_distance: 0.5
+    association_distance: 1.0
     timeout_sec: 120.0
     position_smoothing_factor: 0.1
     min_detections_for_confirmation: 3
