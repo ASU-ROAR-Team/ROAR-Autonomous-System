@@ -142,7 +142,6 @@ class Control:
         orientationList = [orientation.x, orientation.y, orientation.z, orientation.w]
         _, _, yaw = euler_from_quaternion(orientationList)
         self.currentPosition[2] = yaw
-
     def mapVelocity(self, velocity: float):
         """
         This function maps the velocity from m/s to the values accepted by the simulator
