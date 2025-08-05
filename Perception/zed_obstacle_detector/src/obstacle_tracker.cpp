@@ -119,6 +119,7 @@ void ObstacleTracker::cleanupTimedOutObstacles(const ros::Time& current_time) {
     tracked_obstacles_.erase(it, tracked_obstacles_.end());
 }
 
+/*
 int ObstacleTracker::findBestMatch(const geometry_msgs::Point& detection, float radius) const {
     int best_match_idx = -1;
     double min_dist_sq = params_.association_distance_sq;
@@ -140,6 +141,41 @@ int ObstacleTracker::findBestMatch(const geometry_msgs::Point& detection, float 
         }
     }
 
+    return best_match_idx;
+}*/
+
+int ObstacleTracker::findBestMatch(const geometry_msgs::Point& detection, float radius) const {
+    int best_match_idx = -1;
+    double min_dist_sq = params_.association_distance_sq;
+
+    ROS_WARN("findBestMatch: Detection at (%.3f, %.3f, %.3f), radius=%.3f, association_distance_sq=%.3f", 
+             detection.x, detection.y, detection.z, radius, params_.association_distance_sq);
+    ROS_WARN("findBestMatch: Searching through %zu tracked obstacles", tracked_obstacles_.size());
+
+    for (size_t i = 0; i < tracked_obstacles_.size(); ++i) {
+        if (tracked_obstacles_[i].matched_in_current_frame) {
+            ROS_WARN("findBestMatch: Obstacle %zu already matched, skipping", i);
+            continue; // Already matched in this frame
+        }
+
+        // Calculate squared distance between detection and tracked obstacle
+        double dx = detection.x - tracked_obstacles_[i].position_world.x;
+        double dy = detection.y - tracked_obstacles_[i].position_world.y;
+        double dz = detection.z - tracked_obstacles_[i].position_world.z;
+        double dist_sq = dx * dx + dy * dy + dz * dz;
+
+        ROS_WARN("findBestMatch: Obstacle %zu at (%.3f, %.3f, %.3f), dist_sq=%.3f, min_dist_sq=%.3f", 
+                 i, tracked_obstacles_[i].position_world.x, tracked_obstacles_[i].position_world.y, 
+                 tracked_obstacles_[i].position_world.z, dist_sq, min_dist_sq);
+
+        if (dist_sq < min_dist_sq) {
+            min_dist_sq = dist_sq;
+            best_match_idx = i;
+            ROS_WARN("findBestMatch: New best match found! Index=%d, dist_sq=%.3f", best_match_idx, min_dist_sq);
+        }
+    }
+
+    ROS_WARN("findBestMatch: Final result - best_match_idx=%d", best_match_idx);
     return best_match_idx;
 }
 

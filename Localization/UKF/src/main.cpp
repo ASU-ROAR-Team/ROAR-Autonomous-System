@@ -128,7 +128,7 @@ void publishState(bool showInPlotter = false)
     Eigen::Vector3d rotatedXYZ;
     state_msg.header.stamp = ros::Time::now();
     state_msg.header.frame_id = "world";
-    state_msg.child_frame_id = "base_link";
+    state_msg.child_frame_id = "dummy_root";
 
     if(!ukf.x_post.allFinite()) {
         ROS_ERROR("[!] State Space x_post is not finite");
