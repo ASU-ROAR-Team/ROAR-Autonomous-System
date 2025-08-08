@@ -66,13 +66,7 @@ class APFPlanner:
                 "TAU": rospy.get_param("~TAU", 0.1),
                 "CHECKPOINTDIST": rospy.get_param("~CHECKPOINTDIST", 1.8),
                 "PIXEL_SCALE": rospy.get_param("~PIXEL_SCALE", 20.2),
-                "GRADIENT_RADIUS": rospy.get_param("~GRADIENT_RADIUS", 1),
-                # Force smoothing parameters
-                "FORCE_SMOOTHING_FACTOR": rospy.get_param("~FORCE_SMOOTHING_FACTOR", 0.7),
-                "MOMENTUM_FACTOR": rospy.get_param("~MOMENTUM_FACTOR", 0.3),
-                "FORCE_THRESHOLD": rospy.get_param("~FORCE_THRESHOLD", 0.1),
-                "OSCILLATION_DETECTION_WINDOW": rospy.get_param("~OSCILLATION_DETECTION_WINDOW", 5),
-                "MAX_FORCE_CHANGE": rospy.get_param("~MAX_FORCE_CHANGE", 2.0),
+                "GRADIENT_RADIUS": rospy.get_param("~GRADIENT_RADIUS", 1)
             },
         }
 
@@ -93,27 +87,11 @@ class APFPlanner:
         # Obstacle dict: key=obstacle_id (int), value=[x_world, y_world, true_radius, effective_radius_apf]
         self.obstacleData: Dict[str, Any] = {"obstacles": {}, "lock": threading.Lock()}
 
-        # Force smoothing and momentum tracking
-        self.forceHistory: Dict[str, Any] = {
-            "previous_force_x": 0.0,
-            "previous_force_y": 0.0,
-            "smoothed_force_x": 0.0,
-            "smoothed_force_y": 0.0,
-            "force_history_x": [],
-            "force_history_y": [],
-            "oscillation_detected": False,
-            "lock": threading.Lock()
-        }
-
         # Visualization system
         self.vizComponents: Dict[str, Any] = self.initVisualization()
         rospy.loginfo("APF Planner Initialized. Target frame: %s", self.target_frame)
         rospy.loginfo("APF Params: KATT=%.1f, KREP=%.1f, QSTAR=%.1f",
                       self.config["apfParams"]["KATT"], self.config["apfParams"]["KREP"], self.config["apfParams"]["QSTAR"])
-        rospy.loginfo("Force Smoothing: factor=%.2f, momentum=%.2f, threshold=%.2f",
-                      self.config["apfParams"]["FORCE_SMOOTHING_FACTOR"],
-                      self.config["apfParams"]["MOMENTUM_FACTOR"],
-                      self.config["apfParams"]["FORCE_THRESHOLD"])
 
 
     def initAPFForces(self) -> Dict[str, Expr]:
@@ -327,129 +305,6 @@ class APFPlanner:
                 yEnhanced = gain * math.sin(angle_to_checkpoint)
         return (xEnhanced, yEnhanced)
 
-    def smoothForces(self, current_force_x: float, current_force_y: float) -> Tuple[float, float]:
-        """
-        Apply force smoothing to prevent oscillatory behavior
-        
-        Args:
-            current_force_x: Current calculated force in X direction
-            current_force_y: Current calculated force in Y direction
-            
-        Returns:
-            Tuple of smoothed forces (x, y)
-        """
-        with self.forceHistory["lock"]:
-            # Get previous smoothed forces
-            prev_smoothed_x = self.forceHistory["smoothed_force_x"]
-            prev_smoothed_y = self.forceHistory["smoothed_force_y"]
-            
-            # Calculate force change magnitude
-            force_change_x = current_force_x - self.forceHistory["previous_force_x"]
-            force_change_y = current_force_y - self.forceHistory["previous_force_y"]
-            force_change_magnitude = math.hypot(force_change_x, force_change_y)
-            
-            # Limit maximum force change to prevent sudden jumps
-            max_change = self.config["apfParams"]["MAX_FORCE_CHANGE"]
-            if force_change_magnitude > max_change:
-                scale_factor = max_change / force_change_magnitude
-                force_change_x *= scale_factor
-                force_change_y *= scale_factor
-            
-            # Apply exponential smoothing
-            smoothing_factor = self.config["apfParams"]["FORCE_SMOOTHING_FACTOR"]
-            momentum_factor = self.config["apfParams"]["MOMENTUM_FACTOR"]
-            
-            # Smooth the current force
-            smoothed_x = (smoothing_factor * current_force_x + 
-                         (1 - smoothing_factor) * prev_smoothed_x)
-            smoothed_y = (smoothing_factor * current_force_y + 
-                         (1 - smoothing_factor) * prev_smoothed_y)
-            
-            # Add momentum from previous direction
-            if abs(prev_smoothed_x) > self.config["apfParams"]["FORCE_THRESHOLD"] or \
-               abs(prev_smoothed_y) > self.config["apfParams"]["FORCE_THRESHOLD"]:
-                smoothed_x += momentum_factor * prev_smoothed_x
-                smoothed_y += momentum_factor * prev_smoothed_y
-            
-            # Update force history
-            self.forceHistory["previous_force_x"] = current_force_x
-            self.forceHistory["previous_force_y"] = current_force_y
-            self.forceHistory["smoothed_force_x"] = smoothed_x
-            self.forceHistory["smoothed_force_y"] = smoothed_y
-            
-            # Store force history for oscillation detection
-            self.forceHistory["force_history_x"].append(smoothed_x)
-            self.forceHistory["force_history_y"].append(smoothed_y)
-            
-            # Keep only recent history
-            max_history = self.config["apfParams"]["OSCILLATION_DETECTION_WINDOW"]
-            if len(self.forceHistory["force_history_x"]) > max_history:
-                self.forceHistory["force_history_x"] = self.forceHistory["force_history_x"][-max_history:]
-                self.forceHistory["force_history_y"] = self.forceHistory["force_history_y"][-max_history:]
-            
-            # Detect oscillation
-            self.detectOscillation()
-            
-            return smoothed_x, smoothed_y
-
-    def detectOscillation(self) -> None:
-        """Detect oscillatory behavior in force history"""
-        if len(self.forceHistory["force_history_x"]) < 4:
-            return
-        
-        # Calculate direction changes
-        direction_changes = 0
-        for i in range(1, len(self.forceHistory["force_history_x"])):
-            prev_angle = math.atan2(self.forceHistory["force_history_y"][i-1], 
-                                   self.forceHistory["force_history_x"][i-1])
-            curr_angle = math.atan2(self.forceHistory["force_history_y"][i], 
-                                   self.forceHistory["force_history_x"][i])
-            
-            # Calculate angle difference
-            angle_diff = abs(curr_angle - prev_angle)
-            if angle_diff > math.pi:
-                angle_diff = 2 * math.pi - angle_diff
-            
-            # Count significant direction changes
-            if angle_diff > math.pi / 2:  # 90 degrees
-                direction_changes += 1
-        
-        # Detect oscillation if too many direction changes
-        self.forceHistory["oscillation_detected"] = direction_changes >= 2
-        
-        if self.forceHistory["oscillation_detected"]:
-            rospy.logwarn_throttle(2.0, "Oscillation detected in force vectors. Applying additional smoothing.")
-
-    def applyOscillationCorrection(self, force_x: float, force_y: float) -> Tuple[float, float]:
-        """
-        Apply additional correction when oscillation is detected
-        
-        Args:
-            force_x: Current force in X direction
-            force_y: Current force in Y direction
-            
-        Returns:
-            Corrected forces (x, y)
-        """
-        if not self.forceHistory["oscillation_detected"]:
-            return force_x, force_y
-        
-        # When oscillation is detected, reduce force magnitude and increase smoothing
-        correction_factor = 0.5  # Reduce force magnitude by 50%
-        additional_smoothing = 0.8  # Apply additional smoothing
-        
-        # Get previous smoothed force
-        prev_x = self.forceHistory["smoothed_force_x"]
-        prev_y = self.forceHistory["smoothed_force_y"]
-        
-        # Apply correction
-        corrected_x = (additional_smoothing * prev_x + 
-                      (1 - additional_smoothing) * force_x) * correction_factor
-        corrected_y = (additional_smoothing * prev_y + 
-                      (1 - additional_smoothing) * force_y) * correction_factor
-        
-        return corrected_x, corrected_y
-
     def updateCheckpoints(self, position: List[float]) -> None:
         """Remove reached checkpoints"""
         if self.config["checkpoints"]:
@@ -514,7 +369,7 @@ class APFPlanner:
     def calculateForces(
         self, position: List[float], goal: Tuple[float, float]
     ) -> Tuple[float, float]:
-        """Calculate total APF forces with smoothing"""
+        """Calculate total APF forces"""
         symbol_list = self.apfSymbols
         subs_dict = {
             symbol_list[0]: position[0], # xRob
@@ -548,25 +403,11 @@ class APFPlanner:
                 except Exception as e:
                     rospy.logwarn_throttle(5.0, f"Error evaluating repulsive force for obs {obs_id}: {e}. Subs: {subs_dict_rep}")
 
+
         fxGrad, fyGrad = self.calculateGradientForce(position)
 
-        # Calculate raw total forces
-        raw_fx_total = fxAtt + fxEnhanced + fxRep_total + fxGrad
-        raw_fy_total = fyAtt + fyEnhanced + fyRep_total + fyGrad
-
-        # Apply force smoothing to prevent oscillatory behavior
-        smoothed_fx, smoothed_fy = self.smoothForces(raw_fx_total, raw_fy_total)
-        
-        # Apply oscillation correction if needed
-        final_fx, final_fy = self.applyOscillationCorrection(smoothed_fx, smoothed_fy)
-
-        # Log force components for debugging (throttled to avoid spam)
-        rospy.logdebug_throttle(1.0, 
-            f"Forces: Raw({raw_fx_total:.2f},{raw_fy_total:.2f}), "
-            f"Smoothed({smoothed_fx:.2f},{smoothed_fy:.2f}), "
-            f"Final({final_fx:.2f},{final_fy:.2f})")
-
-        return (final_fx, final_fy)
+        # rospy.logdebug(f"Forces: Att({fxAtt:.2f},{fyAtt:.2f}), Enh({fxEnhanced:.2f},{fyEnhanced:.2f}), Rep({fxRep_total:.2f},{fyRep_total:.2f}), Grad({fxGrad:.2f},{fyGrad:.2f})")
+        return (fxAtt + fxEnhanced + fxRep_total + fxGrad, fyAtt + fyEnhanced + fyRep_total + fyGrad)
 
     def updateVisualization(
         self, trajectory: List[Tuple[float, float]], lookaheadPoint: Tuple[float, float]
@@ -592,28 +433,11 @@ class APFPlanner:
 
             rospy.logdebug(f"Robot position: {self.robotState['position'][:2]}")
             # Plot robot position
-            robot_x, robot_y = self.robotState["position"][0], self.robotState["position"][1]
-            axes.plot(robot_x, robot_y, "bo", markersize=6, label="Robot")
-            
-            # Plot force vectors
-            with self.forceHistory["lock"]:
-                if abs(self.forceHistory["smoothed_force_x"]) > 0.01 or abs(self.forceHistory["smoothed_force_y"]) > 0.01:
-                    # Scale force vector for visualization
-                    force_scale = 0.5
-                    force_x = self.forceHistory["smoothed_force_x"] * force_scale
-                    force_y = self.forceHistory["smoothed_force_y"] * force_scale
-                    
-                    # Plot force vector
-                    axes.arrow(robot_x, robot_y, force_x, force_y, 
-                              head_width=0.2, head_length=0.3, fc='red', ec='red', 
-                              alpha=0.7, label="APF Force")
-                    
-                    # Add oscillation indicator
-                    if self.forceHistory["oscillation_detected"]:
-                        axes.text(robot_x + 1, robot_y + 1, "OSCILLATION", 
-                                color='red', fontsize=10, fontweight='bold',
-                                bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7))
-            
+            axes.plot(
+                self.robotState["position"][0],
+                self.robotState["position"][1],
+                "bo", markersize=6, label="Robot"
+            )
             if trajectory:
                 axes.plot(*zip(*trajectory), "r--", linewidth=1.5, label="Planned Segment")
             axes.scatter(
@@ -629,6 +453,7 @@ class APFPlanner:
                 for _id, obst_data in self.obstacleData["obstacles"].items():
                     axes.add_patch(Circle((obst_data[0], obst_data[1]), obst_data[2], color="red", alpha=0.6, zorder=4))
                     axes.add_patch(Circle((obst_data[0], obst_data[1]), obst_data[3], color="orange", alpha=0.2, linestyle='--', zorder=3))
+
 
             if self.config["goalPoints"] and len(self.config["goalPoints"][0]) == 2:
                 axes.plot(
@@ -688,7 +513,7 @@ class APFPlanner:
             finalGoal = (float(self.config["goalPoints"][-1][0]), float(self.config["goalPoints"][-1][1]))
 
 
-            if (math.hypot((currentPos[0] - finalGoal[0]), (currentPos[1] - finalGoal[1])) <= 0.3):
+            if (math.hypot((currentPos[0] - finalGoal[0]), (currentPos[1] - finalGoal[1])) <= 0.3) and self.robotState["awayFromStart"]:
                 self.robotState["goalReached"] = True
                 rospy.loginfo("Final goal reached!")
                 self.publishPath([])
