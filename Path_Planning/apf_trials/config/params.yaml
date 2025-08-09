@@ -4,19 +4,21 @@ APF_update:
   KREP: 100              # Repulsive gain
   KENHANCED: 80          # Enhanced attraction gain
   KGRADIENT: 0.1         # Costmap gradient coefficient
+ 
 
   # Obstacle parameters
-  QSTAR: 1             # Influence range threshold (meters)
+  QSTAR: 0.8             # Influence range threshold (meters)
   obstacle_topic: "obstacleArrayTopic"  # Topic name for obstacles
+  OBSTACLE_CHECKPOINT_DIST: 0.5  # Distance to ignore checkpoints near obstacles (meters)
 
   # Path following parameters
   M: 1                   # Potential field exponent
-  LOOKAHEADDIST: 1.8     # Lookahead distance (meters)
   CHECKPOINTDIST: 1.2    # Checkpoint triggering distance (meters)
+  LOOKAHEAD_STEPS: 9    # Number of lookahead steps for path following
 
   # Path file parameters
-  pathFile: "~/roar/roar_ws/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
-  costmapFile: "~/roar/roar_ws/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
+  pathFile: "~/ROAR/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
+  costmapFile: "~/ROAR/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
 
 
   # Time parameters
