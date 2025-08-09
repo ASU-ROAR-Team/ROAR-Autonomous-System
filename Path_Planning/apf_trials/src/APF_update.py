@@ -77,6 +77,7 @@ class APFPlanner:
             "awayFromStart": False,
             "currentIndex": 0,
             "goalReached": False,
+            "lastClosestIndex": 0
         }
 
         # APF components
@@ -317,17 +318,24 @@ class APFPlanner:
                 self.config["checkpoints"].pop(0)
 
     def calculateDynamicGoal(self, position: List[float]) -> Tuple[float, float]:
-        """Determine current navigation target (lookahead point)"""
+        """
+        Determine current navigation target (lookahead point) by finding the closest
+        point on the path and then looking ahead. This version is optimized
+        to search from the last known closest index for efficiency.
+        """
+        # Ensure the robot has moved sufficiently from the start before using the full path.
         if not self.robotState["awayFromStart"]:
             start_point_of_path = self.config["goalPoints"][0]
             distance_from_true_start = math.hypot(
                 (position[0] - start_point_of_path[0]), (position[1] - start_point_of_path[1])
             )
-            if distance_from_true_start >= 1.0 : # If robot has moved 1m from the very first waypoint
+            # If robot has moved 1m from the very first waypoint, activate full path tracking
+            if distance_from_true_start >= 1.0:
                  if not self.robotState["awayFromStart"]:
                     rospy.loginfo("Robot moved >1m from path start. Using full path now.")
                  self.robotState["awayFromStart"] = True
 
+        # Select the appropriate set of waypoints to search from.
         candidates = (
             self.config["goalPoints"]
             if self.robotState["awayFromStart"]
@@ -335,17 +343,24 @@ class APFPlanner:
         )
         if not candidates:
             rospy.logwarn("No candidate points for dynamic goal. Using final goal of full path.")
+            # Fallback to the very last point of the full path if candidates list is empty
             return (float(self.config["goalPoints"][-1][0]), float(self.config["goalPoints"][-1][1]))
-
 
         finalGoalOfCandidates: Tuple[float, float] = (float(candidates[-1][0]), float(candidates[-1][1]))
 
+        # If we're already close to the final goal, just return it.
         if math.hypot((position[0] - finalGoalOfCandidates[0]), (position[1] - finalGoalOfCandidates[1])) < 0.5:
             return finalGoalOfCandidates
 
         min_dist_sq = float('inf')
-        closest_idx = 0
-        for i, p_tuple in enumerate(candidates):
+        # Start the search from the last known closest index for efficiency.
+        # Use .get() with a default of 0 to handle the first loop iteration.
+        closest_idx = self.robotState.get("lastClosestIndex", 0)
+
+        # Iterate from the last known closest index to the end of the path
+        # to find the true closest point to the robot's current position.
+        for i in range(closest_idx, len(candidates)):
+            p_tuple = candidates[i]
             p = (float(p_tuple[0]), float(p_tuple[1])) # Ensure floats
             dist_sq = (p[0] - position[0])**2 + (p[1] - position[1])**2
             if dist_sq < min_dist_sq:
@@ -353,8 +368,11 @@ class APFPlanner:
                 closest_idx = i
 
         self.robotState["currentIndex"] = closest_idx
+        # Update the last closest index for the next iteration
+        self.robotState["lastClosestIndex"] = closest_idx
 
-        lookahead_dist = self.config["apfParams"]["LOOKAHEADDIST"] # LOOKAHEADDIST
+        # Now, search ahead from the closest point to find the lookahead point.
+        lookahead_dist = self.config["apfParams"]["LOOKAHEADDIST"]
         for idx in range(self.robotState["currentIndex"], len(candidates)):
             point_tuple = candidates[idx]
             point = (float(point_tuple[0]), float(point_tuple[1])) # Ensure floats
@@ -364,7 +382,10 @@ class APFPlanner:
             if distance_from_robot >= lookahead_dist:
                 return point
 
+        # If we reach the end of the path without finding a point far enough away,
+        # return the final goal.
         return finalGoalOfCandidates
+
 
     def calculateForces(
         self, position: List[float], goal: Tuple[float, float]
