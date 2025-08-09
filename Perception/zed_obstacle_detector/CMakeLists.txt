@@ -11,12 +11,18 @@ find_package(catkin REQUIRED COMPONENTS
   tf2_ros
   tf2_geometry_msgs
   tf2_eigen
+  dynamic_reconfigure
 )
 
 find_package(PCL REQUIRED)
 
+# Generate dynamic_reconfigure files
+generate_dynamic_reconfigure_options(
+  cfg/ZedObstacleDetector.cfg
+)
+
 catkin_package(
-  CATKIN_DEPENDS roscpp sensor_msgs roar_msgs pcl_ros pcl_conversions visualization_msgs tf2_ros tf2_geometry_msgs tf2_eigen
+  CATKIN_DEPENDS roscpp sensor_msgs roar_msgs pcl_ros pcl_conversions visualization_msgs tf2_ros tf2_geometry_msgs tf2_eigen dynamic_reconfigure
   INCLUDE_DIRS include
 )
 

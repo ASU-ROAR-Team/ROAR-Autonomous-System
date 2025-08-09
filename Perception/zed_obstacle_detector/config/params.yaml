@@ -28,8 +28,8 @@ zed_obstacle_detector:
   # Clustering
   clustering:
     cluster_tolerance: 0.3
-    min_cluster_size: 20
-    max_cluster_size: 15000
+    min_cluster_size: 100
+    max_cluster_size: 10000
   
   # Tracking
   tracking:

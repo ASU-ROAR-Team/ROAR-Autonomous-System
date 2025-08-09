@@ -20,6 +20,12 @@
   <arg name="point_cloud_topic" default="" doc="Point cloud topic. If empty, uses config file default" />
   <arg name="camera_frame" default="" doc="Camera frame. If empty, uses config file default" />
   
+  <!-- GUI Configuration (Optional) -->
+  <arg name="enable_rqt_reconfigure" default="false" doc="Enable RQT reconfigure GUI for live parameter tuning" />
+  <arg name="enable_rqt_plot" default="false" doc="Enable RQT plot for performance monitoring" />
+  <arg name="enable_full_gui" default="false" doc="Enable full RQT GUI with multiple plugins" />
+  <arg name="force_rviz" default="false" doc="Force RViz to launch even in non-debug modes" />
+  
   <!-- Load parameters based on performance mode -->
   <group if="$(eval arg('performance_mode') == 'debug')">
     <rosparam command="load" file="$(find zed_obstacle_detector)/config/test_params.yaml" />
@@ -44,7 +50,27 @@
     
   </node>
   
-  <!-- RViz for visualization (only in debug mode) -->
-  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find zed_obstacle_detector)/config/zed_obstacle_detector.rviz" if="$(eval arg('performance_mode') == 'debug')" />
+  <!-- RViz for visualization (debug mode or forced) -->
+  <node name="rviz" pkg="rviz" type="rviz" 
+        args="-d $(find zed_obstacle_detector)/config/zed_obstacle_detector.rviz" 
+        if="$(eval arg('performance_mode') == 'debug' or arg('force_rviz') == true)" />
+  
+  <!-- RQT Reconfigure for live parameter tuning -->
+  <node name="rqt_reconfigure" pkg="rqt_reconfigure" type="rqt_reconfigure" 
+        args="--force-discover" output="screen" if="$(arg enable_rqt_reconfigure)">
+    <param name="plugin" value="rqt_reconfigure/Reconfigure" />
+  </node>
+  
+  <!-- RQT Plot for performance monitoring -->
+  <node name="rqt_plot" pkg="rqt_plot" type="rqt_plot" 
+        args="/zed_obstacle/performance/processing_time" 
+        output="screen" if="$(arg enable_rqt_plot)">
+  </node>
+  
+  <!-- Full RQT GUI with multiple plugins -->
+  <node name="rqt_gui" pkg="rqt_gui" type="rqt_gui" 
+        args="--perspective-file $(find zed_obstacle_detector)/config/zed_obstacle_detector.perspective" 
+        output="screen" if="$(arg enable_full_gui)">
+  </node>
   
 </launch> 

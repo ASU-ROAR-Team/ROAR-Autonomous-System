@@ -5,9 +5,14 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <roar_msgs/ObstacleArray.h>
 #include <visualization_msgs/MarkerArray.h>
-#include <sensor_msgs/PointCloud2.h>
+#include <dynamic_reconfigure/server.h>
+#include "zed_obstacle_detector/ZedObstacleDetectorConfig.h"
 
 #include "zed_obstacle_detector/obstacle_detector.h"
+
+// Global variables for dynamic_reconfigure
+std::unique_ptr<zed_obstacle_detector::ObstacleDetector> obstacle_detector;
+dynamic_reconfigure::Server<zed_obstacle_detector::ZedObstacleDetectorConfig> *dr_server;
 
 // Publishers
 ros::Publisher pub_obstacle_array;
@@ -15,9 +20,6 @@ ros::Publisher pub_markers;
 ros::Publisher pub_filtered_transformed;
 ros::Publisher pub_no_ground;
 ros::Publisher pub_clusters_debug;
-
-// Main obstacle detector instance
-std::unique_ptr<zed_obstacle_detector::ObstacleDetector> obstacle_detector;
 
 // Helper function to print parameters
 void print_parameters(const zed_obstacle_detector::ObstacleDetectorParams& params, 
@@ -158,28 +160,80 @@ void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorPar
     }
 }
 
-void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input_msg) {
-    // Reload parameters live
-    static ros::NodeHandle private_nh("~");
-    static zed_obstacle_detector::ObstacleDetectorParams params = obstacle_detector->getParams();
-    static std::string dummy_topic, dummy_frame;  // Not used in update mode
-    load_params(private_nh, params, dummy_topic, dummy_frame, false);  // false = update mode
+// Dynamic reconfigure callback
+void dynamicReconfigureCallback(zed_obstacle_detector::ZedObstacleDetectorConfig &config, uint32_t level) {
+    ROS_INFO("Dynamic reconfigure callback triggered");
+    
+    if (!obstacle_detector) {
+        ROS_WARN("Obstacle detector not initialized yet");
+        return;
+    }
+    
+    // Get current parameters
+    zed_obstacle_detector::ObstacleDetectorParams params = obstacle_detector->getParams();
+    
+    // Update processing parameters
+    params.processing_params.voxel_leaf_size = config.voxel_leaf_size;
+    params.processing_params.enable_uniform_downsampling = config.enable_uniform_downsampling;
+    params.processing_params.uniform_sampling_radius = config.uniform_sampling_radius;
+    params.processing_params.enable_early_exit = config.enable_early_exit;
+    params.processing_params.min_points_for_processing = config.min_points_for_processing;
+    params.processing_params.max_points_for_processing = config.max_points_for_processing;
+    params.processing_params.passthrough_z_min = config.passthrough_z_min_camera;
+    params.processing_params.passthrough_z_max = config.passthrough_z_max_camera;
+    
+    // Update ground detection parameters
+    params.enable_ground_filtering = config.enable_ground_filtering;
+    params.ground_params.distance_threshold = config.ground_filter_distance_threshold;
+    params.ground_params.angle_threshold_deg = config.ground_filter_angle_threshold_deg;
+    params.ground_params.max_iterations = config.ground_filter_max_iterations;
+    params.ground_params.mars_terrain_mode = config.mars_terrain_mode;
+    
+    // Update clustering parameters
+    params.cluster_params.cluster_tolerance = config.cluster_tolerance;
+    params.cluster_params.min_cluster_size = config.min_cluster_size;
+    params.cluster_params.max_cluster_size = config.max_cluster_size;
+    
+    // Update tracking parameters
+    params.tracking_params.association_distance_sq = config.obstacle_association_distance * config.obstacle_association_distance;
+    params.tracking_params.timeout_sec = config.obstacle_timeout_sec;
+    params.tracking_params.position_smoothing_factor = config.position_smoothing_factor;
+    params.tracking_params.min_detections_for_confirmation = config.min_detections_for_confirmation;
+    
+    // Update transform parameters
+    params.transform_params.tf_lookup_timeout = config.tf_lookup_timeout;
+    params.transform_params.tf_buffer_duration = config.tf_buffer_duration;
+    params.transform_params.enable_transformations = config.enable_transformations;
+    
+    // Update monitoring parameters
+    params.monitor_params.enable_detailed_timing = config.enable_detailed_timing;
+    params.monitor_params.enable_debug_publishers = config.enable_debug_publishers;
+    params.monitor_params.timing_report_interval = config.timing_report_interval;
+    params.monitor_params.enable_performance_logging = config.enable_performance_logging;
+    
+    // Update debug parameters
+    params.enable_debug_output = config.enable_debug_output;
+    params.cluster_params.enable_debug_output = config.enable_debug_publishers;  // Sync with debug publishers
+    
+    // Apply the new parameters
     obstacle_detector->setParams(params);
+    
+    ROS_INFO("Parameters updated via dynamic reconfigure");
+    ROS_INFO("  Voxel size: %.3f, Cluster tolerance: %.3f, Min cluster size: %d", 
+             config.voxel_leaf_size, config.cluster_tolerance, config.min_cluster_size);
+}
 
+void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr& input_msg) {
     // Simple debug print to verify parameters are updating
     static int frame_count = 0;
     frame_count++;
     if (frame_count % 30 == 0) {  // Print every 30 frames
+        auto params = obstacle_detector->getParams();
         ROS_INFO("Frame %d: voxel_leaf_size=%.3f, cluster_tolerance=%.3f, min_cluster_size=%d", 
                  frame_count, params.processing_params.voxel_leaf_size, 
                  params.cluster_params.cluster_tolerance, params.cluster_params.min_cluster_size);
     }
 
-    // Print updated parameters (throttled)
-    static std::string last_topic, last_frame;  // For print_parameters compatibility
-    ROS_INFO_THROTTLE(5.0, "=== Parameter Update ===");
-    print_parameters(params, last_topic, last_frame);
-    
     ROS_INFO_THROTTLE(5.0, "Received point cloud. Processing for obstacle tracking...");
     
     // Process point cloud using modular detector
@@ -232,12 +286,15 @@ int main(int argc, char** argv) {
     pub_obstacle_array = nh.advertise<roar_msgs::ObstacleArray>("/zed_obstacle/obstacle_array", 10); 
     pub_markers = nh.advertise<visualization_msgs::MarkerArray>("/zed_obstacle/markers", 10); 
 
-    // Debug publishers (only if enabled)
-    if (params.monitor_params.enable_debug_publishers) {
-        pub_filtered_transformed = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/filtered_transformed_pc", 1);
-        pub_no_ground = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/pc_no_ground", 1);
-        pub_clusters_debug = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/raw_clusters_rgb", 1);
-    }
+    // Debug publishers (always create them, enable/disable via parameter)
+    pub_filtered_transformed = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/filtered_transformed_pc", 1);
+    pub_no_ground = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/pc_no_ground", 1);
+    pub_clusters_debug = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/raw_clusters_rgb", 1);
+
+    // Setup dynamic reconfigure server
+    dynamic_reconfigure::Server<zed_obstacle_detector::ZedObstacleDetectorConfig> dr_server_instance;
+    dr_server = &dr_server_instance;
+    dr_server->setCallback(boost::bind(&dynamicReconfigureCallback, _1, _2));
 
     ROS_INFO("ZED2i Real-World Obstacle Detector initialized. Waiting for point clouds on %s...", point_cloud_topic.c_str());
     ros::spin();

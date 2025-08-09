@@ -70,16 +70,11 @@ std::vector<pcl::PointIndices> ClusterDetector::extractClusterIndices(const pcl:
     std::vector<pcl::PointIndices> cluster_indices;
     
     try {
-        // Update cached KdTree if needed
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree (new pcl::search::KdTree<pcl::PointXYZ>);
-        kdtree->setInputCloud(input_cloud);
-
-        // Extract clusters with optimized parameters using cached tree
+        // Extract clusters with optimized parameters (PCL creates KdTree internally)
         pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
         ec.setClusterTolerance(params_.cluster_tolerance);
         ec.setMinClusterSize(params_.min_cluster_size);
         ec.setMaxClusterSize(params_.max_cluster_size);
-        ec.setSearchMethod(kdtree);
         ec.setInputCloud(input_cloud);
         ec.extract(cluster_indices);
         
