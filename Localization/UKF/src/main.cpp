@@ -25,6 +25,8 @@ Eigen::VectorXd z_measurement(14); // Vector for measurement
 Eigen::VectorXd encoder_measurement(2); // Vector for encoder measurement
 Eigen::VectorXd encoder_prev_measurement(2); // Vector for encoder measurement
 
+ros::NodeHandle* nh_ptr = nullptr;
+
 // Define constants
 const int n_state_dim = 9;  // State dimension
 const float alpha = 0.3;
@@ -93,7 +95,7 @@ void poseCallback(){
     /*******
     TALYEESA
     *******/
-    rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
+    //rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
 
     transformStamped.header.stamp = ros::Time::now();
     transformStamped.header.frame_id = "world";
@@ -145,7 +147,7 @@ void publishState(bool showInPlotter = false)
         /*******
         TALYEESA
         *******/
-        rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
+        //rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
 
         // Publish the state message
         state_msg.pose.pose.orientation.w = ukf.x_post[0];
@@ -157,6 +159,14 @@ void publishState(bool showInPlotter = false)
         state_msg.twist.twist.angular.z = ukf.x_post[6];
         state_msg.pose.pose.position.x = rotatedXYZ[0];
         state_msg.pose.pose.position.y = rotatedXYZ[1];
+
+        nh_ptr->setParam("/rover/position/x", rotatedXYZ[0]);
+        nh_ptr->setParam("/rover/position/y", rotatedXYZ[1]);
+        nh_ptr->setParam("/rover/position/z", 0.0); // Assuming z is always 0 in this context
+        nh_ptr->setParam("/rover/orientation/w", ukf.x_post[0]);
+        nh_ptr->setParam("/rover/orientation/x", ukf.x_post[1]);
+        nh_ptr->setParam("/rover/orientation/y", ukf.x_post[2]);
+        nh_ptr->setParam("/rover/orientation/z", ukf.x_post[3]);
     }
 
     ROS_WARN("[!] Current number of fails: %d", noOfFails);
@@ -244,11 +254,29 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
     // Check if prev_time_stamp is zero
     if (initial_measurement == true)
     {
-        ROS_DEBUG("[+] Initializing GPS reference coordinates");
-        // Initialize lat0 and lon0 with the first GPS measurement
         lat0 = msg->latitude; // Initialize lat0
         lon0 = msg->longitude; // Initialize lon0
         initial_measurement = false;
+        /*
+        ROS_DEBUG("[+] Initializing GPS reference coordinates");
+        // Initialize lat0 and lon0 with the first GPS measurement
+        if (nh_ptr->hasParam("/rover/initial/lat") && nh_ptr->hasParam("/rover/initial/lon")) {
+            ROS_DEBUG("[+] Initial GPS coordinates set successfully");
+            XmlRpc::XmlRpcValue initial;
+            nh_ptr->getParam("/rover/initial", initial);
+            lat0 = static_cast<double>(initial["lat"]);
+            lon0 = static_cast<double>(initial["lon"]);
+            initial_measurement = false;
+            ROS_DEBUG("Loaded initial GPS readings from parameter server.");
+        } else {
+            ROS_DEBUG("[+] Initializing initial GPS coordinates");
+            lat0 = msg->latitude; // Initialize lat0
+            lon0 = msg->longitude; // Initialize lon0
+            initial_measurement = false;
+            nh_ptr->setParam("/rover/initial/lat", lat0);
+            nh_ptr->setParam("/rover/initial/lon", lon0);
+        }
+            */
     }
 
     // Store GPS measurements
@@ -441,44 +469,69 @@ void magnetometerCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
 
 bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quaternion& orientation, tf2::Quaternion& IMUorientation, Eigen::Vector3d& CAMERAwrtGPS) {
     XmlRpc::XmlRpcValue iPose;
+    XmlRpc::XmlRpcValue init_position;
+    XmlRpc::XmlRpcValue init_orientation;
+    ROS_DEBUG("Loading local initial parameters");
     if (!nh.getParam("iPose", iPose)) {
         ROS_ERROR("Failed to get param 'iPose'");
         return false;
     }
 
-    // --- Extract position ---
-    if (iPose.getType() != XmlRpc::XmlRpcValue::TypeStruct ||
-        !iPose.hasMember("position") ||
-        iPose["position"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
-        ROS_ERROR("Invalid or missing 'position' in iPose param");
-        return false;
-    }
+    if(nh.hasParam("/rover/position") && nh.hasParam("/rover/orientation")) {
+        ROS_DEBUG("[+] Loading initial pose from parameter server");
+        nh.getParam("/rover/position", init_position);
+        nh.getParam("/rover/orientation", init_orientation);
+        
+        // --- Extract position ---
+        position.x() = static_cast<double>(init_position["x"]);
+        position.y() = static_cast<double>(init_position["y"]);
+        position.z() = static_cast<double>(init_position["z"]);
+        ROS_DEBUG("[+] Initial position loaded: %f, %f, %f", position.x(), position.y(), position.z());
+        // --- Extract orientation ---
+        orientation = tf2::Quaternion(
+            static_cast<double>(init_orientation["x"]),
+            static_cast<double>(init_orientation["y"]),
+            static_cast<double>(init_orientation["z"]),
+            static_cast<double>(init_orientation["w"])
+        );
+        ROS_DEBUG("[+] Initial orientation loaded: %f, %f, %f, %f", 
+                  orientation.x(), orientation.y(), orientation.z(), orientation.w());
 
-    try {
-        position.x() = static_cast<double>(iPose["position"]["x"]);
-        position.y() = static_cast<double>(iPose["position"]["y"]);
-        position.z() = static_cast<double>(iPose["position"]["z"]);
-    } catch (...) {
-        ROS_ERROR("Failed to read 'position' values from iPose");
-        return false;
-    }
+    } else {
+        // --- Extract position ---
+        if (iPose.getType() != XmlRpc::XmlRpcValue::TypeStruct ||
+            !iPose.hasMember("position") ||
+            iPose["position"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
+            ROS_ERROR("Invalid or missing 'position' in iPose param");
+            return false;
+        }
 
-    // --- Extract orientation ---
-    if (!iPose.hasMember("orientation") ||
-        iPose["orientation"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
-        ROS_ERROR("Invalid or missing 'orientation' in iPose param");
-        return false;
-    }
+        try {
+            position.x() = static_cast<double>(iPose["position"]["x"]);
+            position.y() = static_cast<double>(iPose["position"]["y"]);
+            position.z() = static_cast<double>(iPose["position"]["z"]);
+        } catch (...) {
+            ROS_ERROR("Failed to read 'position' values from iPose");
+            return false;
+        }
 
-    try {
-        double w = static_cast<double>(iPose["orientation"]["w"]);
-        double x = static_cast<double>(iPose["orientation"]["x"]);
-        double y = static_cast<double>(iPose["orientation"]["y"]);
-        double z = static_cast<double>(iPose["orientation"]["z"]);
-        orientation = tf2::Quaternion(x, y, z, w);  // tf2 uses (x, y, z, w)
-    } catch (...) {
-        ROS_ERROR("Failed to read 'orientation' values from iPose");
-        return false;
+        // --- Extract orientation ---
+        if (!iPose.hasMember("orientation") ||
+            iPose["orientation"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
+            ROS_ERROR("Invalid or missing 'orientation' in iPose param");
+            return false;
+        }
+
+        try {
+            double w = static_cast<double>(iPose["orientation"]["w"]);
+            double x = static_cast<double>(iPose["orientation"]["x"]);
+            double y = static_cast<double>(iPose["orientation"]["y"]);
+            double z = static_cast<double>(iPose["orientation"]["z"]);
+            orientation = tf2::Quaternion(x, y, z, w);  // tf2 uses (x, y, z, w)
+        } catch (...) {
+            ROS_ERROR("Failed to read 'orientation' values from iPose");
+            return false;
+        }
     }
 
     // --- Extract orientation ---
@@ -486,8 +539,8 @@ bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quater
         iPose["IMUorientation"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
         ROS_ERROR("Invalid or missing 'IMUorientation' in iPose param");
         return false;
-    }
 
+    }
     try {
         double w = static_cast<double>(iPose["IMUorientation"]["w"]);
         double x = static_cast<double>(iPose["IMUorientation"]["x"]);
@@ -506,7 +559,6 @@ bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quater
         ROS_ERROR("Invalid or missing 'CAMERAwrtGPS' in iPose param");
         return false;
     }
-
     try {
         CAMERAwrtGPS.x() = static_cast<double>(iPose["CAMERAwrtGPS"]["x"]);
         CAMERAwrtGPS.y() = static_cast<double>(iPose["CAMERAwrtGPS"]["y"]);
@@ -515,6 +567,7 @@ bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quater
         ROS_ERROR("Failed to read 'CAMERAwrtGPS' values from iPose");
         return false;
     }
+    
 
     return true;
 }
@@ -539,6 +592,7 @@ int main(int argc, char **argv)
 
     ros::init(argc, argv, "ukf_localization"); // Initialize ROS node
     ros::NodeHandle nh; // Create ROS node handle
+    nh_ptr = &nh; // Assign the node handle to the global pointer
     
     // Initialize ROS subscribers
     gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
