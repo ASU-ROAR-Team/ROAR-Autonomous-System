@@ -50,6 +50,7 @@ tf2::Quaternion initialOrientation;
 tf2::Quaternion IMUorientation;
 Eigen::Vector3d CAMERAwrtGPS;
 int noOfFails = 0;
+double Rgps = 0.2; // GPS noise
 
 Eigen::VectorXd planBstate = Eigen::VectorXd::Zero(9); // State for plan B [oientation (w, x, y, z), angular velocity (x, y, z), position (lat, lon)] 
 
@@ -288,7 +289,7 @@ void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg)
 
 
     // Call UKF GPS callback function
-    ukf.gps_callback(z_measurement, lon0, lat0);
+    ukf.gps_callback(z_measurement, lon0, lat0, Rgps);
 
     publishState(true); // Publish the state message
     ROS_DEBUG("[*] Exiting gpsCallback function");
@@ -471,6 +472,7 @@ bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quater
     XmlRpc::XmlRpcValue iPose;
     XmlRpc::XmlRpcValue init_position;
     XmlRpc::XmlRpcValue init_orientation;
+
     ROS_DEBUG("Loading local initial parameters");
     if (!nh.getParam("iPose", iPose)) {
         ROS_ERROR("Failed to get param 'iPose'");
@@ -593,7 +595,22 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "ukf_localization"); // Initialize ROS node
     ros::NodeHandle nh; // Create ROS node handle
     nh_ptr = &nh; // Assign the node handle to the global pointer
-    
+
+    XmlRpc::XmlRpcValue UKF_PARAMS;
+    nh.getParam("UKF", UKF_PARAMS);
+
+    ukf.g0 << static_cast<int>(UKF_PARAMS["g0"]["x"]), static_cast<int>(UKF_PARAMS["g0"]["y"]), static_cast<int>(UKF_PARAMS["g0"]["z"]);
+    ukf.m0 << static_cast<double>(UKF_PARAMS["B_INTENSITY"]) * cos(static_cast<double>(UKF_PARAMS["INCLINATION"])),   // Magnetic Field Intensity Vector
+              0.0,
+              static_cast<double>(UKF_PARAMS["B_INTENSITY"])* sin(static_cast<double>(UKF_PARAMS["INCLINATION"]));
+    double noiseQ = static_cast<double>(UKF_PARAMS["Q"]); // Process noise
+    ukf.Q = Eigen::MatrixXd::Identity(9, 9) * noiseQ;
+    double noiseR = static_cast<double>(UKF_PARAMS["R"]); // Process noise
+    ukf.R = Eigen::MatrixXd::Identity(14, 14) * noiseR;
+
+    Rgps = static_cast<double>(UKF_PARAMS["R_gps"]); // GPS noise
+
+    ROS_DEBUG("UKF parameters loaded successfully");
     // Initialize ROS subscribers
     gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
     imu_sub = nh.subscribe("/imu", 1000, imuCallback);

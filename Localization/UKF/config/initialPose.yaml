@@ -3,3 +3,18 @@ iPose:
   orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
   IMUorientation: {x: -1.0, y: 0.0, z: 0.0, w: 0.0}
   CAMERAwrtGPS: {x: 0.0, y: 0.0, z: 0.0}
+
+UKF:
+  alpha: 3.0
+  beta: 2.0
+  kappa: 0.1
+  n_state_dim: 9
+  g0: {x: 0, y: 0, z: 1}
+  B_INTENSITY: 0.0000440257
+  INCLINATION: 0.79649845744
+  DECLINATION: 0.07891855279
+  Q: 0.01
+  R: 0.7
+  R_gps: 0.2
+
+  

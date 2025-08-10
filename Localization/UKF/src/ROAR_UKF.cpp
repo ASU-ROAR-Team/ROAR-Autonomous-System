@@ -496,7 +496,7 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
 
 }
 
-void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
+void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0, double Rgps)
 {
     ROS_DEBUG("[*] UKF -> GPS Callback called");
     /***
@@ -565,8 +565,8 @@ void UKF::gps_callback( Eigen::VectorXd z_measurement, double lon0, double lat0)
 
     // Add GPS noise
     Eigen::Matrix2d R_gps;
-    R_gps << 0.2, 0.0,
-            0.0, 0.2;
+    R_gps << Rgps, 0.0,
+            0.0, Rgps;
     S += R_gps;
 
     // Cross-covariance between state and measurement
