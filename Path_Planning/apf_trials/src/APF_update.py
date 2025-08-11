@@ -51,7 +51,7 @@ class APFPlanner:
 
         # Configuration parameters
         self.config: Dict[str, Any] = {
-            "checkpoints": [(7.58, 10.874), (0.211, 9.454), (0.83, 19.867), (6.71, 19.515)],
+            "checkpoints": [(12.3282, 6.7797), (15.1159, 3.0854), (20.127, 0.0),(19.7272, 5.2386)],
             "goalPoints": self.loadWaypoints(
                 rospy.get_param("~pathFile", "~/ttt/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/real_path.csv")
             ),
