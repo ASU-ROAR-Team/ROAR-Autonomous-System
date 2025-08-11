@@ -137,7 +137,7 @@ class HeightmapConverter:
             axis.imshow(data, cmap=cmap, vmin=0, vmax=100)
             axis.set_title(title)
 
-        plt.colorbar(axes[0].images[0], ax=axes, orientation="vertical")
+        plt.colorbar(axes[0].images[0], ax=axes, orientation="horizontal")
         plt.tight_layout()
         plt.show()
 

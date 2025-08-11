@@ -6,7 +6,7 @@
         <param name="image_path" type="string"
         value="$(find heightmap_costmap)/maps/Calibration_map.png" />
         <param name="real_coords" type="string"
-        value="[[0.0, 20.0], [-0.01, 10.016], [0.0, 0.0]]" />
+        value="[[0.0,0.0 ], [10.0126,0.0 ], [20.127, 0.0]]" />
 
 	<param name="input_csv" type="string" value="$(find heightmap_costmap)/path.csv" />
         <param name="output_csv" type="string" value="$(find heightmap_costmap)/real_path.csv" />

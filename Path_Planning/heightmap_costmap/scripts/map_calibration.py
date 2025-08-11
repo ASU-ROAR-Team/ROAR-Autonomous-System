@@ -1,11 +1,14 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-"""Module for calibrating map images using orange spots to transform between
-pixel and real coordinates."""
+"""
+Module for calibrating map images using horizontally-aligned red spots to
+transform between pixel and real coordinates. The origin is the leftmost marker.
+"""
 
 import ast
 import csv
 from collections import namedtuple
+from itertools import combinations
 from typing import List, Tuple, Optional, Any
 import rospy
 import cv2
@@ -38,12 +41,16 @@ class MapCalibration:
 
         self._loadParameters()
         self._processImage()
+        self._calculateCalibration()
         self._setupVisualization()
 
     def _loadParameters(self) -> None:
         """Load and validate parameters from ROS server."""
         imagePath = rospy.get_param("~image_path")
         self.image = cv2.imread(imagePath)
+        if self.image is None:
+             raise IOError(f"Failed to load image from {imagePath}")
+
         self.realCoords = ast.literal_eval(rospy.get_param("~real_coords"))
 
         # Handle CSV parameters
@@ -52,106 +59,170 @@ class MapCalibration:
         self.csvPaths = CsvPaths(inputCsv, outputCsv)
 
     def _processImage(self) -> None:
-        """Process image to detect markers and calculate calibration."""
+        """
+        Process the image to find the best horizontally-aligned markers.
+        This method has been updated to find red markers.
+        """
         if self.image is None:
             raise ValueError("Image not loaded")
 
-        hsvImage = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsvImage, np.array([5, 100, 100]), np.array([15, 255, 255]))
+        hsv_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
+        
+        # Define two HSV ranges for the color red (as it wraps around 0/180)
+        lower_red1 = np.array([0, 120, 70])
+        upper_red1 = np.array([10, 255, 255])
+        mask1 = cv2.inRange(hsv_image, lower_red1, upper_red1)
 
-        contours = self._findContours(mask)
-        self.pixelCoords = self._calculateCentroids(contours)
-        self._calculateCalibration()
+        lower_red2 = np.array([170, 120, 70])
+        upper_red2 = np.array([180, 255, 255])
+        mask2 = cv2.inRange(hsv_image, lower_red2, upper_red2)
+        
+        # Combine masks to detect red color across the spectrum
+        mask = mask1 + mask2
 
-    def _findContours(self, mask: np.ndarray) -> List[Any]:
-        """Find and sort contours in thresholded image."""
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        return sorted(contours, key=cv2.contourArea, reverse=True)[:3]
-
-    def _calculateCentroids(self, contours: List[Any]) -> List[Tuple[int, int]]:
-        """Calculate centroids from contours and sort them."""
-        centroids: List[Tuple[int, int]] = []
+        
+        # Filter contours by size and find their centroids
+        centroids = []
+        min_area, max_area = 10, 1000  # Filter out noise and large blobs
         for contour in contours:
-            moments = cv2.moments(contour)
-            if moments["m00"] != 0:
-                centroidX = int(moments["m10"] / moments["m00"])
-                centroidY = int(moments["m01"] / moments["m00"])
-                centroids.append((centroidX, centroidY))
-        return sorted(centroids, key=lambda p: (p[1], p[0]))
+            if min_area < cv2.contourArea(contour) < max_area:
+                moments = cv2.moments(contour)
+                if moments["m00"] > 0:
+                    cx = int(moments["m10"] / moments["m00"])
+                    cy = int(moments["m01"] / moments["m00"])
+                    centroids.append((cx, cy))
+        
+        num_markers = len(self.realCoords)
+        if len(centroids) < num_markers:
+            raise RuntimeError(f"Could not find enough candidate markers. Found {len(centroids)}, expected {num_markers}.")
+
+        # Find the combination of N markers that is most horizontal
+        best_combo = None
+        min_y_std_dev = float('inf')
+        for combo in combinations(centroids, num_markers):
+            y_coords = [p[1] for p in combo]
+            std_dev = np.std(y_coords)
+            if std_dev < min_y_std_dev:
+                min_y_std_dev = std_dev
+                best_combo = combo
+
+        # Sort the final list of markers by their x-coordinate
+        self.pixelCoords = sorted(list(best_combo), key=lambda p: p[0])
 
     def _calculateCalibration(self) -> None:
-        """Calculate origin and scaling factors."""
+        """
+        Calculate origin and scaling factor based on horizontal alignment.
+        """
         if not self.pixelCoords or not self.realCoords:
-            raise ValueError("No coordinates detected")
+            raise ValueError("No coordinates available for calibration.")
 
-        yCoords = [p[1] for p in self.pixelCoords]
-        originIdx = np.argmax(yCoords)
+        # The origin is the leftmost marker (minimum x pixel coordinate)
+        origin_idx = 0  # Since pixelCoords are now sorted by x, the first one is the origin.
         self.origin = Origin(
-            index=originIdx, pixel=self.pixelCoords[originIdx], real=self.realCoords[originIdx]
+            index=origin_idx,
+            pixel=self.pixelCoords[origin_idx],
+            real=self.realCoords[origin_idx],
         )
 
+        # Calculate scale based on the X-axis distances
         scales: List[float] = []
         for idx, (pixelPoint, realPoint) in enumerate(zip(self.pixelCoords, self.realCoords)):
             if idx == self.origin.index:
                 continue
-            realYDelta = realPoint[1] - self.origin.real[1]
-            pixelYDelta = self.origin.pixel[1] - pixelPoint[1]
-            if realYDelta != 0:
-                scales.append(pixelYDelta / realYDelta)
+            
+            # Calculate pixel and real-world deltas from the origin along the x-axis
+            real_x_delta = realPoint[0] - self.origin.real[0]
+            pixel_x_delta = pixelPoint[0] - self.origin.pixel[0]
+            
+            if real_x_delta != 0:
+                scales.append(pixel_x_delta / real_x_delta)
 
-        self.scale = np.mean(scales) if scales else 1.0
+        if not scales:
+             raise RuntimeError("Could not calculate scale. Check real_coords for non-zero distances.")
+             
+        self.scale = np.mean(scales)
 
     def _setupVisualization(self) -> None:
         """Initialize the calibration visualization display."""
         if self.image is None or self.origin is None:
-            raise ValueError("Calibration not complete")
+            raise ValueError("Calibration not complete for visualization")
 
         plt.ion()
-        figure, axes = plt.subplots()
+        figure, axes = plt.subplots(figsize=(12, 8)) # Make plot larger
         self.plot = PlotObjects(figure, axes)
 
-        self.plot.axes.imshow(cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY), cmap="gray")
-        self.plot.axes.grid(True, color="blue", linestyle="--", linewidth=0.5)
+        # --- MODIFICATION: Use RGB color image instead of grayscale ---
+        rgb_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
+        self.plot.axes.imshow(rgb_image)
+        
+        self.plot.axes.grid(True, color="blue", linestyle="--", linewidth=0.5, alpha=0.7)
         self.plot.axes.set_title("Calibration Visualization")
 
-        # Plot markers
-        self.plot.axes.plot(self.origin.pixel[0], self.origin.pixel[1], "ro", markersize=10)
-        self.plot.axes.text(self.origin.pixel[0], self.origin.pixel[1], "(0,0)", color="red")
+        # Plot origin marker
+        self.plot.axes.plot(self.origin.pixel[0], self.origin.pixel[1], "ro", markersize=12, markeredgecolor='white')
+        origin_text = self.plot.axes.text(self.origin.pixel[0] + 10, self.origin.pixel[1],
+                           f"({self.origin.real[0]}, {self.origin.real[1]})", color="red",
+                           fontsize=10, weight='bold')
+        origin_text.set_path_effects([path_effects.Stroke(linewidth=2, foreground='white'), path_effects.Normal()])
 
+
+        # Plot other calibration markers
         for idx, (pixelPoint, realPoint) in enumerate(zip(self.pixelCoords, self.realCoords)):
             if idx == self.origin.index:
                 continue
-            adjReal = (realPoint[0] - self.origin.real[0], realPoint[1] - self.origin.real[1])
-            self.plot.axes.plot(pixelPoint[0], pixelPoint[1], "yo", markersize=10)
-            self.plot.axes.text(
-                pixelPoint[0], pixelPoint[1], f"({adjReal[0]}, {adjReal[1]})", color="yellow"
+            self.plot.axes.plot(pixelPoint[0], pixelPoint[1], "o", color='yellow', markersize=12, markeredgecolor='black')
+            marker_text = self.plot.axes.text(
+                pixelPoint[0] + 10, pixelPoint[1], f"({realPoint[0]}, {realPoint[1]})", color="yellow",
+                fontsize=10, weight='bold'
             )
+            marker_text.set_path_effects([path_effects.Stroke(linewidth=2, foreground='black'), path_effects.Normal()])
+
 
         # Add help text
-        self.plot.axes.add_artist(
+        help_text = self.plot.axes.add_artist(
             AnchoredText(
                 "Enter:\n- 'r x,y' for real→pixel\n- 'p x,y' for pixel→real", loc="upper right"
             )
         )
+        help_text.patch.set_boxstyle("round,pad=0.5")
+        help_text.patch.set_facecolor("wheat")
+        help_text.patch.set_alpha(0.8)
+
+        plt.tight_layout()
         plt.draw()
 
     def realToPixel(self, realX: float, realY: float) -> Tuple[float, float]:
-        """Convert real-world coordinates to pixel coordinates."""
+        """
+        Convert real-world coordinates to pixel coordinates.
+        Updated for horizontal system with Y-axis increasing downwards.
+        """
         if self.origin is None:
             raise ValueError("Calibration not complete")
-        return (
-            self.origin.pixel[0] + self.scale * realX,
-            self.origin.pixel[1] - self.scale * realY,
-        )
+            
+        adj_real_x = realX - self.origin.real[0]
+        adj_real_y = realY - self.origin.real[1]
+        
+        pixelX = self.origin.pixel[0] + self.scale * adj_real_x
+        pixelY = self.origin.pixel[1] + self.scale * adj_real_y
+        
+        return (pixelX, pixelY)
 
     def pixelToReal(self, pixelX: float, pixelY: float) -> Tuple[float, float]:
-        """Convert pixel coordinates to real-world coordinates."""
+        """
+        Convert pixel coordinates to real-world coordinates.
+        Updated for horizontal system with Y-axis increasing downwards.
+        """
         if self.origin is None:
             raise ValueError("Calibration not complete")
-        return (
-            (pixelX - self.origin.pixel[0]) / self.scale,
-            (self.origin.pixel[1] - pixelY) / self.scale,
-        )
+            
+        real_x_delta = (pixelX - self.origin.pixel[0]) / self.scale
+        real_y_delta = (pixelY - self.origin.pixel[1]) / self.scale
+        
+        realX = self.origin.real[0] + real_x_delta
+        realY = self.origin.real[1] + real_y_delta
+
+        return (realX, realY)
 
     def processCsv(self) -> None:
         """Convert pixel coordinates in CSV to real-world coordinates."""
@@ -218,12 +289,14 @@ class MapCalibration:
         print(f"[R→P] ({realX},{realY}) → ({pixelX:.2f}, {pixelY:.2f})")
 
         if self.plot:
-            self.plot.axes.plot(pixelX, pixelY, "go", markersize=10)
+            # --- MODIFICATION: Make the green point and its text clearer ---
+            self.plot.axes.plot(pixelX, pixelY, 'o', color='lime', markersize=12, markeredgecolor='black',
+                               label=f"R→P: ({realX},{realY})")
             label = self.plot.axes.text(
-                pixelX, pixelY, f"R({realX},{realY})", color="green", fontsize=6
+                pixelX + 10, pixelY, f"({realX},{realY})", color='lime', fontsize=10, weight='bold'
             )
             label.set_path_effects(
-                [path_effects.Stroke(linewidth=1, foreground="black"), path_effects.Normal()]
+                [path_effects.Stroke(linewidth=2, foreground='black'), path_effects.Normal()]
             )
 
     def _handlePixelToReal(self, coordVals: List[float]) -> None:
@@ -233,15 +306,28 @@ class MapCalibration:
         print(f"[P→R] ({pixelX},{pixelY}) → ({realX:.2f}, {realY:.2f})")
 
         if self.plot:
-            self.plot.axes.plot(pixelX, pixelY, "ms", markersize=10)
-            self.plot.axes.text(pixelX, pixelY, f"P({realX:.1f},{realY:.1f})", color="magenta")
+            # --- MODIFICATION: Make the magenta point and its text clearer ---
+            self.plot.axes.plot(pixelX, pixelY, 's', color='fuchsia', markersize=12, markeredgecolor='black',
+                               label=f"P→R: ({pixelX},{pixelY})")
+            label = self.plot.axes.text(pixelX + 10, pixelY, f"({realX:.1f},{realY:.1f})",
+                                        color='fuchsia', fontsize=10, weight='bold')
+            label.set_path_effects(
+                [path_effects.Stroke(linewidth=2, foreground='black'), path_effects.Normal()]
+            )
 
     def run(self) -> None:
         """Main execution loop handling user input and processing."""
         if self.csvPaths.input and self.csvPaths.output:
             self.processCsv()
 
-        print("Ready for coordinate conversions (commands separated by ';')...")
+        rospy.loginfo("Calibration complete. Ready for coordinate conversions.")
+        rospy.loginfo(f"Detected Pixel Coords: {self.pixelCoords}")
+        rospy.loginfo(f"Calculated Scale: {self.scale:.4f} pixels per unit")
+        rospy.loginfo(f"Origin Pixel: {self.origin.pixel}, Origin Real: {self.origin.real}")
+        
+        print("\nReady for coordinate conversions (commands separated by ';')...")
+        print("Example: p 150,250 ; r 5.5,12.0")
+        
         while not rospy.is_shutdown():
             try:
                 userInput = input("Enter command(s): ").strip()
@@ -256,17 +342,21 @@ class MapCalibration:
                 if self.plot:
                     plt.draw()
 
-            except KeyboardInterrupt:
+            except (EOFError, KeyboardInterrupt):
+                rospy.loginfo("User requested exit.")
                 rospy.signal_shutdown("User exit")
-            except Exception as e:  # pylint: disable=broad-except
-                print(f"Unexpected error: {str(e)}")
+            except Exception as e:
+                print(f"An unexpected error occurred: {str(e)}")
 
-        plt.show(block=True)
+        plt.ioff()
+        plt.show()
 
 
 if __name__ == "__main__":
     try:
         calibrator = MapCalibration()
         calibrator.run()
-    except rospy.ROSInterruptException:
-        pass
+    except (rospy.ROSInterruptException, RuntimeError, ValueError, IOError) as e:
+        rospy.logerr(f"Calibration failed: {e}")
+    except Exception as e:
+        rospy.logfatal(f"A critical error occurred in the calibration node: {e}")
