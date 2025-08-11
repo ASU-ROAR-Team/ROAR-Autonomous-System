@@ -51,7 +51,7 @@ class APFPlanner:
 
         # Configuration parameters
         self.config: Dict[str, Any] = {
-            "checkpoints": [(12.3282, 6.7797), (15.1159, 3.0854), (20.127, 0.0),(19.7272, 5.2386)],
+            "checkpoints": [(12.3282, 6.7797), (15.1159, -3.0854), (20.127, 0.0),(19.7272, 5.2386)],
             "goalPoints": self.loadWaypoints(
                 rospy.get_param("~pathFile", "~/ttt/src/ROAR-Autonomous-System//Path_Planning/heightmap_costmap/Results/real_path.csv")
             ),
@@ -130,8 +130,8 @@ class APFPlanner:
     def initVisualization(self) -> Dict[str, Any]:
         """Initialize visualization components"""
         fig, axes = plt.subplots()
-        xMin, xMax = -2, 13
-        yMin, yMax = 7, 22
+        xMin, xMax = 10, 22
+        yMin, yMax = 13, -4 
 
         if self.config["costmap"] is None or self.config["costmap"].size == 0:
             rospy.logwarn("Costmap is empty or not loaded. Visualization will not show costmap.")

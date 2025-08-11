@@ -2,7 +2,7 @@
   <rosparam command="load" file="$(find apf_trials)/config/params.yaml" />
   <rosparam command="load" file="$(find adaptive_pure_pursuit)/config/params.yaml" />
 
-  <node pkg="apf_trials" name="APF_update" type="APF_update.py" output="screen"/>
+  <node pkg="apf_trials" name="APF_update" type="APF_update.py" />
 
-  <node pkg="adaptive_pure_pursuit" name="AdaptiveLd" type="AdaptiveLd.py" />
+  <node pkg="adaptive_pure_pursuit" name="AdaptiveLd" type="AdaptiveLd.py" output="screen"  />
 </launch>

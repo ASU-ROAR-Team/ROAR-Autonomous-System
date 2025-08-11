@@ -130,8 +130,8 @@ class Control:
             self.ax1.set_xlabel("X")
             self.ax1.set_ylabel("Y")
             self.ax1.set_title("Waypoints and Robot Path")
-            self.ax1.set_xlim(-5, 4)  # Set x-axis limits from -10 to 10
-            self.ax1.set_ylim(-1, 6.5)  # Set y-axis limits from -10 to 10
+            self.ax1.set_xlim(10, 22)  # Set x-axis limits from -10 to 10
+            self.ax1.set_ylim(-4, 15)  # Set y-axis limits from -10 to 10
             self.plots = {
                 "waypointsPlot": self.ax1.plot([], [], "b--", label="Waypoints"),
                 "robotPositionPlot": self.ax1.plot(
