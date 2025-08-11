@@ -219,7 +219,7 @@ class APFPlanner:
     def realToPixel(self, x: float, y: float) -> Tuple[int, int]:
         """Convert real-world coordinates to pixel indices"""
         pixel_scale = self.config["apfParams"]["PIXEL_SCALE"]
-        return int(208 + pixel_scale * x), int(761 - pixel_scale * y)
+        return int(70 + pixel_scale * x), int(246 + pixel_scale * y)
 
     def calculateGradientForce(self, position: List[float]) -> Tuple[float, float]:
             """Calculate costmap gradient forces"""
