@@ -350,7 +350,7 @@ class Control:
                 if lookaheadPoint is not None:
                     with TimerContext(self.performance_monitor, "steering_calculation"):
                         alpha = math.atan2(
-                            (lookaheadPoint[1] - self.currentPosition[1]),
+                            (self.currentPosition[1] - lookaheadPoint[1]),
                             (lookaheadPoint[0] - self.currentPosition[0]),
                         )
                         actualLookahead = math.hypot(
