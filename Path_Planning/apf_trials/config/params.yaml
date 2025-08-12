@@ -17,13 +17,13 @@ APF_update:
   LOOKAHEAD_STEPS: 9    # Number of lookahead steps for path following
 
   # Path file parameters
-  pathFile: "~/ttt/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
-  costmapFile: "~/ttt/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
+  pathFile: "~/ROAR/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
+  costmapFile: "~/ROAR/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
 
 
   # Time parameters
   TAU: 0.1               # Time step for simulation (seconds)
 
   # Pixel scale
-  PIXEL_SCALE: 20.2
+  PIXEL_SCALE: 20
   GRADIENT_RADIUS: 1
