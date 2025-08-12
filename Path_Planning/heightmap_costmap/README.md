@@ -55,7 +55,7 @@ This is the main node of the package. It performs the following functions:
 - `~input_csv` (string, optional): The path to a CSV file containing pixel coordinates that need to be converted to real-world coordinates. The file must include `x_pixel` and `y_pixel` columns. If not provided, this feature is skipped.
 - `~output_csv` (string, optional): The path where the output CSV file will be saved after batch processing. The output file will contain the original data plus new `real_x` and `real_y` columns.
 
-####The heightmap_to_costmap node can be configured using the following ROS parameters:
+#### The heightmap_to_costmap node can be configured using the following ROS parameters:
 
 - `~image_path` (string, default: `$(find heightmap_costmap)/maps/heightmap.png`): The absolute path to the heightmap image file.
 - `~gradient_scale` (float, default: `150.0`): A scaling factor applied to the gradient cost component. Higher values increase the impact of slope on the total cost.
