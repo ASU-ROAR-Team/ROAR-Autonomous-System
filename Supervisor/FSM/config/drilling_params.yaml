@@ -1,0 +1,8 @@
+# drilling_params.yaml
+# Configuration parameters for the drilling state machine.
+
+surface_height: -11.0
+sampling_height: -40.0
+gate_open_delay_time: 5.0  # Time to wait at sampling height before closing the gate
+ascent_delay_time: 2.0  # Delay after collecting the sample before ascending
+fsm_timeout: 60.0  # Parameter for state machine operation timeouts
