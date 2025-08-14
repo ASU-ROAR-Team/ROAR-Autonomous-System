@@ -12,6 +12,7 @@ from roar_msgs.msg import Drilling as DrillingCommandMsg
 from roar_msgs.srv import StartModule, StartModuleResponse
 
 # --- Global variables to store sensor data ---
+# These are no longer updated via subscribers but will be read from the CanCommander
 current_height = 0.0
 current_weight = 0.0
 
@@ -66,29 +67,26 @@ class BaseParser:
 class DrillingParser(BaseParser):
     SCALING_FACTOR = 10.0
     DRIVING_CAN_ID = 0x01
+    FEEDBACK_CAN_ID = 0x02
 
     def parse(self, message: CanMessage) -> Optional[Dict[str, Any]]:
-        if message.dlc != 3:
-            rospy.logwarn(f"DrillingParser: Received message with unexpected DLC: {message.dlc}. Expected 3.")
+        if message.can_id != self.FEEDBACK_CAN_ID:
+            return None
+        
+        if message.dlc != 4:
+            rospy.logwarn(f"DrillingParser: Received message with unexpected DLC: {message.dlc}. Expected 4.")
             return None
 
         try:
             height_raw = self.extract_16bit_values(message.data[0:2], 1)[0]
             height_cm = float(height_raw) / self.SCALING_FACTOR
-
-            control_status_byte = message.data[2]
             
-            gate_status = (control_status_byte >> 0) & 0x01
-            auger_status = (control_status_byte >> 1) & 0x01
-            manual_up_status = (control_status_byte >> 2) & 0x01
-            manual_down_status = (control_status_byte >> 3) & 0x01
+            weight_raw = self.extract_16bit_values(message.data[2:4], 1)[0]
+            weight_g = float(weight_raw)
 
             return {
                 "platform_height_cm": height_cm,
-                "auger_status": "ON" if auger_status == 1 else "OFF",
-                "servo_status": "OPEN" if gate_status == 1 else "CLOSED",
-                "manual_up_active": True if manual_up_status == 1 else False,
-                "manual_down_active": True if manual_down_status == 1 else False,
+                "load_cell_g": weight_g,
             }
         except (IndexError, ValueError) as e:
             rospy.logerr(f"Error parsing drilling status message: {e}")
@@ -175,8 +173,16 @@ class CanCommander:
         if feedback_data:
             parsed = self.parser.parse(feedback_data)
             if parsed:
-                global current_height, platform_reached_target
+                global current_height, current_weight, platform_reached_target
                 current_height = parsed.get("platform_height_cm", 0.0)
+                current_weight = parsed.get("load_cell_g", 0.0)
+                
+                # Check if target is reached based on CAN feedback
+                # This is a simplified check assuming the low-level system sends a status
+                if abs(self.current_command_msg.target_height_cm - current_height) < 0.5:
+                    platform_reached_target = True
+                else:
+                    platform_reached_target = False
 
     def send_drilling_command_internal(self, command_msg: DrillingCommandMsg):
         can_message = self.parser.create_command_message(
@@ -197,23 +203,6 @@ class CanCommander:
 
 can_commander = CanCommander()
 
-# --- ROS Subscriber Callback Functions ---
-def height_callback(msg):
-    global current_height
-    current_height = msg.data
-    rospy.logdebug(f"Received height from sim: {current_height:.2f} cm")
-
-def load_cell_callback(msg):
-    global current_weight
-    current_weight = msg.data
-    rospy.logdebug(f"Received weight from sim: {current_weight:.2f} g")
-
-def platform_status_callback(msg):
-    global platform_reached_target
-    if msg.data == 1.0:
-        platform_reached_target = True
-    else:
-        platform_reached_target = False
 
 # --- State Definitions ---
 class ManualControl(smach.State):
@@ -446,9 +435,7 @@ def main():
 
     rospy.loginfo(f"Parameters loaded: Surface={SURFACE_HEIGHT}, Sampling={SAMPLING_HEIGHT}, Gate Open Delay={GATE_OPEN_DELAY_TIME}, Ascent Delay={ASCENT_DELAY_TIME}, FSM Timeout={FSM_TIMEOUT}")
 
-    rospy.Subscriber('/height', Float64, height_callback)
-    rospy.Subscriber('/load_cell', Float64, load_cell_callback)
-    rospy.Subscriber('/platform_motor/status', Float64, platform_status_callback)
+    # Subscriber part is removed
     
     idle_state = Idle()
     rospy.Service('start_module', StartModule, idle_state.handle_start_module)
