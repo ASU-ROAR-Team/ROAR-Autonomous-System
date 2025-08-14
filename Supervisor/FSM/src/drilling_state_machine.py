@@ -7,17 +7,23 @@ from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Generator
 
 # Import standard ROS messages and custom messages/services
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, String # Added String for FSM state publishing
 from roar_msgs.msg import Drilling as DrillingCommandMsg
 from roar_msgs.srv import StartModule, StartModuleResponse
+from std_srvs.srv import Trigger, TriggerResponse # Import for the new StopModule service
 
 # --- Global variables to store sensor data ---
-# These are no longer updated via subscribers but will be read from the CanCommander
 current_height = 0.0
 current_weight = 0.0
 
 # Flag to signal that the platform has reached its target height
 platform_reached_target = False
+
+# Global flag to signal FSM preemption from the stop service
+stop_requested = False
+
+# ROS Publisher for FSM state
+fsm_state_publisher = None
 
 # --- ROS Parameters ---
 SURFACE_HEIGHT = 0.0
@@ -112,7 +118,7 @@ class DrillingParser(BaseParser):
         
         if manual_up and manual_down:
             rospy.logwarn("Both manual_up and manual_down commanded. Defaulting to STOP for platform motor.")
-            control_byte &= ~((1 << 2) | (1 << 3))
+            control_byte &= ~((1 << 2) | (1 << 3)) # Clear both bits
         
         payload = [
             height_bytes[0],
@@ -141,11 +147,13 @@ class MockUartCanInterface:
         rospy.logdebug(f"Mock UART SENT: ID={hex(message.can_id)}, DLC={message.dlc}, Data={message.data}")
 
     def receive_messages(self) -> Generator[Optional[CanMessage], None, None]:
+        # This mock will endlessly yield None if no messages are pre-loaded.
+        # In a real system, this would block or yield actual messages from the UART.
         while self._is_connected and not rospy.is_shutdown():
             if self._mock_messages_to_receive:
                 yield self._mock_messages_to_receive.pop(0)
             else:
-                yield None
+                yield None # Yield None to prevent StopIteration
             rospy.sleep(0.01)
 
     def is_connected(self) -> bool:
@@ -162,6 +170,7 @@ class CanCommander:
         except ConnectionError as e:
             rospy.logerr(f"Failed to connect to UART: {e}")
 
+        # Timers are created here, which now happens after rospy.init_node()
         self.send_timer = rospy.Timer(rospy.Duration(0.1), self._send_command_callback)
         self.receive_timer = rospy.Timer(rospy.Duration(0.05), self._receive_feedback_callback)
 
@@ -201,62 +210,15 @@ class CanCommander:
         self.current_command_msg = command_msg
         self.send_drilling_command_internal(command_msg)
 
-can_commander = CanCommander()
-
-
 # --- State Definitions ---
-class ManualControl(smach.State):
-    def __init__(self):
-        smach.State.__init__(self, outcomes=['start_auto_mode', 'preempted'])
-
-    def execute(self, userdata):
-        rospy.loginfo("State: MANUAL CONTROL")
-        print("Enter 'auto' to start the automatic drilling sequence.")
-        
-        cmd_msg = DrillingCommandMsg(target_height_cm=0.0)
-        can_commander.set_current_command(cmd_msg)
-
-        while not rospy.is_shutdown():
-            command = input("Manual command: ")
-            
-            cmd_msg.manual_up = False
-            cmd_msg.manual_down = False
-            
-            if command == 'auto':
-                try:
-                    rospy.wait_for_service('start_module', timeout=2.0)
-                    start_module_proxy = rospy.ServiceProxy('start_module', StartModule)
-                    response = start_module_proxy()
-                    if response.success:
-                        rospy.loginfo("Service call successful, switching to auto mode.")
-                        return 'start_auto_mode'
-                except (rospy.ServiceException, rospy.ROSException) as e:
-                    rospy.logerr(f"Service call failed: {e}")
-            elif command == 'up':
-                cmd_msg.manual_up = True
-            elif command == 'down':
-                cmd_msg.manual_down = True
-            elif command == 'auger_on':
-                cmd_msg.auger_on = True
-            elif command == 'auger_off':
-                cmd_msg.auger_on = False
-            elif command == 'gate_open':
-                cmd_msg.gate_open = True
-            elif command == 'gate_close':
-                cmd_msg.gate_close = False
-            else:
-                rospy.logwarn("Invalid command.")
-            
-            can_commander.set_current_command(cmd_msg)
-
-            if self.preempt_requested():
-                can_commander.set_current_command(DrillingCommandMsg())
-                return 'preempted'
+# The ManualControl state is removed as manual commands are now handled directly by GUI
+# publishing to drilling_command topic when FSM is in IDLE.
 
 class Idle(smach.State):
-    def __init__(self):
+    def __init__(self, can_commander_instance):
         smach.State.__init__(self, outcomes=['start_drilling_command', 'preempted'])
         self.trigger_start = False
+        self.can_commander = can_commander_instance
 
     def handle_start_module(self, req):
         rospy.loginfo("Start drilling command received via service.")
@@ -264,27 +226,39 @@ class Idle(smach.State):
         return StartModuleResponse(success=True)
 
     def execute(self, userdata):
+        global stop_requested, fsm_state_publisher
         rospy.loginfo("State: IDLE - The state machine has successfully returned to idle.")
-        rospy.loginfo("Waiting for start command via service...")
+        fsm_state_publisher.publish(String(data="IDLE"))
 
-        can_commander.set_current_command(DrillingCommandMsg(target_height_cm=0.0))
+        # Ensure actuators are in a safe, known state when idle
+        self.can_commander.set_current_command(DrillingCommandMsg(
+            target_height_cm=0.0, # Home position
+            gate_open=True,       # Gate open for safety/manual interaction
+            auger_on=False        # Auger off
+        ))
 
         self.trigger_start = False
+        stop_requested = False # Reset stop request when entering IDLE
         
+        # Loop while waiting for start command or preemption
         while not self.trigger_start and not rospy.is_shutdown():
-            if self.preempt_requested():
+            if self.preempt_requested() or stop_requested:
+                rospy.loginfo("IDLE state preempted by external request.")
+                stop_requested = False # Reset for next use
                 return 'preempted'
             rospy.sleep(0.1)
         
         return 'start_drilling_command'
 
 class DescendingToSurface(smach.State):
-    def __init__(self):
+    def __init__(self, can_commander_instance):
         smach.State.__init__(self, outcomes=['reached_surface', 'timeout', 'preempted'])
+        self.can_commander = can_commander_instance
     
     def execute(self, userdata):
-        global platform_reached_target
+        global platform_reached_target, stop_requested, fsm_state_publisher
         rospy.loginfo("State: DESCENDING TO SURFACE")
+        fsm_state_publisher.publish(String(data="DESCENDING_TO_SURFACE"))
         
         platform_reached_target = False
         
@@ -292,6 +266,9 @@ class DescendingToSurface(smach.State):
         start_time = rospy.get_time()
         
         while not platform_reached_target and not rospy.is_shutdown():
+            if stop_requested:
+                rospy.loginfo("Preemption requested in DESCENDING_TO_SURFACE.")
+                return 'preempted'
             if (rospy.get_time() - start_time) > FSM_TIMEOUT:
                 rospy.logerr(f"Timeout: Platform failed to reach {SURFACE_HEIGHT} cm.")
                 return 'timeout'
@@ -299,7 +276,7 @@ class DescendingToSurface(smach.State):
             cmd_msg = DrillingCommandMsg(
                 target_height_cm=SURFACE_HEIGHT, gate_open=True, auger_on=False
             )
-            can_commander.set_current_command(cmd_msg)
+            self.can_commander.set_current_command(cmd_msg)
 
             rospy.logdebug(f"Waiting for platform to reach {SURFACE_HEIGHT} cm...")
             rate.sleep()
@@ -308,12 +285,14 @@ class DescendingToSurface(smach.State):
         return 'reached_surface'
 
 class DescendingToSample(smach.State):
-    def __init__(self):
+    def __init__(self, can_commander_instance):
         smach.State.__init__(self, outcomes=['reached_sampling_point', 'timeout', 'preempted'])
+        self.can_commander = can_commander_instance
     
     def execute(self, userdata):
-        global platform_reached_target
+        global platform_reached_target, stop_requested, fsm_state_publisher
         rospy.loginfo("State: DESCENDING TO SAMPLE")
+        fsm_state_publisher.publish(String(data="DESCENDING_TO_SAMPLE"))
 
         platform_reached_target = False
         
@@ -321,6 +300,9 @@ class DescendingToSample(smach.State):
         start_time = rospy.get_time()
         
         while not platform_reached_target and not rospy.is_shutdown():
+            if stop_requested:
+                rospy.loginfo("Preemption requested in DESCENDING_TO_SAMPLE.")
+                return 'preempted'
             if (rospy.get_time() - start_time) > FSM_TIMEOUT:
                 rospy.logerr(f"Timeout: Platform failed to reach {SAMPLING_HEIGHT} cm.")
                 return 'timeout'
@@ -328,57 +310,78 @@ class DescendingToSample(smach.State):
             cmd_msg = DrillingCommandMsg(
                 target_height_cm=SAMPLING_HEIGHT, gate_open=True, auger_on=True
             )
-            can_commander.set_current_command(cmd_msg)
+            self.can_commander.set_current_command(cmd_msg)
             
             rospy.logdebug(f"Waiting for platform to reach {SAMPLING_HEIGHT} cm...")
             rate.sleep()
 
         rospy.loginfo(f"Platform has reached {SAMPLING_HEIGHT} cm.")
         rospy.loginfo(f"Waiting for {GATE_OPEN_DELAY_TIME} seconds before closing gate...")
-        rospy.sleep(GATE_OPEN_DELAY_TIME)
+        # Check preemption during sleep
+        sleep_start_time = rospy.get_time()
+        while (rospy.get_time() - sleep_start_time) < GATE_OPEN_DELAY_TIME and not rospy.is_shutdown():
+            if stop_requested:
+                rospy.loginfo("Preemption requested during GATE_OPEN_DELAY_TIME.")
+                return 'preempted'
+            rospy.sleep(0.1)
+
         rospy.loginfo("Delay complete. Proceeding to collecting state.")
         return 'reached_sampling_point'
 
 class CollectingSample(smach.State):
-    def __init__(self):
+    def __init__(self, can_commander_instance):
         smach.State.__init__(self, outcomes=['load_cell_ready', 'timeout', 'preempted'])
+        self.can_commander = can_commander_instance
 
     def execute(self, userdata):
+        global stop_requested, fsm_state_publisher
         rospy.loginfo("State: COLLECTING SAMPLE")
+        fsm_state_publisher.publish(String(data="COLLECTING_SAMPLE"))
         
         rate = rospy.Rate(10)
         start_time = rospy.get_time()
         
         while current_weight < 100 and not rospy.is_shutdown():
+            if stop_requested:
+                rospy.loginfo("Preemption requested in COLLECTING_SAMPLE.")
+                return 'preempted'
             if (rospy.get_time() - start_time) > FSM_TIMEOUT:
                 rospy.logerr("Timeout: Failed to collect sample of 100g.")
-                can_commander.set_current_command(DrillingCommandMsg(target_height_cm=SAMPLING_HEIGHT)) 
+                self.can_commander.set_current_command(DrillingCommandMsg(target_height_cm=SAMPLING_HEIGHT)) 
                 return 'timeout'
 
             cmd_msg = DrillingCommandMsg(
                 target_height_cm=SAMPLING_HEIGHT, gate_open=False, auger_on=True
             )
-            can_commander.set_current_command(cmd_msg)
+            self.can_commander.set_current_command(cmd_msg)
             
             rospy.logdebug(f"Current weight: {current_weight:.2f} g. Waiting for 100 g...")
             rate.sleep()
         
         rospy.loginfo("Sample collected (>= 100g). Waiting for ascent delay...")
-        rospy.sleep(ASCENT_DELAY_TIME)
+        # Check preemption during sleep
+        sleep_start_time = rospy.get_time()
+        while (rospy.get_time() - sleep_start_time) < ASCENT_DELAY_TIME and not rospy.is_shutdown():
+            if stop_requested:
+                rospy.loginfo("Preemption requested during ASCENT_DELAY_TIME.")
+                return 'preempted'
+            rospy.sleep(0.1)
         
-        can_commander.set_current_command(DrillingCommandMsg(
+        self.can_commander.set_current_command(DrillingCommandMsg(
             target_height_cm=SAMPLING_HEIGHT, gate_open=False, auger_on=False
         ))
         rospy.loginfo("Ascent delay complete. Moving to next state.")
         return 'load_cell_ready'
 
 class AscendingToTop(smach.State):
-    def __init__(self):
+    def __init__(self, can_commander_instance):
         smach.State.__init__(self, outcomes=['reached_start_position', 'timeout', 'preempted'])
+        self.can_commander = can_commander_instance
     
     def execute(self, userdata):
-        global platform_reached_target
+        global platform_reached_target, stop_requested, fsm_state_publisher
         rospy.loginfo("State: ASCENDING TO TOP")
+        fsm_state_publisher.publish(String(data="ASCENDING_TO_TOP"))
         
         platform_reached_target = False
         
@@ -386,6 +389,9 @@ class AscendingToTop(smach.State):
         start_time = rospy.get_time()
 
         while not platform_reached_target and not rospy.is_shutdown():
+            if stop_requested:
+                rospy.loginfo("Preemption requested in ASCENDING_TO_TOP.")
+                return 'preempted'
             if (rospy.get_time() - start_time) > FSM_TIMEOUT:
                 rospy.logerr("Timeout: Platform failed to reach home position.")
                 return 'timeout'
@@ -393,92 +399,138 @@ class AscendingToTop(smach.State):
             cmd_msg = DrillingCommandMsg(
                 target_height_cm=0.0, gate_open=False, auger_on=False
             )
-            can_commander.set_current_command(cmd_msg)
+            self.can_commander.set_current_command(cmd_msg)
             
             rospy.logdebug("Waiting for platform to reach 0 cm...")
             rate.sleep()
         
+        # After reaching home, ensure gate is open and auger is off for safety
         final_cmd_msg = DrillingCommandMsg(
             target_height_cm=0.0, gate_open=True, auger_on=False
         )
-        can_commander.set_current_command(final_cmd_msg)
+        self.can_commander.set_current_command(final_cmd_msg)
         rospy.loginfo("Reached home position. Gate opened.")
         return 'reached_start_position'
 
 class EmergencyStop(smach.State):
-    def __init__(self):
+    def __init__(self, can_commander_instance):
         smach.State.__init__(self, outcomes=['repaired', 'preempted'])
+        self.can_commander = can_commander_instance
 
     def execute(self, userdata):
-        rospy.logerr("State: EMERGENCY STOP - A critical error occurred.")
+        global stop_requested, fsm_state_publisher
+        rospy.logerr("State: EMERGENCY_STOP - A critical error occurred.")
+        fsm_state_publisher.publish(String(data="EMERGENCY_STOP"))
         rospy.loginfo("Shutting down all actuators for safety.")
         
+        # Command to a safe state
         safe_cmd = DrillingCommandMsg(
             target_height_cm=0.0, gate_open=True, auger_on=False
         )
-        can_commander.set_current_command(safe_cmd)
+        self.can_commander.set_current_command(safe_cmd)
 
         rospy.loginfo("System is now in a safe state. Please inspect and repair the issue.")
-        input("Press Enter to return to IDLE state...")
+        rospy.loginfo("Waiting for external signal to return to IDLE state (e.g., stop_requested reset).")
         
-        return 'repaired'
+        # This state will stay active until an external stop is requested or node shuts down
+        while not rospy.is_shutdown():
+            if stop_requested:
+                rospy.loginfo("Preemption requested in EMERGENCY_STOP. Returning to IDLE.")
+                stop_requested = False # Reset for next use
+                return 'preempted'
+            rospy.sleep(0.1)
+        
+        return 'repaired' # This outcome should ideally be triggered by an explicit 'repair' mechanism
+
+# Service handler for stopping the FSM
+def handle_stop_module(req):
+    global stop_requested
+    rospy.loginfo("Stop module service call received. Requesting FSM preemption.")
+    stop_requested = True # Set the global flag to signal preemption
+    return TriggerResponse(success=True, message="Stop requested.")
 
 def main():
-    global SURFACE_HEIGHT, SAMPLING_HEIGHT, GATE_OPEN_DELAY_TIME, ASCENT_DELAY_TIME, FSM_TIMEOUT
+    global SURFACE_HEIGHT, SAMPLING_HEIGHT, GATE_OPEN_DELAY_TIME, ASCENT_DELAY_TIME, FSM_TIMEOUT, fsm_state_publisher
+    
     rospy.init_node('drilling_state_machine')
+    
+    # Initialize FSM state publisher
+    fsm_state_publisher = rospy.Publisher('/drilling_fsm_state', String, queue_size=10)
 
-    SURFACE_HEIGHT = rospy.get_param('~surface_height', -11.0)
-    SAMPLING_HEIGHT = rospy.get_param('~sampling_height', -40.0)
+    # Instantiate CanCommander after rospy.init_node()
+    can_commander = CanCommander()
+
+    SURFACE_HEIGHT = rospy.get_param('~surface_height', 11.0)
+    SAMPLING_HEIGHT = rospy.get_param('~sampling_height', 40.0)
     GATE_OPEN_DELAY_TIME = rospy.get_param('~gate_open_delay_time', 5.0)
     ASCENT_DELAY_TIME = rospy.get_param('~ascent_delay_time', 2.0)
     FSM_TIMEOUT = rospy.get_param('~fsm_timeout', 60.0)
 
     rospy.loginfo(f"Parameters loaded: Surface={SURFACE_HEIGHT}, Sampling={SAMPLING_HEIGHT}, Gate Open Delay={GATE_OPEN_DELAY_TIME}, Ascent Delay={ASCENT_DELAY_TIME}, FSM Timeout={FSM_TIMEOUT}")
-
-    # Subscriber part is removed
     
-    idle_state = Idle()
+    idle_state = Idle(can_commander)
     rospy.Service('start_module', StartModule, idle_state.handle_start_module)
-    
+    rospy.Service('stop_module', Trigger, handle_stop_module) # New stop service
+
     sm_top = smach.StateMachine(outcomes=['succeeded', 'preempted'])
-    sm_top.set_initial_state(['MANUAL_CONTROL'])
+    # Set IDLE as the initial state for the top-level state machine
+    sm_top.set_initial_state(['IDLE'])
 
     with sm_top:
-        smach.StateMachine.add('MANUAL_CONTROL', ManualControl(), 
-                               transitions={'start_auto_mode':'IDLE'})
-        
+        # IDLE state: waits for a start command from the GUI, or handles preemption
         smach.StateMachine.add('IDLE', idle_state, 
-                               transitions={'start_drilling_command':'DRILLING_SEQUENCE'})
+                               transitions={'start_drilling_command':'DRILLING_SEQUENCE',
+                                            'preempted':'IDLE'}) # Return to IDLE if preempted
 
+        # Nested state machine for the autonomous drilling sequence
         sm_drilling = smach.StateMachine(outcomes=['drilling_succeeded', 'preempted', 'timeout_error'])
-        with sm_drilling:
-            smach.StateMachine.add('DESCENDING_TO_SURFACE', DescendingToSurface(),
-                                    transitions={'reached_surface':'DESCENDING_TO_SAMPLE',
-                                                 'timeout':'timeout_error'})
-            smach.StateMachine.add('DESCENDING_TO_SAMPLE', DescendingToSample(),
-                                    transitions={'reached_sampling_point':'COLLECTING_SAMPLE',
-                                                 'timeout':'timeout_error'})
-            smach.StateMachine.add('COLLECTING_SAMPLE', CollectingSample(),
-                                    transitions={'load_cell_ready':'ASCENDING_TO_TOP',
-                                                 'timeout':'timeout_error'})
-            smach.StateMachine.add('ASCENDING_TO_TOP', AscendingToTop(),
-                                    transitions={'reached_start_position':'drilling_succeeded',
-                                                 'timeout':'timeout_error'})
         
+        # --- REMOVED THE LINE BELOW ---
+        # sm_drilling.register_preempt_callback(lambda: rospy.loginfo("Drilling Sequence Preempted externally (container level)."))
+
+        with sm_drilling:
+            smach.StateMachine.add('DESCENDING_TO_SURFACE', DescendingToSurface(can_commander),
+                                    transitions={'reached_surface':'DESCENDING_TO_SAMPLE',
+                                                 'timeout':'timeout_error',
+                                                 'preempted':'preempted'}) # Handle preemption to exit
+            smach.StateMachine.add('DESCENDING_TO_SAMPLE', DescendingToSample(can_commander),
+                                    transitions={'reached_sampling_point':'COLLECTING_SAMPLE',
+                                                 'timeout':'timeout_error',
+                                                 'preempted':'preempted'}) # Handle preemption to exit
+            smach.StateMachine.add('COLLECTING_SAMPLE', CollectingSample(can_commander),
+                                    transitions={'load_cell_ready':'ASCENDING_TO_TOP',
+                                                 'timeout':'timeout_error',
+                                                 'preempted':'preempted'}) # Handle preemption to exit
+            smach.StateMachine.add('ASCENDING_TO_TOP', AscendingToTop(can_commander),
+                                    transitions={'reached_start_position':'drilling_succeeded',
+                                                 'timeout':'timeout_error',
+                                                 'preempted':'preempted'}) # Handle preemption to exit
+        
+        # Add the drilling sequence to the top-level state machine
         smach.StateMachine.add('DRILLING_SEQUENCE', sm_drilling,
                                transitions={'drilling_succeeded':'IDLE',
-                                            'preempted':'IDLE',
+                                            'preempted':'IDLE', # Go to IDLE if drilling sequence is preempted
                                             'timeout_error':'EMERGENCY_STOP'})
         
-        smach.StateMachine.add('EMERGENCY_STOP', EmergencyStop(),
-                               transitions={'repaired':'IDLE'})
+        # Emergency Stop state: for critical errors, allows manual intervention or reset
+        smach.StateMachine.add('EMERGENCY_STOP', EmergencyStop(can_commander),
+                               transitions={'repaired':'IDLE', # Manual repair acknowledged, return to IDLE
+                                            'preempted':'IDLE'}) # Allow external stop to return to IDLE from emergency
 
-    rospy.loginfo("Drilling State Machine Initialized and in MANUAL_CONTROL.")
+    rospy.loginfo("Drilling State Machine Initialized and ready in IDLE state. Waiting for GUI commands.")
     try:
+        # Execute the top-level state machine. This call is blocking until the state machine finishes
+        # (e.g., preempted or reaches 'succeeded' which is not currently mapped).
         outcome = sm_top.execute()
         rospy.loginfo(f"State machine finished with outcome: {outcome}")
     except rospy.ROSInterruptException:
-        rospy.loginfo("State machine interrupted. Shutting down.")
+        rospy.loginfo("State machine interrupted (ROS node shutdown). Shutting down.")
+    finally:
+        # Ensure that on shutdown, the current command is a safe one.
+        can_commander.set_current_command(DrillingCommandMsg(
+            target_height_cm=0.0, gate_open=True, auger_on=False
+        ))
+        rospy.loginfo("Actuators commanded to safe state on FSM shutdown.")
 
 if __name__ == '__main__':
     main()
