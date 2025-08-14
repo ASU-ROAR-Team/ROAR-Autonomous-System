@@ -630,22 +630,28 @@ void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0){
     ROS_WARN("[*] UKF -> PLAN B CALLBACK ENDDED");
 }
 
-void UKF::LL_Callback( Eigen::VectorXd z_measurement){
+void UKF::LL_Callback( Eigen::VectorXd z_measurement, double currentX, double currentY, double RLL){
 
     ROS_DEBUG("[*] UKF -> LL Callback called");
     
-    //inputs: X and Y absolute positions of the rover 
+    //inputs: X and Y absolute positions of the rover
 
-    Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(x_post, P_post);
+    Eigen::VectorXd rotatedX = Eigen::VectorXd::Zero(9);
+    rotatedX << x_post(0), x_post(1), x_post(2), x_post(3), x_post(4), x_post(5), x_post(6), currentX, currentY;
+
+    Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(rotatedX, P_post);
 
     double X0 = z_measurement[11]; 
     double Y0 = z_measurement[12];
+
+    std::cout << "The Current X: " << currentX << " | The Current Y: " << currentY << std::endl;
+    std::cout << "The measured X: " << X0 << " | The measured Y: " << Y0 << std::endl;
     // double Z0 = z_measurement[13];
 
     for (int i = 0; i < sigma_points.num_sigma_points; i++)
     {
-        double dx = X0 - x_post(7); 
-        double dy = Y0 - x_post(8);
+        double dx = X0 - currentX; 
+        double dy = Y0 - currentY;
         double X = dx + sigmas.col(i)(7); //from state space model
         double Y = dy + sigmas.col(i)(8); //from state space model
         
@@ -674,11 +680,11 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
     for (int i = 0; i < 2 * x_dim + 1; ++i)
         x_mean += sigma_points.Wm(i) * X_sigma.col(i);
 
-    // --- [3] Project sigma points into Lat/Lon measurement space (x, y) ---
+    // --- [3] Project sigma points (x, y) ---
     Eigen::MatrixXd Z_sigma = Eigen::MatrixXd(2, 2 * x_dim + 1);
     for (int i = 0; i < 2 * x_dim + 1; ++i) {
-        Z_sigma(0, i) = X_sigma(7, i);  // x (or lat x-projection)
-        Z_sigma(1, i) = X_sigma(8, i);  // y (or lon y-projection)
+        Z_sigma(0, i) = X_sigma(7, i); 
+        Z_sigma(1, i) = X_sigma(8, i); 
     }
 
     // --- [4] Predicted measurement mean ---
@@ -695,8 +701,8 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
 
     // --- [6] Add Lat/Lon sensor noise ---
     Eigen::Matrix2d R_LL;
-    R_LL << 1.0, 0.0,
-            0.0, 1.0;  // Adjust to your actual sensor noise in meters²
+    R_LL << RLL, 0.0,
+            0.0, RLL;  // Adjust to your actual sensor noise in meters²
     S += R_LL;
 
     // --- [7] Cross-covariance between state and measurement ---
@@ -710,19 +716,35 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement){
     // --- [8] Kalman gain ---
     Eigen::MatrixXd K = Tc * S.inverse();
 
+    std::cout << "||S||: " << S.norm() 
+          << "  ||Tc||: " << Tc.norm() 
+          << "  ||K||: " << K.norm() << std::endl;
+
     // --- [9] Measurement (Lat/Lon projection) ---
     Eigen::Vector2d z_LL(result[0], result[1]);
 
     // --- [10] Update state and covariance ---
-    x_hat = x_mean + K * (z_LL - z_mean);
+    Eigen::VectorXd x_new = Eigen::VectorXd::Zero(x_dim);
+    x_new.head(7) = x_mean.head(7);  // Keep quaternion and angular velocity
+    x_new(7) = currentX;  // Update only x, y
+    x_new(8) = currentY;  // Update only x, y
+    z_mean(0) = currentX;
+    z_mean(1) = currentY;
+    x_hat = x_mean + K * (- z_LL + z_mean);
+    std::cout << "x_mean: " << x_mean.transpose() << std::endl;
+    std::cout << "x_new: " << x_new.transpose() << std::endl;
+    std::cout << "x_hat: " << x_hat.transpose() << std::endl;
+    std::cout << "z_LL - z_mean: " << (z_LL - z_mean).transpose() << std::endl;
+    
     P = P_prior - K * S * K.transpose();
 
     // --- [11] Log result (optional debug) ---
     //std::cout << "The result2: \n" << x_hat.tail(2) << std::endl;
 
     // --- [12] Update post state ---
-    x_post(7) = x_hat(7);  // Update only x, y
-    x_post(8) = x_hat(8);  // Update only x, y
+    std::cout << "Final X: " << x_hat(7) << " | Final Y: " << x_hat(8) << std::endl;
+    //x_post(7) = x_hat(7);  // Update only x, y
+    //x_post(8) = x_hat(8);  // Update only x, y
 
     // --- [13] Update post covariance (only x, y rows/cols) ---
     P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);

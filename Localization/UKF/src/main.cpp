@@ -51,6 +51,7 @@ tf2::Quaternion IMUorientation;
 Eigen::Vector3d CAMERAwrtGPS;
 int noOfFails = 0;
 double Rgps = 0.2; // GPS noise
+double RLL = 1.0; // Landmark noise
 
 Eigen::VectorXd planBstate = Eigen::VectorXd::Zero(9); // State for plan B [oientation (w, x, y, z), angular velocity (x, y, z), position (lat, lon)] 
 
@@ -84,15 +85,20 @@ Eigen::Vector3d rotateXYZbyXYZW(const Eigen::Vector3d& rel_pos_rover, const tf2:
 }
 
 //Pose callback function
-void poseCallback(){
+void poseCallback(bool rotate = true){
     ROS_DEBUG("[*] Entering poseCallback function");
     // Create a TransformStamped message to publish the pose
     static tf2_ros::TransformBroadcaster br;
     geometry_msgs::TransformStamped transformStamped;
     
     Eigen::Vector3d rotatedXYZ;
-    rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
 
+    if(rotate){
+        rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
+    } else {
+        rotatedXYZ(0) = ukf.x_hat[7];
+	    rotatedXYZ(1) = ukf.x_hat[8];
+    }
     /*******
     TALYEESA
     *******/
@@ -123,7 +129,7 @@ void planB(){
     ukf.planBCallback(planBstate, lat0, lon0);
 }
 
-void publishState(bool showInPlotter = false)
+void publishState(bool showInPlotter = false, bool rotate = true)
 {
     ROS_DEBUG("[*] Entering publishState function");
     // Create a state message to publish
@@ -143,8 +149,27 @@ void publishState(bool showInPlotter = false)
     else {
         ROS_DEBUG("[+] Transforming state to world frame");
         // Transform to world frame
-        rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
+	if(rotate){
+            rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
+        } else {
+	    std::cout << "Landmark in now publishing\n";
+	    rotatedXYZ(0) = ukf.x_hat[7];
+	    rotatedXYZ(1) = ukf.x_hat[8];
+        Eigen::Vector3d gpsFrame;
+        ROS_DEBUG("[*] Entering inverse rotation");
+        // Convert tf2 quaternion to Eigen quaternion
+        Eigen::Quaterniond q(initialOrientation.x(), initialOrientation.y(), initialOrientation.z(), initialOrientation.w());
+        // Get rotation matrix
+        Eigen::Matrix3d R = q.toRotationMatrix();
 
+        //std::cout << "[+] R: \n" << R << std::endl;
+        ROS_DEBUG("[+] Transforming abs position by relative orientation");
+        // Transform the vector
+        Eigen::Vector3d llestimated(ukf.x_hat[7], ukf.x_hat[8], 0);
+        gpsFrame = R.transpose() * (llestimated-initialPosition);
+        ukf.x_post(7) = gpsFrame(0);
+        ukf.x_post(8) = gpsFrame(1);
+	}
         /*******
         TALYEESA
         *******/
@@ -160,6 +185,8 @@ void publishState(bool showInPlotter = false)
         state_msg.twist.twist.angular.z = ukf.x_post[6];
         state_msg.pose.pose.position.x = rotatedXYZ[0];
         state_msg.pose.pose.position.y = rotatedXYZ[1];
+
+	std::cout << "published X: " << state_msg.pose.pose.position.x << " || published Y: " << state_msg.pose.pose.position.y << std::endl; 
 
         nh_ptr->setParam("/rover/position/x", rotatedXYZ[0]);
         nh_ptr->setParam("/rover/position/y", rotatedXYZ[1]);
@@ -201,9 +228,10 @@ void publishState(bool showInPlotter = false)
         state_msg.pose.covariance[35] = 0;
     }
     // Publish the message
-    poseCallback(); // Call pose callback to publish the transform
+    poseCallback(rotate); // Call pose callback to publish the transform
     state_publisher.publish(state_msg);
     ROS_DEBUG("[+] Published state message to /filtered_state topic");
+    std::cout << "final Published x: " << state_msg.pose.pose.position.x << " | final Published y: " << state_msg.pose.pose.position.y << std::endl;
     ROS_DEBUG("[*] Exiting publishState function");
 }
 
@@ -351,7 +379,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 	//Landmark TRUE position
 	//Landmark RELATIVE position: landmark_poses
     ROS_DEBUG("[*] Entering landmarkCallback function");
-
+    nh_ptr->getParam("landmarks", landmarks);
     if(landmarks.size() > 0){
 
         double rel_x = landmark_poses->pose.pose.position.x;
@@ -381,6 +409,8 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 
         double rov_x = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["x"]);
         double rov_y = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["y"]);
+
+        std::cout << "Landmark ID: " << landmark_poses->id << std::endl;
         
         //All Relative Positions 
         // 32 relative positions around the rover
@@ -427,12 +457,17 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
             {- rov_x - rel_y, - rov_y - rel_x}
         };
 
-        Eigen::Vector2d nearestPos = rel_pos_all[0];
+        XmlRpc::XmlRpcValue position;
+        nh_ptr->getParam("/rover/position", position);
+        
+        double rovCurrentX = static_cast<double>(position["x"]);
+        double rovCurrentY = static_cast<double>(position["y"]);
+
+        Eigen::Vector2d nearestPos(rovCurrentX, rovCurrentY); // Initialize nearest position to rover's current position
+        //Eigen::Vector2d nearestPos = rel_pos_all[0];
         double minDist = 1000000.0;
         double dist = 0.0;
         
-        double rovCurrentX = ukf.x_post[7];
-        double rovCurrentY = ukf.x_post[8];
 
         // Find the nearest position to the rover
         ROS_DEBUG("[+] Finding the nearest position to the rover");
@@ -440,20 +475,28 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
             //calc dist
             dist = sqrt(pow((rel_pos_all[i][0] - rovCurrentX) ,2) + pow((rel_pos_all[i][1] - rovCurrentY) ,2));
 
-            if (dist < minDist)
+            if ((dist < minDist) && (dist < 1.0)) // Check if the distance is less than the minimum distance and less than 10 meters
             {
                 minDist = dist;
                 nearestPos = rel_pos_all[i];
+                std::cout << "Nearest Position: " << nearestPos.transpose() << std::endl;
             }
+            std::cout << "Relative Position " << i << ": " << rel_pos_all[i].transpose() << std::endl;
+            std::cout << "Rover Position: " << rovCurrentX << ", " << rovCurrentY << std::endl;
+            std::cout << "Distance to Rover: " << dist << std::endl;
+            std::cout << "Minimum Distance: " << minDist << std::endl;
+            std::cout << "----------------------------------------" << std::endl;
         }
         
         z_measurement[11] = nearestPos[0];
         z_measurement[12] = nearestPos[1];
+        std::cout << "Nearest Position: " << nearestPos.transpose() << std::endl;
+        std::cout << "Measurement: " << z_measurement[11] << ", " << z_measurement[12] << std::endl;
         z_measurement[13] = 0;
 
-        ukf.LL_Callback(z_measurement);
+        ukf.LL_Callback(z_measurement, rovCurrentX, rovCurrentY, RLL); // Call UKF landmark callback function
 
-        publishState(); // Publish the state message
+        publishState(false, false); // Publish the state message
         
         ROS_DEBUG("[*] Exiting landmarkCallback function");
     }
@@ -609,6 +652,7 @@ int main(int argc, char **argv)
     ukf.R = Eigen::MatrixXd::Identity(14, 14) * noiseR;
 
     Rgps = static_cast<double>(UKF_PARAMS["R_gps"]); // GPS noise
+    RLL = static_cast<double>(UKF_PARAMS["RLL"]); // Landmark noise
 
     ROS_DEBUG("UKF parameters loaded successfully");
     // Initialize ROS subscribers

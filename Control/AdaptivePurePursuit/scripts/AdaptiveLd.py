@@ -357,7 +357,7 @@ class Control:
                             lookaheadPoint[0] - self.currentPosition[0],
                             lookaheadPoint[1] - self.currentPosition[1],
                         )
-                        theta = alpha - self.currentPosition[2]
+                        theta = + alpha - self.currentPosition[2]
                         deltaX = actualLookahead * math.cos(theta)
                         k = deltaX / actualLookahead**2
                         

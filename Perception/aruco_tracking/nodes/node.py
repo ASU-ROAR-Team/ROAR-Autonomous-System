@@ -52,8 +52,28 @@ class ArucoTrackingNode:
         self.arucoTracker = ArucoTracker(self.arucoDictType)
 
         # Initialize camera matrix and distortion coefficients
-        self.cameraMatrix = None
-        self.distCoeffs = None
+        width = 1280
+        height = 720
+        h_fov = 1.7633  # radians
+        cx = 659.3049926757812
+        cy = 371.39849853515625
+
+        fx = width / (2 * np.tan(h_fov / 2))
+        fy = fx  # assuming square pixels
+
+        K = [fx, 0.0, cx,
+            0.0, fy, cy,
+            0.0, 0.0, 1.0]
+
+        D = [-0.040993299,
+        0.009593590,
+        -0.004429849,
+        0.000192024,
+        -0.000320880]
+        self.cameraMatrix = np.array(K).reshape(3, 3)
+        self.distCoeffs = np.array(D)
+        print("Camera Matrix:", self.cameraMatrix)
+        print("Distortion Coefficients:", self.distCoeffs)
 
         # Subscribers
         rospy.Subscriber(self.cameraTopic, Image, self.imageCallback)
@@ -71,7 +91,7 @@ class ArucoTrackingNode:
         self.arucoDictType = rospy.get_param("~arucoDictType", cv2.aruco.DICT_5X5_100)
         self.visualize = rospy.get_param("~visualize", True)
         self.showRejected = rospy.get_param("~showRejected", True)
-        self.markerSize = rospy.get_param("~markerSize", 0.25)
+        self.markerSize = rospy.get_param("~markerSize", 0.15)
 
         # Validate mandatory parameters
         if self.cameraTopic is None:
@@ -94,8 +114,30 @@ class ArucoTrackingNode:
             # Estimate pose
             if self.cameraMatrix is None or self.distCoeffs is None:
                 rospy.logwarn_throttle(1, "Camera calibration not available. Cannot estimate pose.")
+                # Initialize camera matrix and distortion coefficients
+                width = 1280
+                height = 720
+                h_fov = 1.7633  # radians
+                cx = 659.3049926757812
+                cy = 371.39849853515625
+
+                fx = width / (2 * np.tan(h_fov / 2))
+                fy = fx  # assuming square pixels
+
+                K = [fx, 0.0, cx,
+                    0.0, fy, cy,
+                    0.0, 0.0, 1.0]
+
+                D = [-0.040993299,
+                0.009593590,
+                -0.004429849,
+                0.000192024,
+                -0.000320880]
+                self.cameraMatrix = np.array(K).reshape(3, 3)
+                self.distCoeffs = np.array(D)
                 return
             else:
+                print("Estimating pose for detected markers...")
                 rvecs, tvecs = self.arucoTracker.estimatePose(
                     corners, self.markerSize, self.cameraMatrix, self.distCoeffs
                 )
@@ -180,6 +222,8 @@ class ArucoTrackingNode:
         print("Camera info Updated Successfully!")
         self.cameraMatrix = np.array(cameraInfoMsg.K).reshape(3, 3)
         self.distCoeffs = np.array(cameraInfoMsg.D)
+        print("Camera Matrix:", self.cameraMatrix)
+        print("Distortion Coefficients:", self.distCoeffs)
 
     def run(self):
         """
