@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional, Generator
 
 # Import standard ROS messages and custom messages/services
 from std_msgs.msg import Float64, String # Added String for FSM state publishing
-from roar_msgs.msg import Drilling as DrillingCommandMsg
+from roar_msgs.msg import DrillingCommand as DrillingCommandMsg # <--- Changed here!
 from roar_msgs.srv import StartModule, StartModuleResponse
 from std_srvs.srv import Trigger, TriggerResponse # Import for the new StopModule service
 
@@ -163,7 +163,7 @@ class CanCommander:
     def __init__(self):
         self.parser = DrillingParser()
         self.uart_interface = MockUartCanInterface('/dev/ttyCAN0')
-        self.current_command_msg = DrillingCommandMsg() 
+        self.current_command_msg = DrillingCommandMsg() # <--- Changed here!
 
         try:
             self.uart_interface.connect()
@@ -231,7 +231,7 @@ class Idle(smach.State):
         fsm_state_publisher.publish(String(data="IDLE"))
 
         # Ensure actuators are in a safe, known state when idle
-        self.can_commander.set_current_command(DrillingCommandMsg(
+        self.can_commander.set_current_command(DrillingCommandMsg( # <--- Changed here!
             target_height_cm=0.0, # Home position
             gate_open=True,       # Gate open for safety/manual interaction
             auger_on=False        # Auger off
@@ -273,7 +273,7 @@ class DescendingToSurface(smach.State):
                 rospy.logerr(f"Timeout: Platform failed to reach {SURFACE_HEIGHT} cm.")
                 return 'timeout'
             
-            cmd_msg = DrillingCommandMsg(
+            cmd_msg = DrillingCommandMsg( # <--- Changed here!
                 target_height_cm=SURFACE_HEIGHT, gate_open=True, auger_on=False
             )
             self.can_commander.set_current_command(cmd_msg)
@@ -307,7 +307,7 @@ class DescendingToSample(smach.State):
                 rospy.logerr(f"Timeout: Platform failed to reach {SAMPLING_HEIGHT} cm.")
                 return 'timeout'
             
-            cmd_msg = DrillingCommandMsg(
+            cmd_msg = DrillingCommandMsg( # <--- Changed here!
                 target_height_cm=SAMPLING_HEIGHT, gate_open=True, auger_on=True
             )
             self.can_commander.set_current_command(cmd_msg)
@@ -347,10 +347,10 @@ class CollectingSample(smach.State):
                 return 'preempted'
             if (rospy.get_time() - start_time) > FSM_TIMEOUT:
                 rospy.logerr("Timeout: Failed to collect sample of 100g.")
-                self.can_commander.set_current_command(DrillingCommandMsg(target_height_cm=SAMPLING_HEIGHT)) 
+                self.can_commander.set_current_command(DrillingCommandMsg(target_height_cm=SAMPLING_HEIGHT)) # <--- Changed here!
                 return 'timeout'
 
-            cmd_msg = DrillingCommandMsg(
+            cmd_msg = DrillingCommandMsg( # <--- Changed here!
                 target_height_cm=SAMPLING_HEIGHT, gate_open=False, auger_on=True
             )
             self.can_commander.set_current_command(cmd_msg)
@@ -367,7 +367,7 @@ class CollectingSample(smach.State):
                 return 'preempted'
             rospy.sleep(0.1)
         
-        self.can_commander.set_current_command(DrillingCommandMsg(
+        self.can_commander.set_current_command(DrillingCommandMsg( # <--- Changed here!
             target_height_cm=SAMPLING_HEIGHT, gate_open=False, auger_on=False
         ))
         rospy.loginfo("Ascent delay complete. Moving to next state.")
@@ -396,7 +396,7 @@ class AscendingToTop(smach.State):
                 rospy.logerr("Timeout: Platform failed to reach home position.")
                 return 'timeout'
 
-            cmd_msg = DrillingCommandMsg(
+            cmd_msg = DrillingCommandMsg( # <--- Changed here!
                 target_height_cm=0.0, gate_open=False, auger_on=False
             )
             self.can_commander.set_current_command(cmd_msg)
@@ -405,7 +405,7 @@ class AscendingToTop(smach.State):
             rate.sleep()
         
         # After reaching home, ensure gate is open and auger is off for safety
-        final_cmd_msg = DrillingCommandMsg(
+        final_cmd_msg = DrillingCommandMsg( # <--- Changed here!
             target_height_cm=0.0, gate_open=True, auger_on=False
         )
         self.can_commander.set_current_command(final_cmd_msg)
@@ -424,7 +424,7 @@ class EmergencyStop(smach.State):
         rospy.loginfo("Shutting down all actuators for safety.")
         
         # Command to a safe state
-        safe_cmd = DrillingCommandMsg(
+        safe_cmd = DrillingCommandMsg( # <--- Changed here!
             target_height_cm=0.0, gate_open=True, auger_on=False
         )
         self.can_commander.set_current_command(safe_cmd)
@@ -527,7 +527,7 @@ def main():
         rospy.loginfo("State machine interrupted (ROS node shutdown). Shutting down.")
     finally:
         # Ensure that on shutdown, the current command is a safe one.
-        can_commander.set_current_command(DrillingCommandMsg(
+        can_commander.set_current_command(DrillingCommandMsg( # <--- Changed here!
             target_height_cm=0.0, gate_open=True, auger_on=False
         ))
         rospy.loginfo("Actuators commanded to safe state on FSM shutdown.")
