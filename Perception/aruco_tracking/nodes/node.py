@@ -170,7 +170,7 @@ class ArucoTrackingNode:
                 face_normal_camera = rotationMatrix @ np.array([0, 0, 1])  # local +Z → camera frame
 
                 # Offset inward to cube centroid
-                offset_world = -0.105 * face_normal_camera
+                offset_world = -0.125 * face_normal_camera
                 centroid = tvec + offset_world
 
                 # === STEP 3: Use centroid for publishing ===

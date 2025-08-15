@@ -110,6 +110,7 @@ class Control:
 
         self.indexLD = 0
         self.currentPosition = [0, 0, 0]  ##[x,y,theta]
+        self.benchmarkPosition = [0, 0, 0]  ##[x,y,theta]
         self.distLd = 0.3
         self.MAXVELOCITY = rospy.get_param("robot_parameter/maxVelocity", 1.57)
         self.WIDTH = rospy.get_param("robot_parameters/width", 0.8)
