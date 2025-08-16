@@ -140,9 +140,9 @@ public:
 	/*** Sensors Callbacks ***/
 	void encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch);
 	void imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double roll, double yaw, double pitch);
-	void gps_callback(Eigen::VectorXd z_measurement, double lon0, double lat0);
+	void gps_callback(Eigen::VectorXd z_measurement, double lon0, double lat0, double Rgps);
 	void bno_callback(double roll, double pitch, double yaw);
-	void LL_Callback( Eigen::VectorXd z_measurement);
+	void LL_Callback( Eigen::VectorXd z_measurement, double currentX, double currentY, double RLL);
 
 	/*** PLAN B ***/
 	void planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0);
