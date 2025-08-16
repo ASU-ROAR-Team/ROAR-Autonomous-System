@@ -105,6 +105,7 @@ class Control:
             "Path": rospy.Subscriber(
                 rospy.get_param("subscribing_topics/path"), Path, self.pathCallback
             ),
+            #"Benchmark": rospy.Subscriber('/gazebo/model_states', ModelStates, self.model_states_callback)
         }
         # Subscribers
 
@@ -142,6 +143,7 @@ class Control:
                     [], [], "go", label="Look ahead point", markersize=3
                 ),
                 "robotPathPlot": self.ax1.plot([], [], "r-", label="Robot Path"),
+                "robotTruePathPlot": self.ax1.plot([], [], "b-", label="Robot True Path"),
             }
             # Add a plot for the robot's path
 
@@ -154,6 +156,8 @@ class Control:
                 "pastLD": [],
                 "pastCurvature": [],
                 "pastHeadings": [],
+                "benchmarkPositionsX": [],
+                "benchmarkPositionsY": [],
             }
             self.ax1.legend()
 
@@ -175,7 +179,7 @@ class Control:
         
         self.performance_monitor = PerformanceMonitor(monitor_params)
         rospy.loginfo("Performance monitor initialized for Pure Pursuit controller")
-
+    
     def pathCallback(self, msg: Path):
         """
         This is the callback function for the path
@@ -442,6 +446,21 @@ class Control:
                 self.performance_monitor.print_summary()
                 self.performance_monitor.log_metrics()
 
+    #def model_states_callback(self, msg):
+        # Extract position
+        #x = msg.pose[0].position.x
+        #y = msg.pose[0].position.y
+        # Extract orientation quaternion
+        #q = msg.pose[0].orientation
+        #quaternion = [q.x, q.y, q.z, q.w]
+        # Convert quaternion to roll, pitch, yaw
+        #roll, pitch, yaw = euler_from_quaternion(quaternion)
+        #self.benchmarkPosition[0] = x
+        #self.benchmarkPosition[1] = -y
+        #self.benchmarkPosition[2] = yaw
+        
+        #rospy.loginfo(f"Benchmark position updated: {self.benchmarkPosition}")
+
     def plotRoverPosition(self):
         """
         This function plots the rover position using matplotlib
@@ -458,6 +477,14 @@ class Control:
         # Append the current position to the past positions
         self.debuggingLists["pastPositionsX"].append(self.currentPosition[0])
         self.debuggingLists["pastPositionsY"].append(self.currentPosition[1])
+
+        self.debuggingLists["benchmarkPositionsX"].append(self.benchmarkPosition[0])
+        self.debuggingLists["benchmarkPositionsY"].append(self.benchmarkPosition[1])
+        
+        # Update the robot path plot
+        self.plots["robotTruePathPlot"][0].set_data(
+            self.debuggingLists["benchmarkPositionsX"], self.debuggingLists["benchmarkPositionsY"]
+        )
 
         # Update the robot path plot
         self.plots["robotPathPlot"][0].set_data(
@@ -556,7 +583,7 @@ class Control:
         else:
             waypointsX, waypointsY = [], []
         dataFrame2 = pd.DataFrame({"waypoint_x": waypointsX, "waypoint_y": waypointsY})
-        dataFrame.to_csv("Roar_adaptive_pure_pursuit_trial_4.csv")
+        dataFrame.to_csv("  .csv")
         dataFrame2.to_csv("waypoints_3.csv")
 
 

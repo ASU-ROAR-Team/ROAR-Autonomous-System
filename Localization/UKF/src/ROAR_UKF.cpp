@@ -611,11 +611,9 @@ void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0){
 
     // x = [q0 q1 q2 q3 omega_x, omega_y, omega_z x y].T
     // Extract the state from planBstate
-    std::array<double, 2> result{wgs84::toCartesian({lon0, lat0}, {planBstate(8), planBstate(7)})};
-    result[1] = result[1] *2/3; //the 2/3 is for mapping the readings with gazebo world
     
-    x_post(7) = result[0];
-    x_post(8) = result[1];
+    x_post(7) = planBstate(7);
+    x_post(8) = planBstate(8);
 
     x_post(0) = planBstate(0);
     x_post(1) = planBstate(1);

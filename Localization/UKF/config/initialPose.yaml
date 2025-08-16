@@ -15,7 +15,6 @@ UKF:
   DECLINATION: 0.07891855279
   Q: 0.01
   R: 0.7
-  R_gps: 0.2
-  RLL: 10.0
-
-  
+  R_gps: 100.0
+  RLL: 1.0
+  LLMax: 0.3

@@ -50,8 +50,11 @@ tf2::Quaternion initialOrientation;
 tf2::Quaternion IMUorientation;
 Eigen::Vector3d CAMERAwrtGPS;
 int noOfFails = 0;
-double Rgps = 5; // GPS noise
+double Rgps = 5.0; // GPS noise
 double RLL = 10.0; // Landmark noise
+double LLMax = 0.3; //allowable range in meters
+
+int noOfPass = 0;
 
 Eigen::VectorXd planBstate = Eigen::VectorXd::Zero(9); // State for plan B [oientation (w, x, y, z), angular velocity (x, y, z), position (lat, lon)] 
 
@@ -475,7 +478,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
             //calc dist
             dist = sqrt(pow((rel_pos_all[i][0] - rovCurrentX) ,2) + pow((rel_pos_all[i][1] - rovCurrentY) ,2));
 
-            if ((dist < minDist) && (dist < 0.3)) // Check if the distance is less than the minimum distance and less than 10 meters
+            if ((dist < minDist) && (dist < LLMax)) // Check if the distance is less than the minimum distance and less than 10 meters
             {
                 minDist = dist;
                 nearestPos = rel_pos_all[i];
@@ -499,10 +502,13 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
             publishState(false, false); // Publish the state message
         } else {
             ROS_WARN("[!] No landmark found within 0.3 meters");
+            noOfPass++;
         }
         
         
         ROS_DEBUG("[*] Exiting landmarkCallback function");
+        ROS_WARN("No of debug: ");
+        std::cout << noOfPass << std::endl;
     }
 
 }
@@ -657,7 +663,8 @@ int main(int argc, char **argv)
 
     Rgps = static_cast<double>(UKF_PARAMS["R_gps"]); // GPS noise
     RLL = static_cast<double>(UKF_PARAMS["RLL"]); // Landmark noise
-
+    LLMax = static_cast<double>(UKF_PARAMS["LLMax"]); // Landmark max distance allowable
+    
     ROS_DEBUG("UKF parameters loaded successfully");
     // Initialize ROS subscribers
     //gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
