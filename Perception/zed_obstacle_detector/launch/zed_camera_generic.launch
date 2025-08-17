@@ -25,6 +25,7 @@
   <arg name="enable_rqt_plot" default="false" doc="Enable RQT plot for performance monitoring" />
   <arg name="enable_full_gui" default="false" doc="Enable full RQT GUI with multiple plugins" />
   <arg name="force_rviz" default="false" doc="Force RViz to launch even in non-debug modes" />
+  <arg name="enable_dynamic_reconfigure" default="false" doc="Enable dynamic reconfigure server (required for live parameter tuning)" />
   
   <!-- Load parameters based on performance mode -->
   <group if="$(eval arg('performance_mode') == 'debug')">
@@ -47,6 +48,7 @@
     <param name="base_link_frame" value="$(arg base_link_frame)" if="$(eval arg('base_link_frame') != '')" />
     <param name="world_frame" value="$(arg world_frame)" if="$(eval arg('world_frame') != '')" />
     <param name="enable_transformations" value="$(arg enable_transformations)" if="$(eval arg('enable_transformations') != '')" />
+    <param name="enable_dynamic_reconfigure" value="$(arg enable_dynamic_reconfigure)" />
     
   </node>
   
@@ -57,7 +59,7 @@
   
   <!-- RQT Reconfigure for live parameter tuning -->
   <node name="rqt_reconfigure" pkg="rqt_reconfigure" type="rqt_reconfigure" 
-        args="--force-discover" output="screen" if="$(arg enable_rqt_reconfigure)">
+        args="--force-discover" output="screen" if="$(eval arg('enable_rqt_reconfigure') and arg('enable_dynamic_reconfigure'))">
     <param name="plugin" value="rqt_reconfigure/Reconfigure" />
   </node>
   

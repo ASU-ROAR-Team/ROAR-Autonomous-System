@@ -12,7 +12,8 @@
 
 // Global variables for dynamic_reconfigure
 std::unique_ptr<zed_obstacle_detector::ObstacleDetector> obstacle_detector;
-dynamic_reconfigure::Server<zed_obstacle_detector::ZedObstacleDetectorConfig> *dr_server;
+dynamic_reconfigure::Server<zed_obstacle_detector::ZedObstacleDetectorConfig> *dr_server = nullptr;
+bool enable_dynamic_reconfigure = false;
 
 // Publishers
 ros::Publisher pub_obstacle_array;
@@ -162,6 +163,11 @@ void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorPar
 
 // Dynamic reconfigure callback
 void dynamicReconfigureCallback(zed_obstacle_detector::ZedObstacleDetectorConfig &config, uint32_t level) {
+    if (!enable_dynamic_reconfigure) {
+        ROS_WARN("Dynamic reconfigure callback called but dynamic reconfigure is disabled");
+        return;
+    }
+    
     ROS_INFO("Dynamic reconfigure callback triggered");
     
     if (!obstacle_detector) {
@@ -269,6 +275,9 @@ int main(int argc, char** argv) {
     // Load parameters with defaults for initialization
     load_params(private_nh, params, point_cloud_topic, camera_frame, true);
     
+    // Load dynamic reconfigure setting
+    private_nh.param<bool>("enable_dynamic_reconfigure", enable_dynamic_reconfigure, false);
+    
     // Initialize obstacle detector
     obstacle_detector = std::make_unique<zed_obstacle_detector::ObstacleDetector>(params);
     
@@ -292,9 +301,11 @@ int main(int argc, char** argv) {
     pub_clusters_debug = nh.advertise<sensor_msgs::PointCloud2>("/zed_obstacle/debug/raw_clusters_rgb", 1);
 
     // Setup dynamic reconfigure server
-    dynamic_reconfigure::Server<zed_obstacle_detector::ZedObstacleDetectorConfig> dr_server_instance;
-    dr_server = &dr_server_instance;
-    dr_server->setCallback(boost::bind(&dynamicReconfigureCallback, _1, _2));
+    if (enable_dynamic_reconfigure) {
+        dynamic_reconfigure::Server<zed_obstacle_detector::ZedObstacleDetectorConfig> dr_server_instance;
+        dr_server = &dr_server_instance;
+        dr_server->setCallback(boost::bind(&dynamicReconfigureCallback, _1, _2));
+    }
 
     ROS_INFO("ZED2i Real-World Obstacle Detector initialized. Waiting for point clouds on %s...", point_cloud_topic.c_str());
     ros::spin();
