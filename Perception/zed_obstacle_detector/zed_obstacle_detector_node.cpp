@@ -63,6 +63,8 @@ void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorPar
         // Processing parameters with defaults
         nh.param("processing/passthrough_z_min_camera", params.processing_params.passthrough_z_min, 0.2);
         nh.param("processing/passthrough_z_max_camera", params.processing_params.passthrough_z_max, 7.0);
+        nh.param("processing/passthrough_x_min", params.processing_params.passthrough_x_min, 0);
+        nh.param("processing/passthrough_x_max", params.processing_params.passthrough_x_max, 3.0);
         nh.param("processing/voxel_leaf_size", params.processing_params.voxel_leaf_size, 0.08);
         nh.param("processing/enable_uniform_downsampling", params.processing_params.enable_uniform_downsampling, false);
         nh.param("processing/uniform_sampling_radius", params.processing_params.uniform_sampling_radius, 0.08);
@@ -122,6 +124,8 @@ void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorPar
         nh.getParam("processing/max_points_for_processing", params.processing_params.max_points_for_processing);
         nh.getParam("processing/passthrough_z_min_camera", params.processing_params.passthrough_z_min);
         nh.getParam("processing/passthrough_z_max_camera", params.processing_params.passthrough_z_max);
+        nh.getParam("processing/passthrough_x_min", params.processing_params.passthrough_x_min);
+        nh.getParam("processing/passthrough_x_max", params.processing_params.passthrough_x_max);
         
         // Ground
         nh.getParam("ground_detection/enable_ground_filtering", params.enable_ground_filtering);
@@ -187,6 +191,8 @@ void dynamicReconfigureCallback(zed_obstacle_detector::ZedObstacleDetectorConfig
     params.processing_params.max_points_for_processing = config.max_points_for_processing;
     params.processing_params.passthrough_z_min = config.passthrough_z_min_camera;
     params.processing_params.passthrough_z_max = config.passthrough_z_max_camera;
+    params.processing_params.passthrough_x_min = config.passthrough_x_min;
+    params.processing_params.passthrough_x_max = config.passthrough_x_max;
     
     // Update ground detection parameters
     params.enable_ground_filtering = config.enable_ground_filtering;

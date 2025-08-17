@@ -127,11 +127,37 @@ bool PointCloudProcessor::applyPassThroughFilter(const pcl::PointCloud<pcl::Poin
                                                 pcl::PointCloud<pcl::PointXYZ>::Ptr& output_cloud,
                                                 std::shared_ptr<PerformanceMonitor> monitor) {
     try {
-        pcl::PassThrough<pcl::PointXYZ> pass;
-        pass.setInputCloud(input_cloud);
-        pass.setFilterFieldName("z");
-        pass.setFilterLimits(params_.passthrough_z_min, params_.passthrough_z_max);
-        pass.filter(*output_cloud);
+        // Apply z-axis filter
+        pcl::PassThrough<pcl::PointXYZ> pass_z;
+        pass_z.setInputCloud(input_cloud);
+        pass_z.setFilterFieldName("z");
+        pass_z.setFilterLimits(params_.passthrough_z_min, params_.passthrough_z_max);
+        pass_z.filter(*output_cloud);
+        ROS_INFO("Z-axis filter: %zu -> %zu points", input_cloud->size(), output_cloud->size());
+
+        // Check if the cloud is empty
+        if (output_cloud->empty()) {
+            ROS_WARN_THROTTLE(1.0, "Cloud empty after z-axis filter!");
+            return false;
+        }
+
+        // Apply x-axis filter
+        pcl::PassThrough<pcl::PointXYZ> pass_x;
+        pass_x.setInputCloud(output_cloud);
+        pass_x.setFilterFieldName("x");
+        pass_x.setFilterLimits(params_.passthrough_x_min, params_.passthrough_x_max);
+        
+        // Store the size before x-filtering for logging
+        size_t before_x_filter = output_cloud->size();
+        pass_x.filter(*output_cloud);
+        ROS_INFO("X-axis filter: %zu -> %zu points", before_x_filter, output_cloud->size());
+
+        // Check if the cloud is empty
+        if (output_cloud->empty()) {
+            ROS_WARN_THROTTLE(1.0, "Cloud empty after x-axis filter!");
+            return false;
+        }
+
         return true;
     } catch (const std::exception& e) {
         ROS_ERROR_THROTTLE(1.0, "PassThrough filter exception: %s", e.what());
