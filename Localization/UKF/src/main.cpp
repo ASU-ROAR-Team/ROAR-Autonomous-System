@@ -50,8 +50,11 @@ tf2::Quaternion initialOrientation;
 tf2::Quaternion IMUorientation;
 Eigen::Vector3d CAMERAwrtGPS;
 int noOfFails = 0;
-double Rgps = 0.2; // GPS noise
-double RLL = 1.0; // Landmark noise
+double Rgps = 5.0; // GPS noise
+double RLL = 10.0; // Landmark noise
+double LLMax = 0.3; //allowable range in meters
+
+int noOfPass = 0;
 
 Eigen::VectorXd planBstate = Eigen::VectorXd::Zero(9); // State for plan B [oientation (w, x, y, z), angular velocity (x, y, z), position (lat, lon)] 
 
@@ -391,10 +394,10 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         // Get rover orientation as quaternion (from your UKF state or message)
         //make sure which is w and which is x y z
         tf2::Quaternion rover_quat(
-            ukf.x_post[0], // w
             ukf.x_post[1], // x
             ukf.x_post[2], // y
-            ukf.x_post[3]  // z
+            ukf.x_post[3], // z
+            ukf.x_post[0]  // w
         );
 
         // Transform to world frame
@@ -475,7 +478,7 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
             //calc dist
             dist = sqrt(pow((rel_pos_all[i][0] - rovCurrentX) ,2) + pow((rel_pos_all[i][1] - rovCurrentY) ,2));
 
-            if ((dist < minDist) && (dist < 1.0)) // Check if the distance is less than the minimum distance and less than 10 meters
+            if ((dist < minDist) && (dist < LLMax)) // Check if the distance is less than the minimum distance and less than 10 meters
             {
                 minDist = dist;
                 nearestPos = rel_pos_all[i];
@@ -488,17 +491,24 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
             std::cout << "----------------------------------------" << std::endl;
         }
         
-        z_measurement[11] = nearestPos[0];
-        z_measurement[12] = nearestPos[1];
-        std::cout << "Nearest Position: " << nearestPos.transpose() << std::endl;
-        std::cout << "Measurement: " << z_measurement[11] << ", " << z_measurement[12] << std::endl;
-        z_measurement[13] = 0;
-
-        ukf.LL_Callback(z_measurement, rovCurrentX, rovCurrentY, RLL); // Call UKF landmark callback function
-
-        publishState(false, false); // Publish the state message
+        if (minDist < 0.3){
+            ROS_DEBUG("[+] Nearest position found within 0.3 meters");
+            z_measurement[11] = nearestPos[0];
+            z_measurement[12] = nearestPos[1];
+            std::cout << "Nearest Position: " << nearestPos.transpose() << std::endl;
+            std::cout << "Measurement: " << z_measurement[11] << ", " << z_measurement[12] << std::endl;
+            z_measurement[13] = 0;
+            ukf.LL_Callback(z_measurement, rovCurrentX, rovCurrentY, RLL); // Call UKF landmark callback function
+            publishState(false, false); // Publish the state message
+        } else {
+            ROS_WARN("[!] No landmark found within 0.3 meters");
+            noOfPass++;
+        }
+        
         
         ROS_DEBUG("[*] Exiting landmarkCallback function");
+        ROS_WARN("No of debug: ");
+        std::cout << noOfPass << std::endl;
     }
 
 }
@@ -653,10 +663,11 @@ int main(int argc, char **argv)
 
     Rgps = static_cast<double>(UKF_PARAMS["R_gps"]); // GPS noise
     RLL = static_cast<double>(UKF_PARAMS["RLL"]); // Landmark noise
-
+    LLMax = static_cast<double>(UKF_PARAMS["LLMax"]); // Landmark max distance allowable
+    
     ROS_DEBUG("UKF parameters loaded successfully");
     // Initialize ROS subscribers
-    gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
+    //gps_sub = nh.subscribe("/gps", 1000, gpsCallback);
     imu_sub = nh.subscribe("/imu", 1000, imuCallback);
     encoder_sub = nh.subscribe("/joint_states", 1000, encoderCallback);
     landmarkSub = nh.subscribe("/landmark_topic", 1000, landmarkCallback);
