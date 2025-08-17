@@ -53,6 +53,7 @@ int noOfFails = 0;
 double Rgps = 5.0; // GPS noise
 double RLL = 10.0; // Landmark noise
 double LLMax = 0.3; //allowable range in meters
+double MaxRelativeDistance = 7.0; // Maximum relative distance in meters
 
 int noOfPass = 0;
 int noOfdone = 0;
@@ -419,12 +420,21 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 
         std::cout << "Landmark Relative Transformed Position: " << rel_x << ", " << rel_y << ", " << rel_z << std::endl;
 
+        double relativeDistance = sqrt(pow(rel_x, 2) + pow(rel_y, 2));
+
         double rov_x = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["x"]);
         double rov_y = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["y"]);
 
         std::cout << "Landmark Position: " << rov_x << ", " << rov_y << std::endl;
 
         std::cout << "Landmark ID: " << landmark_poses->id << std::endl;
+
+        if(relativeDistance > MaxRelativeDistance) {
+            ROS_WARN("[!] Relative distance is greater than %f meters, skipping landmark", MaxRelativeDistance);
+            noOfPass++;
+            ROS_DEBUG("[*] Exiting landmarkCallback function");
+            return; // Skip this landmark if the relative distance is greater than 7 meters
+        }
         
         //All Relative Positions 
         // 32 relative positions around the rover
@@ -432,43 +442,6 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         std::vector<Eigen::Vector2d> rel_pos_all = {
             {rov_x + rel_x, rov_y + rel_y},
             {rov_x + rel_x, rov_y - rel_y},
-            //{rov_x + rel_x, - rov_y + rel_y},
-            //{rov_x + rel_x, - rov_y - rel_y},
-//
-            //{rov_x - rel_x, rov_y + rel_y},
-            //{rov_x - rel_x, rov_y - rel_y},
-            //{rov_x - rel_x, - rov_y + rel_y},
-            //{rov_x - rel_x, - rov_y - rel_y},
-//
-            //{- rov_x + rel_x, rov_y + rel_y},
-            //{- rov_x + rel_x, rov_y - rel_y},
-            //{- rov_x + rel_x, - rov_y + rel_y},
-            //{- rov_x + rel_x, - rov_y - rel_y},
-//
-            //{- rov_x - rel_x, rov_y + rel_y},
-            //{- rov_x - rel_x, rov_y - rel_y},
-            //{- rov_x - rel_x, - rov_y + rel_y},
-            //{- rov_x - rel_x, - rov_y - rel_y},
-            //
-            //{rov_x + rel_y, rov_y + rel_x},
-            //{rov_x + rel_y, rov_y - rel_x},
-            //{rov_x + rel_y, - rov_y + rel_x},
-            //{rov_x + rel_y, - rov_y - rel_x},
-//
-            //{rov_x - rel_y, rov_y + rel_x},
-            //{rov_x - rel_y, rov_y - rel_x},
-            //{rov_x - rel_y, - rov_y + rel_x},
-            //{rov_x - rel_y, - rov_y - rel_x},
-//
-            //{- rov_x + rel_y, rov_y + rel_x},
-            //{- rov_x + rel_y, rov_y - rel_x},
-            //{- rov_x + rel_y, - rov_y + rel_x},
-            //{- rov_x + rel_y, - rov_y - rel_x},
-//
-            //{- rov_x - rel_y, rov_y + rel_x},
-            //{- rov_x - rel_y, rov_y - rel_x},
-            //{- rov_x - rel_y, - rov_y + rel_x},
-            //{- rov_x - rel_y, - rov_y - rel_x}
         };
 
         XmlRpc::XmlRpcValue position;
@@ -484,7 +457,6 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         
 
         Eigen::Vector2d nearestPos(rovCurrentX, rovCurrentY); // Initialize nearest position to rover's current position
-        //Eigen::Vector2d nearestPos = rel_pos_all[0];
         double minDist = 1000000.0;
         double dist = 0.0;
         
@@ -692,6 +664,7 @@ int main(int argc, char **argv)
     Rgps = static_cast<double>(UKF_PARAMS["R_gps"]); // GPS noise
     RLL = static_cast<double>(UKF_PARAMS["RLL"]); // Landmark noise
     LLMax = static_cast<double>(UKF_PARAMS["LLMax"]); // Landmark max distance allowable
+    MaxRelativeDistance = static_cast<double>(UKF_PARAMS["MaxRelativeDistance"]); // Landmark max distance allowable
     
     ROS_DEBUG("UKF parameters loaded successfully");
     // Initialize ROS subscribers
