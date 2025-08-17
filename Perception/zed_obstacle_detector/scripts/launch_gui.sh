@@ -90,7 +90,7 @@ LAUNCH_ARGS="camera_model:=$CAMERA_MODEL performance_mode:=$PERFORMANCE_MODE"
 
 case $GUI_TYPE in
     "reconfigure")
-        LAUNCH_ARGS="$LAUNCH_ARGS enable_rqt_reconfigure:=true"
+        LAUNCH_ARGS="$LAUNCH_ARGS enable_rqt_reconfigure:=true enable_dynamic_reconfigure:=true"
         GUI_DESCRIPTION="RQT Reconfigure for live parameter tuning"
         ;;
         
@@ -100,7 +100,7 @@ case $GUI_TYPE in
         ;;
         
     "full")
-        LAUNCH_ARGS="$LAUNCH_ARGS enable_full_gui:=true"
+        LAUNCH_ARGS="$LAUNCH_ARGS enable_full_gui:=true enable_dynamic_reconfigure:=true"
         GUI_DESCRIPTION="Full RQT GUI with multiple plugins"
         ;;
         
