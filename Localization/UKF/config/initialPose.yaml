@@ -18,3 +18,18 @@ UKF:
   R_gps: 100.0
   RLL: 1.0
   LLMax: 0.3
+  P_q0: 0.5
+  P_q1: 0.5
+  P_q2: 0.5
+  P_q3: 0.5
+  P_omega_x: 0.5
+  P_omega_y: 0.5
+  P_omega_z: 0.5
+  P_x: 0.5
+  P_y: 0.5
+
+  GPS_State: false
+  IMU_State: true
+  BNO_State: false
+  ENCODER_State: true
+  Landmark_State: true
