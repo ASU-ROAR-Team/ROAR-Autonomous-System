@@ -1,0 +1,120 @@
+{
+    "taskName": "Rover Supervisor Configuration",
+    "nodes": [
+      {
+        "nodeName": "roscan",
+        "launchCmd": "rosrun roscan node.py",
+        "heartBeat": true,
+        "params": {"update_rate": 10.0},
+        "args": ["--verbose"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "zed_wrapper",
+        "launchCmd": "roslaunch zed_wrapper zed2i.launch",
+        "heartBeat": false, 
+        "params": {"update_rate": 10.0},
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "aruco_tracking",
+        "launchCmd": "rosrun aruco_tracking node.py",
+        "heartBeat": true, 
+        "params": {"update_rate": 10.0},
+        "args": ["--verbose"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "DrillingModule",
+        "launchCmd": "python3 /home/omar-magdy/ASU_ROAR/src/ROAR-Autonomous-System/Supervisor/supervisor/src/supervisor/drilling_module.py",
+        "heartBeat": true,
+        "params": {},
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "RoverTeleopModule",
+        "launchCmd": "python3 /home/omar-magdy/ASU_ROAR/src/ROAR-Autonomous-System/Supervisor/supervisor/nodes/teleop.py",
+        "heartBeat": true,
+        "params": {
+          "max_linear_speed": 1.0,
+          "max_angular_speed": 0.5
+        },
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      }
+    ],
+    "controllers": [
+      {
+        "controllerName": "primary_nav",
+        "enableTopic": "/navigation/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop",
+        "requiredModules": ["talker", "listener"]
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      }
+    ],
+    "missions": {
+        "Navigation": {
+            "modules": [
+                "roscan",
+                "zed_wrapper",
+                "aruco_tracking"
+            ]
+        },
+        "Drilling": {
+            "modules": [
+                "roscan",
+                "DrillingModule"
+            ]
+        },
+        "Teleoperation": {
+            "modules": [
+                "roscan",
+                "RoverTeleopModule"
+            ]
+        }
+    }
+}

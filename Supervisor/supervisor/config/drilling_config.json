@@ -1,0 +1,42 @@
+{
+    "taskName": "drilling",
+    "nodes": [
+      {
+        "nodeName": "drilling_module",
+        "launchCmd": "rosrun supervisor node.py",
+        "heartBeat": false,
+        "params": {
+          "surface_height": 11.0,
+          "sampling_height": 40.0,
+          "gate_open_delay_time": 5.0,
+          "ascent_delay_time": 2.0,
+          "fsm_timeout": 60.0,
+          "mode": "drilling"
+        },
+        "args": ["--mode=drilling"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      }
+    ],
+    "controllers": [
+      {
+        "controllerName": "drilling_ctrl",
+        "enableTopic": "/drilling/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop"
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      }
+    ]
+  }

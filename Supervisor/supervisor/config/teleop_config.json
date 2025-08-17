@@ -1,0 +1,26 @@
+{
+    "taskName": "Teleoperation",
+    "nodes": [],
+    "controllers": [
+      {
+        "controllerName": "teleop_ctrl",
+        "enableTopic": "/teleop/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop"
+      },
+      {
+        "controllerName": "drilling_ctrl",
+        "enableTopic": "/drilling/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop"
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      }
+    ]
+  }
