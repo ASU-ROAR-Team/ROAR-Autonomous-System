@@ -132,6 +132,10 @@ void planB(){
     noOfFails++;
     ROS_WARN("[!] Current number of fails: %d", noOfFails);
     ukf.planBCallback(planBstate, lat0, lon0);
+    //Add the state of GPS on/off to decide which plan to use or add a parameter for this plan B 
+    //Store the state of the rover with the covariences in a queue of 20 elements
+    // If the state is not finite, use the last known valid state where the covarience is logical and the position is within a range
+    //or the position deference between it and the previous is not more than 0.5 meters
 }
 
 void publishState(bool showInPlotter = false, bool rotate = true)
