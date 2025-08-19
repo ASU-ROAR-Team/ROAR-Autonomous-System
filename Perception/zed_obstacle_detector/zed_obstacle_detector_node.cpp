@@ -60,7 +60,7 @@ void load_params(ros::NodeHandle& nh, zed_obstacle_detector::ObstacleDetectorPar
         // Processing parameters with defaults
         nh.param("processing/passthrough_z_min_camera", params.processing_params.passthrough_z_min, 0.0);
         nh.param("processing/passthrough_z_max_camera", params.processing_params.passthrough_z_max, 1.5);
-        nh.param("processing/passthrough_x_min", params.processing_params.passthrough_x_min, 0);
+        nh.param("processing/passthrough_x_min", params.processing_params.passthrough_x_min, 0.0);
         nh.param("processing/passthrough_x_max", params.processing_params.passthrough_x_max, 3.0);
         nh.param("processing/voxel_leaf_size", params.processing_params.voxel_leaf_size, 0.08);
         nh.param("processing/enable_uniform_downsampling", params.processing_params.enable_uniform_downsampling, false);

@@ -15,7 +15,7 @@
 #include "WGS84toCartesian.hpp"
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
-#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <XmlRpcValue.h>
 #include "WGS84toCartesian.hpp"
 

@@ -37,8 +37,8 @@ UKF:
   PlanB_number: 1
 
   GPS_State: false
-  IMU_State: true
+  IMU_State: false
   BNO_State: false
-  ENCODER_State: true
-  Landmark_State: true
-  ZED_State: false
+  ENCODER_State: false
+  Landmark_State: false
+  ZED_State: true
