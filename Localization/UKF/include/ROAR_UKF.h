@@ -143,9 +143,10 @@ public:
 	void gps_callback(Eigen::VectorXd z_measurement, double lon0, double lat0, double Rgps);
 	void bno_callback(double roll, double pitch, double yaw);
 	void LL_Callback( Eigen::VectorXd z_measurement, double currentX, double currentY, double RLL);
+	void zed_Callback(Eigen::VectorXd z_measurement, double R_ZED, double currentX, double currentY);
 
 	/*** PLAN B ***/
-	void planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0);
+	void planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, double ZEDX, double ZEDY, int Plan_B_number);
 
 };
 #endif

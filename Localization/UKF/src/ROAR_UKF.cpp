@@ -606,14 +606,33 @@ void UKF::bno_callback(double roll, double pitch ,double yaw)
     x_post(3) = q.v_3;
 }
 
-void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0){
+void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, double ZEDX, double ZEDY, int Plan_B_number){
     ROS_WARN("[*] UKF -> PLAN B CALLBACK STARTED");
 
     // x = [q0 q1 q2 q3 omega_x, omega_y, omega_z x y].T
     // Extract the state from planBstate
+
     
-    x_post(7) = planBstate(7);
-    x_post(8) = planBstate(8);
+
+    if(Plan_B_number == 1){
+        ROS_WARN("[*] UKF -> PLAN B CALLBACK: PLAN B (1) [ZED]");
+        x_post(7) = ZEDX;
+        x_post(8) = ZEDY;
+    } else if (Plan_B_number == 2){
+        ROS_WARN("[*] UKF -> PLAN B CALLBACK: PLAN B (2) [Array]");
+        x_post(7) = planBstate(7);
+        x_post(8) = planBstate(8);
+    } else if (Plan_B_number == 3){
+        ROS_WARN("[*] UKF -> PLAN B CALLBACK: PLAN B (3) [GPS]");
+        
+        std::array<double, 2> result{wgs84::toCartesian({lon0, lat0}, {planBstate(8), planBstate(7)})};
+        //result[1] = result[1] *2/3; //the 2/3 is for mapping the readings with gazebo world
+        x_post(7) = result[0];
+        x_post(8) = result[1];
+        
+    } else {
+        ROS_ERROR("[*] UKF -> PLAN B CALLBACK: UNKNOWN PLAN B NUMBER");
+    }
 
     x_post(0) = planBstate(0);
     x_post(1) = planBstate(1);
@@ -750,4 +769,118 @@ void UKF::LL_Callback( Eigen::VectorXd z_measurement, double currentX, double cu
 
     ROS_DEBUG("[*] UKF -> LL Callback finished");
 
+}
+
+void UKF::zed_Callback(Eigen::VectorXd z_measurement, double R_ZED, double currentX, double currentY){
+    //zed_callback is used to update the position of the rover using ZED camera measurements
+    ROS_DEBUG("[*] UKF -> ZED Callback called");
+
+    Eigen::VectorXd rotatedX = Eigen::VectorXd::Zero(9);
+    rotatedX << x_post(0), x_post(1), x_post(2), x_post(3), x_post(4), x_post(5), x_post(6), currentX, currentY;
+
+    Eigen::MatrixXd sigmas = sigma_points.calculate_sigma_points(rotatedX, P_post);
+
+    double X0 = z_measurement[11]; 
+    double Y0 = z_measurement[12];
+    double Z0 = z_measurement[13];
+
+    for (int i = 0; i < sigma_points.num_sigma_points; i++)
+    {
+        double dx = X0 - currentX; 
+        double dy = Y0 - currentY;
+        double X = dx + sigmas.col(i)(7); //from state space model
+        double Y = dy + sigmas.col(i)(8); //from state space model
+        
+        X_sigma.col(i)(7) = X;
+        X_sigma.col(i)(8) = Y;
+
+        Z_sigma.col(i) << Z_sigma.col(i)(0), Z_sigma.col(i)(1), Z_sigma.col(i)(2), Z_sigma.col(i)(3), Z_sigma.col(i)(4), Z_sigma.col(i)(5), Z_sigma.col(i)(6),
+                        Z_sigma.col(i)(7), Z_sigma.col(i)(8), Z_sigma.col(i)(9), Z_sigma.col(i)(10),
+                        X_sigma.col(i)(7),
+                        X_sigma.col(i)(8),
+                        Z_sigma.col(i)(13);
+    }
+
+    std::tie(x_hat, P) = unscented_transform(X_sigma, sigma_points.Wm, sigma_points.Wc, Q);
+    
+    std::tie(z, S) = unscented_transform(Z_sigma, sigma_points.Wm, sigma_points.Wc, R);
+
+    std::array<double, 2> result{z_measurement[11], z_measurement[12]};
+
+    // --- [1] Set prior from last post ---
+    x_prior = x_post;
+    P_prior = P_post;
+
+    // --- [2] Predict state mean from sigma points ---
+    Eigen::VectorXd x_mean = Eigen::VectorXd::Zero(x_dim);
+    for (int i = 0; i < 2 * x_dim + 1; ++i)
+        x_mean += sigma_points.Wm(i) * X_sigma.col(i);
+
+    // --- [3] Project sigma points (x, y) ---
+    Eigen::MatrixXd Z_sigma = Eigen::MatrixXd(2, 2 * x_dim + 1);
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Z_sigma(0, i) = X_sigma(7, i); 
+        Z_sigma(1, i) = X_sigma(8, i); 
+    }
+
+    // --- [4] Predicted measurement mean ---
+    Eigen::Vector2d z_mean = Eigen::Vector2d::Zero();
+    for (int i = 0; i < 2 * x_dim + 1; ++i)
+        z_mean += sigma_points.Wm(i) * Z_sigma.col(i);
+
+    // --- [5] Measurement covariance S ---
+    Eigen::Matrix2d S = Eigen::Matrix2d::Zero();
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Eigen::Vector2d dz = Z_sigma.col(i) - z_mean;
+        S += sigma_points.Wc(i) * dz * dz.transpose();
+    }
+
+    // --- [6] Add Lat/Lon sensor noise ---
+    Eigen::Matrix2d RZED;
+    RZED << R_ZED, 0.0,
+            0.0, R_ZED;  // Adjust to your actual sensor noise in meters²
+    S += RZED;
+
+    // --- [7] Cross-covariance between state and measurement ---
+    Eigen::MatrixXd Tc = Eigen::MatrixXd::Zero(x_dim, 2);
+    for (int i = 0; i < 2 * x_dim + 1; ++i) {
+        Eigen::VectorXd dx = X_sigma.col(i) - x_mean;
+        Eigen::Vector2d dz = Z_sigma.col(i) - z_mean;
+        Tc += sigma_points.Wc(i) * dx * dz.transpose();
+    }
+
+    // --- [8] Kalman gain ---
+    Eigen::MatrixXd K = Tc * S.inverse();
+
+    // --- [9] Measurement (x, y) ---
+    Eigen::Vector2d z_LL(result[0], result[1]);
+
+    // --- [10] Update state and covariance ---
+    Eigen::VectorXd x_new = Eigen::VectorXd::Zero(x_dim);
+    x_new.head(7) = x_mean.head(7);  // Keep quaternion and angular velocity
+    x_new(7) = currentX;  // Update only x, y
+    x_new(8) = currentY;  // Update only x, y
+    z_mean(0) = currentX;
+    z_mean(1) = currentY;
+    x_hat = x_mean + K * (- z_LL + z_mean);
+    std::cout << "x_mean: " << x_mean.transpose() << std::endl;
+    std::cout << "x_new: " << x_new.transpose() << std::endl;
+    std::cout << "x_hat: " << x_hat.transpose() << std::endl;
+    std::cout << "z_LL - z_mean: " << (z_LL - z_mean).transpose() << std::endl;
+    
+    P = P_prior - K * S * K.transpose();
+
+    // --- [11] Log result (optional debug) ---
+    //std::cout << "The result2: \n" << x_hat.tail(2) << std::endl;
+
+    // --- [12] Update post state ---
+    std::cout << "Final X: " << x_hat(7) << " | Final Y: " << x_hat(8) << std::endl;
+    //x_post(7) = x_hat(7);  // Update only x, y
+    //x_post(8) = x_hat(8);  // Update only x, y
+
+    // --- [13] Update post covariance (only x, y rows/cols) ---
+    P_post.block(7, 0, 2, x_dim) = P.block(7, 0, 2, x_dim);
+    P_post.block(0, 7, x_dim, 2) = P.block(0, 7, x_dim, 2);
+
+    ROS_DEBUG("[*] UKF -> ZED Callback finished");
 }

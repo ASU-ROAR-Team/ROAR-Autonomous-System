@@ -15,6 +15,7 @@
 #include "WGS84toCartesian.hpp"
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <XmlRpcValue.h>
 #include "WGS84toCartesian.hpp"
 
@@ -38,25 +39,35 @@ double dt_encoder = 0.0; // encoder time step
 double dt_imu = 0.0; //IMU time step
 bool new_measurement_received = false; // Flag for new measurement
 bool initial_measurement = true; // Flag for initial measurement
+bool initial_zed_measurement = true; // Flag for initial measurement
 double lat0 = 0.0; // Initial latitude
 double lon0 = 0.0; // Initial longitude
+double init_x = 0.0; // Initial x position
+double init_y = 0.0; // Initial y position
+double init_z = 0.0; // Initial z position
 double yaw = 0.0;
 double pitch = 0.0; 
 double roll = 0.0;
+double ZEDX = 0.0; // ZED X position
+double ZEDY = 0.0; // ZED Y position
 XmlRpc::XmlRpcValue landmarks;
 XmlRpc::XmlRpcValue iPose;
 Eigen::Vector3d initialPosition;
 tf2::Quaternion initialOrientation;
 tf2::Quaternion IMUorientation;
+tf2::Quaternion ZED_orientation;
 Eigen::Vector3d CAMERAwrtGPS;
 int noOfFails = 0;
 double Rgps = 5.0; // GPS noise
 double RLL = 10.0; // Landmark noise
+double R_ZED = 0.05; // ZED noise
 double LLMax = 0.3; //allowable range in meters
 double MaxRelativeDistance = 7.0; // Maximum relative distance in meters
 
 int noOfPass = 0;
 int noOfdone = 0;
+
+int Plan_B_number = 1; // Plan B number, can be set from parameter server
 
 Eigen::VectorXd planBstate = Eigen::VectorXd::Zero(9); // State for plan B [oientation (w, x, y, z), angular velocity (x, y, z), position (lat, lon)] 
 
@@ -69,6 +80,7 @@ nav_msgs::Odometry state_msg;
 // Define ROS subscribers
 ros::Subscriber encoder_sub; // Encoder subscriber
 ros::Subscriber imu_sub; // IMU subscriber
+ros::Subscriber zed_sub; // ZED subscriber
 ros::Subscriber gps_sub; // GPS subscriber
 ros::Subscriber trueLandmarkSub; // Landmarks true position subscriber
 ros::Subscriber landmarkSub; // Landmark subscriber
@@ -127,11 +139,11 @@ void poseCallback(bool rotate = true){
     ROS_DEBUG("[*] Exiting poseCallback function");
 }
 
-void planB(){
+void planB(int Plan_B_number){
     ROS_WARN("[!] CALLED PLAN B");
     noOfFails++;
     ROS_WARN("[!] Current number of fails: %d", noOfFails);
-    ukf.planBCallback(planBstate, lat0, lon0);
+    ukf.planBCallback(planBstate, lat0, lon0, ZEDX, ZEDY, Plan_B_number);
     //Add the state of GPS on/off to decide which plan to use or add a parameter for this plan B 
     //Store the state of the rover with the covariences in a queue of 20 elements
     // If the state is not finite, use the last known valid state where the covarience is logical and the position is within a range
@@ -153,7 +165,7 @@ void publishState(bool showInPlotter = false, bool rotate = true)
         /*
         TAKE GPS VALUES AND BNO VALUES AS THE NEW ITITIAL STATE "make an array that stores their latest values to take them"
         */
-        planB(); // Call plan B if state is not finite
+        planB(Plan_B_number); // Call plan B if state is not finite
     } 
     else {
         ROS_DEBUG("[+] Transforming state to world frame");
@@ -217,7 +229,7 @@ void publishState(bool showInPlotter = false, bool rotate = true)
     if(!ukf.P_post.allFinite()) {
         ROS_ERROR("[!] Covariance matrix P is not finite, setting to zero");
         state_msg.pose.covariance.fill(0.0);
-        planB(); // Call plan B if state is not finite
+        planB(Plan_B_number); // Call plan B if state is not finite
     } 
     else {
         // Publish covariance
@@ -446,6 +458,8 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
         std::vector<Eigen::Vector2d> rel_pos_all = {
             {rov_x + rel_x, rov_y + rel_y},
             {rov_x + rel_x, rov_y - rel_y},
+            {rov_x - rel_x, rov_y + rel_y},
+            {rov_x - rel_x, rov_y - rel_y},
         };
 
         XmlRpc::XmlRpcValue position;
@@ -506,6 +520,62 @@ void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
     }
 
 }
+void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_pose) {
+
+    ROS_DEBUG("[*] Entering zedCallback function");
+
+    Eigen::Vector3d zedXYZ;
+
+    // Check if there is initial values the zed gives to save it in a variables and adjust readings accordingly
+    if (initial_zed_measurement == true)
+    {
+        init_x = zed_pose->pose.pose.position.x;
+        init_y = zed_pose->pose.pose.position.y;
+        init_z = -zed_pose->pose.pose.position.z;
+        std::cout << "Initial ZED Position: " << init_x << ", " << init_y << ", " << init_z << std::endl;
+        initial_zed_measurement = false;
+    }
+    //add an if condition if the covarience is very high, then edit the inital pose with the new values and add the prev pose as the initial pose
+
+    double roverCurrentX;
+    double roverCurrentY;
+
+    XmlRpc::XmlRpcValue rov_position;
+    if(nh_ptr->hasParam("/rover/position")){
+        nh_ptr->getParam("/rover/position", rov_position);
+        roverCurrentX = static_cast<double>(rov_position["x"]);
+        roverCurrentY = static_cast<double>(rov_position["y"]);
+    } else {
+        ROS_ERROR("[!] No rover position found in parameter server");
+        roverCurrentX = initialPosition.x();
+        roverCurrentY = initialPosition.y();
+    }
+
+    zedXYZ(0) = zed_pose->pose.pose.position.x; // - init_x; // Adjust x position if initial reading is available
+    zedXYZ(1) = zed_pose->pose.pose.position.y; // - init_y; // Adjust y position if initial reading is available
+    zedXYZ(2) = zed_pose->pose.pose.position.z; // - init_z; // Adjust z position if initial reading is available
+
+    std::cout << "ZED Position before transformation: " << zedXYZ.transpose() << std::endl;
+
+    zedXYZ = rotateXYZbyXYZW(zedXYZ, ZED_orientation) + initialPosition; // Transform ZED position to world frame
+
+    z_measurement[11] = zedXYZ(0);
+    z_measurement[12] = zedXYZ(1);
+    z_measurement[13] = -zedXYZ(2);
+
+    ZEDX = zedXYZ(0);
+    ZEDY = zedXYZ(1);
+
+    std::cout << "ZED Position: " << zedXYZ.transpose() << std::endl;
+
+    ukf.zed_Callback(z_measurement, R_ZED, roverCurrentX, roverCurrentY); // Call UKF zed callback function
+    
+    publishState(false, false); // Publish the state message
+        
+        
+    ROS_DEBUG("[*] Exiting zedCallback function");
+
+}
 
 void magnetometerCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
 {
@@ -523,6 +593,24 @@ bool loadInitialPose(ros::NodeHandle& nh, Eigen::Vector3d& position, tf2::Quater
     ROS_DEBUG("Loading local initial parameters");
     if (!nh.getParam("iPose", iPose)) {
         ROS_ERROR("Failed to get param 'iPose'");
+        return false;
+    }
+
+    // --- Extract orientation ---
+    if (!iPose.hasMember("ZED_orientation") ||
+        iPose["ZED_orientation"].getType() != XmlRpc::XmlRpcValue::TypeStruct) {
+        ROS_ERROR("Invalid or missing 'ZED_orientation' in iPose param");
+        return false;
+    }
+
+    try {
+        double w0 = static_cast<double>(iPose["ZED_orientation"]["w"]);
+        double x0 = static_cast<double>(iPose["ZED_orientation"]["x"]);
+        double y0 = static_cast<double>(iPose["ZED_orientation"]["y"]);
+        double z0 = static_cast<double>(iPose["ZED_orientation"]["z"]);
+        ZED_orientation = tf2::Quaternion(x0, y0, z0, w0);  // tf2 uses (x, y, z, w)
+    } catch (...) {
+        ROS_ERROR("Failed to read 'orientation' values from iPose");
         return false;
     }
 
@@ -665,7 +753,10 @@ int main(int argc, char **argv)
     ukf.P(7) = static_cast<double>(UKF_PARAMS["P_x"]); // Initial covariance for quaternion
     ukf.P(8) = static_cast<double>(UKF_PARAMS["P_y"]); // Initial covariance for quaternion
     
+    Plan_B_number = static_cast<double>(UKF_PARAMS["PlanB_number"]); // Plan B No.
+
     Rgps = static_cast<double>(UKF_PARAMS["R_gps"]); // GPS noise
+    R_ZED = static_cast<double>(UKF_PARAMS["R_ZED"]); // ZED noise
     RLL = static_cast<double>(UKF_PARAMS["RLL"]); // Landmark noise
     LLMax = static_cast<double>(UKF_PARAMS["LLMax"]); // Landmark max distance allowable
     MaxRelativeDistance = static_cast<double>(UKF_PARAMS["MaxRelativeDistance"]); // Landmark max distance allowable
@@ -701,6 +792,12 @@ int main(int argc, char **argv)
         imu_sub = nh.subscribe("/imu", 1000, bnoCallback);
     } else {
         ROS_DEBUG("Landmark State is disabled");
+    }
+    if(static_cast<bool>(UKF_PARAMS["ZED_State"])) {
+        ROS_DEBUG("ZED State is enabled");
+        zed_sub = nh.subscribe("/zed2i/zed_node/pose_with_covarience", 1000, zedCallback);
+    } else {
+        ROS_DEBUG("ZED State is disabled");
     }
 
     if (loadInitialPose(nh, initialPosition, initialOrientation, IMUorientation, CAMERAwrtGPS)) {
