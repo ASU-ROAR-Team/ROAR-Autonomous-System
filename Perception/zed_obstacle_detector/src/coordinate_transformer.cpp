@@ -159,7 +159,7 @@ void CoordinateTransformer::logTFTreeStatus(const std::string& source_frame,
         tf_buffer_->_getFrameStrings(frame_ids);
         std::string frame_list;
         for (const auto& frame : frame_ids) {
-            if (!frame_list.eءmpty()) frame_list += ", ";
+            if (!frame_list.empty()) frame_list += ", ";
             frame_list += frame;
         }
         ROS_WARN_THROTTLE(5.0, "Available frames in TF buffer: %s", frame_list.c_str());
