@@ -56,6 +56,7 @@ Eigen::Vector3d initialPosition;
 tf2::Quaternion initialOrientation;
 tf2::Quaternion IMUorientation;
 tf2::Quaternion ZED_orientation;
+tf2::Quaternion ZED_READINGS;
 Eigen::Vector3d CAMERAwrtGPS;
 int noOfFails = 0;
 double Rgps = 5.0; // GPS noise
@@ -554,10 +555,13 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
     zedXYZ(0) = zed_pose->pose.pose.position.x - init_x; // Adjust x position if initial reading is available
     zedXYZ(1) = zed_pose->pose.pose.position.y - init_y; // Adjust y position if initial reading is available
     zedXYZ(2) = zed_pose->pose.pose.position.z - (-init_z); // Adjust z position if initial reading is available
-    ukf.x_post(0) = zed_pose->pose.pose.orientation.w;  // w
-    ukf.x_post(1) = zed_pose->pose.pose.orientation.x;  // x
-    ukf.x_post(2) = zed_pose->pose.pose.orientation.y;  // y
-    ukf.x_post(3) = zed_pose->pose.pose.orientation.z;  // z
+    
+    ZED_READINGS = tf2::Quaternion(zed_pose->pose.pose.orientation.x, zed_pose->pose.pose.orientation.y, zed_pose->pose.pose.orientation.z, zed_pose->pose.pose.orientation.w);
+    
+    ukf.x_post(0) = ZED_READINGS.w();  // w
+    ukf.x_post(1) = ZED_READINGS.x();  // x
+    ukf.x_post(2) = ZED_READINGS.y();  // y
+    ukf.x_post(3) = ZED_READINGS.z();  // z
 
     std::cout << "ZED Position before transformation: " << zedXYZ.transpose() << std::endl;
 

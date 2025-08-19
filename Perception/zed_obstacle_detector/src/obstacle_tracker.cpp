@@ -130,7 +130,7 @@ int ObstacleTracker::findBestMatch(const geometry_msgs::Point& detection, float 
 
     for (size_t i = 0; i < tracked_obstacles_.size(); ++i) {
         if (tracked_obstacles_[i].matched_in_current_frame) {
-            ROS_WARN("findBestMatch: Obstacle %zu already matched, skipping", i);
+            // ROS_INFO("findBestMatch: Obstacle %zu already matched, skipping", i);
             continue; // Already matched in this frame
         }
 
