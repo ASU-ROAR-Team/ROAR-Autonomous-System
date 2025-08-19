@@ -553,7 +553,12 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
     }
 
     zedXYZ(0) = zed_pose->pose.pose.position.x - init_x; // Adjust x position if initial reading is available
-    zedXYZ(1) = zed_pose->pose.pose.position.y - init_y; // Adjust y position if initial reading is available
+    //
+    //
+    // Put -ve sign for zed pose because the zed pose is in the opposite direction of the rover
+    //
+    //
+    zedXYZ(1) = (zed_pose->pose.pose.position.y - init_y); // Adjust y position if initial reading is available
     zedXYZ(2) = zed_pose->pose.pose.position.z - (-init_z); // Adjust z position if initial reading is available
     
     ZED_READINGS = tf2::Quaternion(zed_pose->pose.pose.orientation.x, zed_pose->pose.pose.orientation.y, zed_pose->pose.pose.orientation.z, zed_pose->pose.pose.orientation.w);
