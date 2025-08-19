@@ -7,8 +7,10 @@ zed_obstacle_detector:
   
   # Processing parameters
   processing:
-    passthrough_z_min_camera: 0.2
-    passthrough_z_max_camera: 7.0
+    passthrough_z_min_camera: 0.0
+    passthrough_z_max_camera: 1.5
+    passthrough_x_min: 0.0
+    passthrough_x_max: 3.0
     voxel_leaf_size: 0.12
     enable_uniform_downsampling: false
     uniform_sampling_radius: 0.12
