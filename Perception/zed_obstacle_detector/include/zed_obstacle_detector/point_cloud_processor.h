@@ -16,6 +16,8 @@ struct ProcessingParams {
     // PassThrough filter parameters
     double passthrough_z_min;
     double passthrough_z_max;
+    double passthrough_x_min;
+    double passthrough_x_max;
     
     // Voxel grid parameters
     double voxel_leaf_size;
@@ -33,7 +35,7 @@ struct ProcessingParams {
     std::string input_frame_id;
     std::string target_frame_id;
 };
-
+    
 class PointCloudProcessor {
 public:
     PointCloudProcessor(const ProcessingParams& params);
