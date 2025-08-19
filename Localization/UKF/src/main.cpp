@@ -244,6 +244,13 @@ void publishState(bool showInPlotter = false, bool rotate = true)
         state_msg.pose.covariance[5] = ukf.P_post.col(3)(3);
     }
 
+    // EDITS
+    //
+    //STORE IN A QUEUE THE STATE AND COVARIANCE FOR THE LAST 20 ELEMENTS
+    // POSITION {X,Y} AND ORIENTATION {W,X,Y,Z} AND COVARIANCE P_post
+    //
+    //
+
     if (showInPlotter) {
         state_msg.pose.covariance[35] = 1;
     } else {
@@ -536,7 +543,12 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
         std::cout << "Initial ZED Position: " << init_x << ", " << init_y << ", " << init_z << std::endl;
         initial_zed_measurement = false;
     }
-    //add an if condition if the covarience is very high, then edit the inital pose with the new values and add the prev pose as the initial pose
+    // EDITS
+    //
+    //add an if condition if the covarience is very high,
+    //then edit the inital pose with the new values and add the prev pose as the initial pose
+    //
+    //
 
     double roverCurrentX;
     double roverCurrentY;

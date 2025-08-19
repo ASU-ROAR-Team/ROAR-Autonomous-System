@@ -620,8 +620,11 @@ void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, do
         x_post(8) = ZEDY;
     } else if (Plan_B_number == 2){
         ROS_WARN("[*] UKF -> PLAN B CALLBACK: PLAN B (2) [Array]");
-        x_post(7) = planBstate(7);
-        x_post(8) = planBstate(8);
+        // EDITS
+        //
+        // Loop through the planBstate array and assign the values to x_post(7) and (8) and P_post for covariences
+        //
+        //
     } else if (Plan_B_number == 3){
         ROS_WARN("[*] UKF -> PLAN B CALLBACK: PLAN B (3) [GPS]");
         
