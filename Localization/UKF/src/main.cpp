@@ -558,10 +558,15 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
     
     ZED_READINGS = tf2::Quaternion(zed_pose->pose.pose.orientation.x, zed_pose->pose.pose.orientation.y, zed_pose->pose.pose.orientation.z, zed_pose->pose.pose.orientation.w);
     
-    ukf.x_post(0) = ZED_READINGS.w();  // w
-    ukf.x_post(1) = ZED_READINGS.x();  // x
-    ukf.x_post(2) = ZED_READINGS.y();  // y
-    ukf.x_post(3) = ZED_READINGS.z();  // z
+    tf2::Matrix3x3 m(ZED_READINGS);
+    m.getRPY(roll, pitch, yaw);
+
+    Quaternion q(yaw, roll, pitch); // Create a Quaternion object with yaw, roll, pitch
+
+    ukf.x_post(0) = q.s;  // w
+    ukf.x_post(1) = q.v_1;  // x
+    ukf.x_post(2) = q.v_2;  // y
+    ukf.x_post(3) = q.v_2;  // z
 
     std::cout << "ZED Position before transformation: " << zedXYZ.transpose() << std::endl;
 
