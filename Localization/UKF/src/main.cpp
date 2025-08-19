@@ -551,9 +551,13 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
         roverCurrentY = initialPosition.y();
     }
 
-    zedXYZ(0) = zed_pose->pose.pose.position.x; // - init_x; // Adjust x position if initial reading is available
-    zedXYZ(1) = zed_pose->pose.pose.position.y; // - init_y; // Adjust y position if initial reading is available
-    zedXYZ(2) = zed_pose->pose.pose.position.z; // - init_z; // Adjust z position if initial reading is available
+    zedXYZ(0) = zed_pose->pose.pose.position.x - init_x; // Adjust x position if initial reading is available
+    zedXYZ(1) = zed_pose->pose.pose.position.y - init_y; // Adjust y position if initial reading is available
+    zedXYZ(2) = zed_pose->pose.pose.position.z - (-init_z); // Adjust z position if initial reading is available
+    ukf.x_post(0) = zed_pose->pose.pose.orientation.w;  // w
+    ukf.x_post(1) = zed_pose->pose.pose.orientation.x;  // x
+    ukf.x_post(2) = zed_pose->pose.pose.orientation.y;  // y
+    ukf.x_post(3) = zed_pose->pose.pose.orientation.z;  // z
 
     std::cout << "ZED Position before transformation: " << zedXYZ.transpose() << std::endl;
 
@@ -753,7 +757,7 @@ int main(int argc, char **argv)
     ukf.P(7) = static_cast<double>(UKF_PARAMS["P_x"]); // Initial covariance for quaternion
     ukf.P(8) = static_cast<double>(UKF_PARAMS["P_y"]); // Initial covariance for quaternion
     
-    Plan_B_number = static_cast<double>(UKF_PARAMS["PlanB_number"]); // Plan B No.
+    Plan_B_number = static_cast<int>(UKF_PARAMS["PlanB_number"]); // Plan B No.
 
     Rgps = static_cast<double>(UKF_PARAMS["R_gps"]); // GPS noise
     R_ZED = static_cast<double>(UKF_PARAMS["R_ZED"]); // ZED noise
@@ -795,7 +799,7 @@ int main(int argc, char **argv)
     }
     if(static_cast<bool>(UKF_PARAMS["ZED_State"])) {
         ROS_DEBUG("ZED State is enabled");
-        zed_sub = nh.subscribe("/zed2i/zed_node/pose_with_covarience", 1000, zedCallback);
+        zed_sub = nh.subscribe("/zed2i/zed_node/pose_with_covariance", 1000, zedCallback);
     } else {
         ROS_DEBUG("ZED State is disabled");
     }
