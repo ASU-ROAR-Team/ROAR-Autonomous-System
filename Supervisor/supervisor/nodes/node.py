@@ -119,6 +119,21 @@ class SupervisorNode:
                                         queue_size=10)
         
         self.logger.info("ROS interfaces initialized")
+
+    def turn_lights_off(self):
+        """
+        Sends commands to turn off all colors.
+        Assumes the LightTower node handles these messages.
+        """
+        # Publish an "off" command for each color to ensure they are explicitly turned off.
+        off_red = LightTower(color="red", mode="off", frequency=0.0)
+        off_yellow = LightTower(color="yellow", mode="off", frequency=0.0)
+        off_green = LightTower(color="green", mode="off", frequency=0.0)
+        
+        self.light_pub.publish(off_red)
+        self.light_pub.publish(off_yellow)
+        self.light_pub.publish(off_green)
+        self.logger.info("Light tower commanded to turn all lights off.")
     
     def handle_mission_control(self, req):
         """Handle mission control service requests"""
@@ -176,6 +191,10 @@ class SupervisorNode:
                 self.logger.info(f"Initiated start for module: {module_name}")
             
             # --- Light Tower Control for Mission Start ---
+            # Ensure all other lights are off before starting new sequence
+            self.turn_lights_off()
+            rospy.sleep(0.5) # A small delay to ensure command is processed
+
             if mission_name.lower() == "teleoperation":
                 light_cmd = LightTower(color="yellow", mode="blink", frequency=1.0)
                 self.light_pub.publish(light_cmd)
@@ -261,6 +280,9 @@ class SupervisorNode:
             self.active_mission = ""
             
             # --- Light Tower Control for Mission Stop (return to IDLE state) ---
+            # Turn lights off before setting idle state
+            self.turn_lights_off()
+            rospy.sleep(0.5) # A small delay
             idle_msg = LightTower(color="red", mode="on", frequency=0.0)
             self.light_pub.publish(idle_msg)
             self.logger.info("Mission stopped. Rover transitioned to IDLE state. Red light ON.")
@@ -295,6 +317,9 @@ class SupervisorNode:
             self.active_mission = ""
             
             # --- Light Tower Control for System Reset (return to IDLE state) ---
+            # Ensure all lights are off
+            self.turn_lights_off()
+            rospy.sleep(0.5) # A small delay
             idle_msg = LightTower(color="red", mode="on", frequency=0.0)
             self.light_pub.publish(idle_msg)
             self.logger.info("System reset. Rover transitioned to IDLE state. Red light ON.")
@@ -394,6 +419,8 @@ class SupervisorNode:
                 self.logger.error("Critical module failure detected. Transitioning to EMERGENCY_STOP.")
                 self.emergency_stop_pub.publish(Bool(data=True))
                 # --- Light Tower Control for Emergency Stop ---
+                self.turn_lights_off()
+                rospy.sleep(0.5)
                 emergency_light_cmd = LightTower(color="red", mode="blink", frequency=0.5) # Blinking red for emergency
                 self.light_pub.publish(emergency_light_cmd)
                 self.logger.info("Emergency stop triggered. Red light Blinking.")
@@ -406,12 +433,12 @@ class SupervisorNode:
                     self.rover_state = "IDLE"
                     status_msg.supervisor_message = "All critical issues resolved. Rover state returned to IDLE."
                     # --- Light Tower Control for exiting Emergency Stop ---
+                    self.turn_lights_off()
+                    rospy.sleep(0.5)
                     idle_msg = LightTower(color="red", mode="on", frequency=0.0)
                     self.light_pub.publish(idle_msg)
                     self.logger.info("Emergency stop cleared. Red light ON (Idle state).")
                     # --- END Light Tower Control ---
-
-        self.status_pub.publish(status_msg)
 
         self.status_pub.publish(status_msg)
     
@@ -453,6 +480,8 @@ class SupervisorNode:
                 self.active_mission = ""
                 self.emergency_stop_pub.publish(Bool(data=True))
                 # --- Light Tower Control for Critical Module Failure ---
+                self.turn_lights_off()
+                rospy.sleep(0.5)
                 emergency_light_cmd = LightTower(color="red", mode="blink", frequency=0.5) # Blinking red for emergency
                 self.light_pub.publish(emergency_light_cmd)
                 self.logger.info("Critical module failure. Emergency stop triggered. Red light Blinking.")
@@ -468,6 +497,8 @@ class SupervisorNode:
     def shutdown_hook(self):
         """Clean shutdown procedure to terminate all child processes and log."""
         self.logger.info("Shutdown requested - terminating all managed processes")
+        # Ensure lights are off on shutdown
+        self.turn_lights_off()
         if hasattr(self, "moduleManager"):
             self.moduleManager.terminate_all()
         if hasattr(self, "logger"):
@@ -485,6 +516,10 @@ class SupervisorNode:
         """Main execution loop for the supervisor node."""
         self.logger.info("Rover Supervisor started. Monitoring system...")
         
+        # --- NEW: Initial startup sequence to turn all lights off ---
+        self.turn_lights_off()
+        rospy.sleep(1.0) # Give it a moment to take effect
+
         # Initial startup sequence: Flash red for 5 seconds
         self.logger.info("Rover just started: Flashing red light.")
         startup_msg = LightTower(color="red", mode="blink", frequency=2.0)
