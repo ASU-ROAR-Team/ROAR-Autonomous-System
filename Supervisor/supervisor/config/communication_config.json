@@ -1,0 +1,25 @@
+{
+"networkPeers": [
+  {
+    "name": "base_station",
+    "ip": "192.168.1.10",
+    "failureThreshold": 3,
+    "timeout": 1,
+    "appHeartbeatTimeout": 3
+  },
+  {
+    "name": "jetson",
+    "ip": "192.168.1.11",
+    "failureThreshold": 5,
+    "timeout": 1,
+    "appHeartbeatTimeout": 4
+  },
+  {
+    "name": "xavier",
+    "ip": "127.0.0.1",
+    "failureThreshold": 3,
+    "timeout": 1,
+    "appHeartbeatTimeout": 3,
+  }
+]
+}

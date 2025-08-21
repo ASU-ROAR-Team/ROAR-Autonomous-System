@@ -74,7 +74,8 @@ class SupervisorNode:
         # Set up monitoring timers
         self.resource_timer = rospy.Timer(rospy.Duration(1), self.monitor_resources_timer)
         self.heartbeat_timer = rospy.Timer(rospy.Duration(0.5), self.check_heartbeats_timer)
-        
+        self.communication_timer = rospy.Timer(rospy.Duration(1.0), self.monitor_communication_timer)
+
         # Status update rate for publishing RoverStatus
         self.status_update_rate = rospy.Rate(1) # 1 Hz
         
@@ -430,6 +431,11 @@ class SupervisorNode:
         """Callback for the resource monitoring timer"""
         if self.rover_state in ["IDLE", "RUNNING", "EMERGENCY_STOP", "ERROR"]:
             self.moduleManager.monitor_resources()
+
+    def monitor_communication_timer(self, event):
+        """Callback for the commuunication monitoring timer"""
+        if self.rover_state in ["IDLE", "RUNNING", "EMERGENCY_STOP", "ERROR"]:
+            self.moduleManager.monitor_communication()
 
     def check_heartbeats_timer(self, event):
         """Callback for the heartbeat checking timer"""
