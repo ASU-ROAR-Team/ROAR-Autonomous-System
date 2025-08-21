@@ -20,8 +20,11 @@ from roar_msgs.msg import RoverStatus, NodeStatus
 from std_msgs.msg import String, Bool
 from std_srvs.srv import Trigger, TriggerResponse # For calling drilling start service
 
+# Import the custom light tower message
+from roar_msgs.msg import LightTower
+
 # Assuming SupervisorLogger and ModuleManager are in the same package or path
-from supervisor import ModuleManager, SupervisorLogger # Removed DrillingModule import
+from supervisor import ModuleManager, SupervisorLogger 
 
 class SupervisorNode:
     def __init__(self):
@@ -68,9 +71,6 @@ class SupervisorNode:
             "/system/heartbeat", String, self.heartbeat_callback, queue_size=10
         )
 
-        # IMPORTANT: Removed self.start_all_configured_modules() from here.
-        # Modules are now started only when a mission is explicitly requested.
-
         # Set up monitoring timers
         self.resource_timer = rospy.Timer(rospy.Duration(1), self.monitor_resources_timer)
         self.heartbeat_timer = rospy.Timer(rospy.Duration(0.5), self.check_heartbeats_timer)
@@ -112,10 +112,13 @@ class SupervisorNode:
         # Emergency Stop Publisher
         self.emergency_stop_pub = rospy.Publisher("/emergency/stop", Bool, queue_size=1)
         
+        # Light Tower Publisher
+        self.light_pub = rospy.Publisher('/light_command',
+                                        LightTower,
+                                        queue_size=10)
+        
         self.logger.info("ROS interfaces initialized")
     
-    # Removed start_all_configured_modules() as it's no longer needed
-
     def handle_mission_control(self, req):
         """Handle mission control service requests"""
         response = MissionControlResponse()
@@ -171,6 +174,19 @@ class SupervisorNode:
                 self.moduleManager.start_module(module_name)
                 self.logger.info(f"Initiated start for module: {module_name}")
             
+            # --- Light Tower Control for Mission Start ---
+            if mission_name.lower() == "teleoperation":
+                light_cmd = LightTower(color="yellow", mode="blink", frequency=1.0)
+                self.light_pub.publish(light_cmd)
+                self.logger.info("Teleoperation mission started. Blinking yellow light.")
+            elif mission_name.lower() in ["navigation", "drilling"]:
+                light_cmd = LightTower(color="green", mode="blink", frequency=1.0)
+                self.light_pub.publish(light_cmd)
+                self.logger.info(f"{mission_name} mission started. Blinking green light.")
+            else:
+                self.logger.warn(f"Unknown mission '{mission_name}', no specific light command sent.")
+            # --- END Light Tower Control ---
+
             self.rover_state = "RUNNING"
             self.active_mission = mission_name
             self.logger.info(f"Rover state changed to RUNNING, active mission: {mission_name}")
@@ -243,6 +259,12 @@ class SupervisorNode:
             self.rover_state = "IDLE"
             self.active_mission = ""
             
+            # --- Light Tower Control for Mission Stop (return to IDLE state) ---
+            idle_msg = LightTower(color="red", mode="on", frequency=0.0)
+            self.light_pub.publish(idle_msg)
+            self.logger.info("Mission stopped. Rover transitioned to IDLE state. Red light ON.")
+            # --- END Light Tower Control ---
+            
             response.success = True
             response.message = f"Successfully stopped mission: {old_mission}. All modules terminated."
             response.current_state = self.rover_state
@@ -270,6 +292,12 @@ class SupervisorNode:
             # Reset state variables
             self.rover_state = "IDLE"
             self.active_mission = ""
+            
+            # --- Light Tower Control for System Reset (return to IDLE state) ---
+            idle_msg = LightTower(color="red", mode="on", frequency=0.0)
+            self.light_pub.publish(idle_msg)
+            self.logger.info("System reset. Rover transitioned to IDLE state. Red light ON.")
+            # --- END Light Tower Control ---
             
             response.success = True
             response.message = "System reset successfully. All modules terminated."
@@ -339,6 +367,7 @@ class SupervisorNode:
         # Check for critical module failures and update supervisor_message/rover_state
         has_critical_failure = False
         all_critical_modules_running = True
+        failed_critical_module_name = None # Store the name of the failing module
 
         # Only check statuses of modules that are *expected* to be running for the current mission
         active_mission_modules = self.config.get('missions', {}).get(self.active_mission, {}).get('modules', [])
@@ -353,6 +382,7 @@ class SupervisorNode:
                 if node_status.status in ["STOPPED", "FAILED", "ERROR"]:
                     has_critical_failure = True
                     status_msg.supervisor_message = f"CRITICAL ERROR: '{node_name}' has failed or is stopped!"
+                    failed_critical_module_name = node_name # Save the name of the failing module
                 # Ensure all critical modules are running/healthy for exiting EMERGENCY_STOP
                 if node_status.status not in ["RUNNING", "HEALTHY"]:
                     all_critical_modules_running = False
@@ -362,12 +392,25 @@ class SupervisorNode:
                 self.rover_state = "EMERGENCY_STOP"
                 self.logger.error("Critical module failure detected. Transitioning to EMERGENCY_STOP.")
                 self.emergency_stop_pub.publish(Bool(data=True))
+                # --- Light Tower Control for Emergency Stop ---
+                emergency_light_cmd = LightTower(color="red", mode="blink", frequency=0.5) # Blinking red for emergency
+                self.light_pub.publish(emergency_light_cmd)
+                self.logger.info("Emergency stop triggered. Red light Blinking.")
+                # --- END Light Tower Control ---
+                # Attempt to restart the critical module using the saved name
+                if failed_critical_module_name:
+                    self.moduleManager.restart_module(failed_critical_module_name) 
             elif not has_critical_failure and self.rover_state == "EMERGENCY_STOP":
-                # Only transition out of EMERGENCY_STOP if ALL critical modules are now running/healthy
-                # and if no mission is active or current mission's modules are healthy
                 if all_critical_modules_running:
                     self.rover_state = "IDLE"
                     status_msg.supervisor_message = "All critical issues resolved. Rover state returned to IDLE."
+                    # --- Light Tower Control for exiting Emergency Stop ---
+                    idle_msg = LightTower(color="red", mode="on", frequency=0.0)
+                    self.light_pub.publish(idle_msg)
+                    self.logger.info("Emergency stop cleared. Red light ON (Idle state).")
+                    # --- END Light Tower Control ---
+
+        self.status_pub.publish(status_msg)
 
         self.status_pub.publish(status_msg)
     
@@ -403,6 +446,11 @@ class SupervisorNode:
                 self.rover_state = "EMERGENCY_STOP"
                 self.active_mission = ""
                 self.emergency_stop_pub.publish(Bool(data=True))
+                # --- Light Tower Control for Critical Module Failure ---
+                emergency_light_cmd = LightTower(color="red", mode="blink", frequency=0.5) # Blinking red for emergency
+                self.light_pub.publish(emergency_light_cmd)
+                self.logger.info("Critical module failure. Emergency stop triggered. Red light Blinking.")
+                # --- END Light Tower Control ---
                 # Attempt to restart the critical module, supervisor will stay in EMERGENCY_STOP
                 self.moduleManager.restart_module(name) 
             else:
@@ -431,6 +479,17 @@ class SupervisorNode:
         """Main execution loop for the supervisor node."""
         self.logger.info("Rover Supervisor started. Monitoring system...")
         
+        # Initial startup sequence: Flash red for 5 seconds
+        self.logger.info("Rover just started: Flashing red light.")
+        startup_msg = LightTower(color="red", mode="blink", frequency=2.0)
+        self.light_pub.publish(startup_msg)
+        rospy.sleep(5) # Wait for the blinking to finish
+        
+        # Then, set the red light to "on" for the IDLE state (not in any mission)
+        self.logger.info("Startup sequence finished. Setting red light ON (IDLE state).")
+        idle_msg = LightTower(color="red", mode="on", frequency=0.0)
+        self.light_pub.publish(idle_msg)
+
         while not rospy.is_shutdown():
             self.publish_status()
             self.status_update_rate.sleep()
