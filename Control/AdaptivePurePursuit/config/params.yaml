@@ -1,10 +1,5 @@
 publishing_topics:
-  left_front_wheel: "/wheel_lhs_front_velocity_controller/command"
-  right_front_wheel: "/wheel_rhs_front_velocity_controller/command"
-  left_rear_wheel: "/wheel_lhs_rear_velocity_controller/command"
-  right_rear_wheel: "/wheel_rhs_rear_velocity_controller/command"
-  left_mid_wheel: "/wheel_lhs_mid_velocity_controller/command"
-  right_mid_wheel: "/wheel_rhs_mid_velocity_controller/command"
+  wheel_velocities: "/wheel_velocity_controller/command"
 subscribing_topics:
   pose: "/gazebo/model_states"
   path: "/Path"

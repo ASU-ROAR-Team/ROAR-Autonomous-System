@@ -9,7 +9,7 @@ using the adaptive pure pursuit algorithm"""
 
 import math
 import rospy
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64MultiArray
 from nav_msgs.msg import Path
 from gazebo_msgs.msg import ModelStates
 from tf.transformations import euler_from_quaternion
@@ -25,27 +25,13 @@ class Control:
 
     def __init__(self):
         rospy.init_node("controller", anonymous=True)
-        self.velocityPublisher = {
-            "LF": rospy.Publisher(
-                rospy.get_param("publishing_topics/left_front_wheel"), Float64, queue_size=10
-            ),
-            "RF": rospy.Publisher(
-                rospy.get_param("publishing_topics/right_front_wheel"), Float64, queue_size=10
-            ),
-            "LR": rospy.Publisher(
-                rospy.get_param("publishing_topics/left_rear_wheel"), Float64, queue_size=10
-            ),
-            "RR": rospy.Publisher(
-                rospy.get_param("publishing_topics/right_rear_wheel"), Float64, queue_size=10
-            ),
-            "LM": rospy.Publisher(
-                rospy.get_param("publishing_topics/left_mid_wheel"), Float64, queue_size=10
-            ),
-            "RM": rospy.Publisher(
-                rospy.get_param("publishing_topics/right_mid_wheel"), Float64, queue_size=10
-            ),
-        }
-        # Publishers
+        # Publisher for all wheel velocities
+        self.velocityPublisher = rospy.Publisher(
+            rospy.get_param("publishing_topics/wheel_velocities"),
+            Float64MultiArray,
+            queue_size=10,
+        )
+        # Subscribers
         self.subscribers = {
             "Pose": rospy.Subscriber(
                 rospy.get_param("subscribing_topics/pose"), ModelStates, self.updatePose
@@ -54,7 +40,6 @@ class Control:
                 rospy.get_param("subscribing_topics/path"), Path, self.pathCallback
             ),
         }
-        # Subscribers
 
         self.indexLD = 0
         self.currentPosition = [0, 0, 0]  ##[x,y,theta]
@@ -280,12 +265,13 @@ class Control:
                 vlMapped,
             )
 
-            self.velocityPublisher["LF"].publish(velocityLeft)
-            self.velocityPublisher["RF"].publish(velocityRight)
-            self.velocityPublisher["LM"].publish(velocityLeft)
-            self.velocityPublisher["RM"].publish(velocityRight)
-            self.velocityPublisher["LR"].publish(velocityLeft)
-            self.velocityPublisher["RR"].publish(velocityRight)
+            # Create and publish the multi-array message
+            velocities_msg = Float64MultiArray()
+            # The order here must match what the robot's driver/controller expects.
+            # Assuming an order of: [Left_Front, Right_Front, Left_Mid, Right_Mid, Left_Rear, Right_Rear]
+            velocities_msg.data = [velocityLeft, velocityRight, velocityLeft, velocityRight, velocityLeft, velocityRight]
+            self.velocityPublisher.publish(velocities_msg)
+            
             if self.visualize:
                 self.plotRoverPosition()
                 # Give time for plot to update
