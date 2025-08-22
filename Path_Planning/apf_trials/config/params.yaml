@@ -17,8 +17,8 @@ APF_update:
   LOOKAHEAD_STEPS: 9    # Number of lookahead steps for path following
 
   # Path file parameters
-  pathFile: "~/ttt/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
-  costmapFile: "~/ttt/src/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
+  pathFile: "/home/ubuntu/roar_ws/src/ROAR-Supervisor/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/real_path.csv"
+  costmapFile: "/home/ubuntu/roar_ws/src/ROAR-Supervisor/ROAR-Autonomous-System/Path_Planning/heightmap_costmap/Results/total_cost.csv"
 
 
   # Time parameters

@@ -236,21 +236,17 @@
     "missions": {
         "Navigation": {
             "modules": [
-                "roscan",
-                "zed_wrapper",
-                "RoverTeleopModule",
+
                 "localization",
                 "path_planning",
                 "aruco_tracking",
                 "zed_obstacle_detector"
-
             ]
         },
         "Drilling": {
             "modules": [
                 "roscan",
                 "drilling_module",
-                "low_level_sim",
                 "RoverTeleopModule",
                 "localization"
             ]
