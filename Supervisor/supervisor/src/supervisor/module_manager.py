@@ -87,6 +87,7 @@ class ModuleManager:
         for node in sorted(config["nodes"], key=lambda x: len(x.get("dependencies", []))):
             self.modules[node["nodeName"]] = {
                 "launchCmd": node["launchCmd"],
+                "host": node["host"],
                 "params": node.get("params", {}),
                 "args": node.get("args", []),
                 "dependencies": node.get("dependencies", []),
