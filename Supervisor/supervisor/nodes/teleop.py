@@ -2,7 +2,7 @@
 
 import rospy
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Float64 
+from std_msgs.msg import Float64 , Float32MultiArray
 from roar_msgs.msg import DrillingCommand, DrillingManualInput 
 from sensor_msgs.msg import Joy 
 
@@ -12,7 +12,7 @@ class RoverTeleopModule:
         self.logger = rospy 
 
         # --- Rover Motion Publishers ---
-        self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Float32MultiArray, queue_size=10)
 
         # --- Drilling Control Publisher ---
         self.drilling_teleop_cmd_pub = rospy.Publisher('/drilling/command_to_actuators', DrillingCommand, queue_size=10)
@@ -50,9 +50,39 @@ class RoverTeleopModule:
         self._current_twist.linear.x = normalized_linear * self.max_linear_speed
         self._current_twist.angular.z = normalized_angular * self.max_angular_speed
 
+        left_motor_rpm = (self._current_twist.linear.x - self._current_twist.angular.z) * 20
+        right_motor_rpm = (self._current_twist.linear.x + self._current_twist.angular.z) * 20
+
+        max_motor_rpm = 15
+
+        left_motor_rpm = max(-max_motor_rpm, min(max_motor_rpm, left_motor_rpm))
+        right_motor_rpm = max(-max_motor_rpm, min(max_motor_rpm, right_motor_rpm))
+        
+        left_motor_signal = int(left_motor_rpm * (63 / max_motor_rpm) + 64)
+        right_motor_signal = int(right_motor_rpm * (63 / max_motor_rpm) + 64)
+
+        # left_motor_signal = max(0, min(127, left_motor_rpm))
+        # right_motor_signal = max(0, min(127, right_motor_rpm))
+            
+            # Create the CAN frame data with one byte per wheel (6 wheels total)
+            # Bytes 0-2 are right motors (top to bottom), bytes 3-5 are left motors (top to bottom)
+        frame = Float32MultiArray()
+
+        frame_data = [
+            right_motor_signal,  # Right top motor
+            right_motor_signal,  # Right middle motor
+            right_motor_signal,  # Right bottom motor
+            left_motor_signal,   # Left top motor
+            left_motor_signal,   # Left middle motor
+            left_motor_signal,   # Left bottom motor
+            0,                   # Padding to maintain 8-byte frame
+            0                    # Padding to maintain 8-byte frame
+        ]
+            
+        frame.data = frame_data
         # Publish rover velocity immediately
-        self.cmd_vel_pub.publish(self._current_twist)
-        self.logger.debug(f"Published Joy Twist: Linear={self._current_twist.linear.x:.2f}, Angular={self._current_twist.angular.z:.2f}")
+        self.cmd_vel_pub.publish(frame)
+        # self.logger.debug(f"Published Joy Twist: Linear={self._current_twist.linear.x:.2f}, Angular={self._current_twist.angular.z:.2f}")
 
     def drilling_manual_input_callback(self, msg: DrillingManualInput):
         """
@@ -67,10 +97,10 @@ class RoverTeleopModule:
 
         # Publish drilling manual command immediately
         self.drilling_teleop_cmd_pub.publish(self._current_drilling_command)
-        self.logger.debug(
-            f"Published DrillingCommand: Up={msg.manual_up}, Down={msg.manual_down}, "
-            f"Auger={msg.auger_on}, Gate={msg.gate_open}"
-        )
+        # self.logger.debug(
+        #     f"Published DrillingCommand: Up={msg.manual_up}, Down={msg.manual_down}, "
+        #     f"Auger={msg.auger_on}, Gate={msg.gate_open}"
+        # )
 
 
 if __name__ == '__main__':
