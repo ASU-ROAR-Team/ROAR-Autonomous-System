@@ -8,6 +8,8 @@
 #include <nav_msgs/Odometry.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <vector>
+#include <deque>
+#include <array>
 #include "roar_msgs/Landmark.h"
 #include "roar_msgs/LandmarkArray.h"
 #include <tf2/LinearMath/Quaternion.h>
@@ -50,6 +52,12 @@ double pitch = 0.0;
 double roll = 0.0;
 double ZEDX = 0.0; // ZED X position
 double ZEDY = 0.0; // ZED Y position
+double minX = -5.0; // Minimum X position for valid state
+double maxX = 100.0; // Maximum X position for valid state
+double minY = -50.0; // Minimum Y position for valid state
+double maxY = 50.0; // Maximum Y position for valid state
+double minCov = 0.0; // Minimum covariance for valid state
+double maxCov = 5.0; // Maximum covariance for valid state
 XmlRpc::XmlRpcValue landmarks;
 XmlRpc::XmlRpcValue iPose;
 Eigen::Vector3d initialPosition;
@@ -69,6 +77,7 @@ int noOfPass = 0;
 int noOfdone = 0;
 
 int Plan_B_number = 1; // Plan B number, can be set from parameter server
+std::array<double, 15> valid_array = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; // Array to store valid states and covariences [x, y , orientation (w, x, y, z), covariences]
 
 Eigen::VectorXd planBstate = Eigen::VectorXd::Zero(9); // State for plan B [oientation (w, x, y, z), angular velocity (x, y, z), position (lat, lon)] 
 
@@ -89,6 +98,40 @@ ros::Subscriber mag_sub; // Magnetometer subscriber
 // Define ROS publisher
 ros::Publisher state_publisher; // State publisher
 
+class ArrayQueue {
+private:
+    std::deque<std::array<double, 15>> dq;
+    static const size_t MAX_SIZE = 20;
+
+public:
+    // Add array of 15 ints
+    void addArray(const std::array<double, 15>& arr) {
+        if (dq.size() >= MAX_SIZE) {
+            dq.pop_front(); // remove oldest
+        }
+        dq.push_back(arr); // add newest
+    }
+
+    // Loop from last entered (newest) to oldest
+    void loopFromNewest() {
+        for (auto it = dq.rbegin(); it != dq.rend(); ++it) {
+            std::cout << "[ ";
+            for (double val : *it) {
+                std::cout << val << " ";
+            }
+            std::cout << "]\n";
+            if (((*it)[0] >= minX) && ((*it)[0] <= maxX) && ((*it)[1] >= minY) && ((*it)[1] <= maxY) && ((*it)[6] >= minCov) && ((*it)[6] <= maxCov)){
+                std::cout << "[+] Valid Array Found !";
+                valid_array = (*it);
+                return;
+            }
+        }
+        std::cout << "[!] No Valid Array Found !";
+    }
+};
+
+ArrayQueue aq; // Create an instance of ArrayQueue that can store arrays of [x, y , orientation (w, x, y, z), covariences]
+
 Eigen::Vector3d rotateXYZbyXYZW(const Eigen::Vector3d& rel_pos_rover, const tf2::Quaternion& rover_quat) {
     ROS_DEBUG("[*] Entering rotateXYZbyXYZW function");
     // Convert tf2 quaternion to Eigen quaternion
@@ -100,6 +143,22 @@ Eigen::Vector3d rotateXYZbyXYZW(const Eigen::Vector3d& rel_pos_rover, const tf2:
     ROS_DEBUG("[+] Transforming relative position by rover orientation");
     // Transform the vector
     return R * rel_pos_rover;
+}
+
+Eigen::Vector3d transformBack(const Eigen::Vector3d& X, const Eigen::Vector3d& T, const tf2::Quaternion& q)
+{
+    ROS_DEBUG("[*] Entering transformBack function");
+    // Convert tf2::Quaternion -> Eigen::Quaterniond
+    Eigen::Quaterniond eigen_q(q.w(), q.x(), q.y(), q.z());
+
+    // Get rotation matrix R
+    Eigen::Matrix3d R = eigen_q.toRotationMatrix();
+
+    // Apply inverse transformation: x = R^T * (X - T)
+    Eigen::Vector3d x = R.transpose() * (X - T);
+    std::cout << "| Before Transformation: " << X.transpose() << "\n| After Transformation: " << x.transpose() << std::endl;
+    ROS_DEBUG("[+] Inverse transformation applied");
+    return x;
 }
 
 //Pose callback function
@@ -144,7 +203,8 @@ void planB(int Plan_B_number){
     ROS_WARN("[!] CALLED PLAN B");
     noOfFails++;
     ROS_WARN("[!] Current number of fails: %d", noOfFails);
-    ukf.planBCallback(planBstate, lat0, lon0, ZEDX, ZEDY, Plan_B_number);
+    aq.loopFromNewest();
+    ukf.planBCallback(planBstate, lat0, lon0, ZEDX, ZEDY, Plan_B_number, valid_array);
     //Add the state of GPS on/off to decide which plan to use or add a parameter for this plan B 
     //Store the state of the rover with the covariences in a queue of 20 elements
     // If the state is not finite, use the last known valid state where the covarience is logical and the position is within a range
@@ -167,12 +227,23 @@ void publishState(bool showInPlotter = false, bool rotate = true)
         TAKE GPS VALUES AND BNO VALUES AS THE NEW ITITIAL STATE "make an array that stores their latest values to take them"
         */
         planB(Plan_B_number); // Call plan B if state is not finite
+        Eigen::Vector3d movingFrame= transformBack({ukf.x_post[7], ukf.x_post[8], 0}, initialPosition, initialOrientation);
+        rotatedXYZ(0) = ukf.x_post[7];
+	    rotatedXYZ(1) = ukf.x_post[8];
+        std::cout << "x_post: " << ukf.x_post.transpose() << std::endl;
+        ukf.x_post[7] = movingFrame(0);
+        ukf.x_post[8] = movingFrame(1);
+        std::cout << "movingFrame(0): " << movingFrame(0) << " | movingFrame(1): " << movingFrame(1) << std::endl;
+        rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
+        std::cout << "Rotated X: " << rotatedXYZ(0) << " | Rotated Y: " << rotatedXYZ(1) << std::endl;
     } 
     else {
         ROS_DEBUG("[+] Transforming state to world frame");
         // Transform to world frame
-	if(rotate){
+	    if(rotate){
+            std::cout << "x_post: " << ukf.x_post.transpose() << std::endl;
             rotatedXYZ = rotateXYZbyXYZW({ukf.x_post[7], ukf.x_post[8], 0}, initialOrientation) + initialPosition;
+            std::cout << "Rotated X: " << rotatedXYZ(0) << " | Rotated Y: " << rotatedXYZ(1) << std::endl;
         } else {
 	    std::cout << "Landmark in now publishing\n";
 	    rotatedXYZ(0) = ukf.x_hat[7];
@@ -246,10 +317,28 @@ void publishState(bool showInPlotter = false, bool rotate = true)
 
     // EDITS
     //
-    //STORE IN A QUEUE THE STATE AND COVARIANCE FOR THE LAST 20 ELEMENTS
+    // STORE IN A QUEUE THE STATE AND COVARIANCE FOR THE LAST 20 ELEMENTS
     // POSITION {X,Y} AND ORIENTATION {W,X,Y,Z} AND COVARIANCE P_post
     //
     //
+    std::array<double, 15> arr;
+    for (int j = 0; j < 15; j++) {
+        arr[0] = state_msg.pose.pose.position.x;
+        arr[1] = state_msg.pose.pose.position.y;
+        arr[2] = state_msg.pose.pose.orientation.w;
+        arr[3] = state_msg.pose.pose.orientation.x;
+        arr[4] = state_msg.pose.pose.orientation.y;
+        arr[5] = state_msg.pose.pose.orientation.z;
+        arr[6] = state_msg.pose.covariance[0];
+        arr[7] = state_msg.pose.covariance[1];
+        arr[8] = state_msg.pose.covariance[6];
+        arr[9] = state_msg.pose.covariance[7];
+        arr[10] = state_msg.pose.covariance[2];
+        arr[11] = state_msg.pose.covariance[3];
+        arr[12] = state_msg.pose.covariance[4];
+        arr[13] = state_msg.pose.covariance[5];
+    }
+    aq.addArray(arr);
 
     if (showInPlotter) {
         state_msg.pose.covariance[35] = 1;
@@ -567,10 +656,10 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
     zedXYZ(0) = zed_pose->pose.pose.position.x - init_x; // Adjust x position if initial reading is available
     //
     //
-    // Put -ve sign for zed pose because the zed pose is in the opposite direction of the rover
+    // The -ve sign for zed pose because the zed pose is in the opposite direction of the rover
     //
     //
-    zedXYZ(1) = (zed_pose->pose.pose.position.y - init_y); // Adjust y position if initial reading is available
+    zedXYZ(1) = - (zed_pose->pose.pose.position.y - init_y); // Adjust y position if initial reading is available
     zedXYZ(2) = zed_pose->pose.pose.position.z - (-init_z); // Adjust z position if initial reading is available
     
     ZED_READINGS = tf2::Quaternion(zed_pose->pose.pose.orientation.x, zed_pose->pose.pose.orientation.y, zed_pose->pose.pose.orientation.z, zed_pose->pose.pose.orientation.w);
@@ -790,7 +879,13 @@ int main(int argc, char **argv)
     RLL = static_cast<double>(UKF_PARAMS["RLL"]); // Landmark noise
     LLMax = static_cast<double>(UKF_PARAMS["LLMax"]); // Landmark max distance allowable
     MaxRelativeDistance = static_cast<double>(UKF_PARAMS["MaxRelativeDistance"]); // Landmark max distance allowable
-    
+    minX = static_cast<double>(UKF_PARAMS["minX"]); // minimum X value for the rover to be in the map
+    maxX = static_cast<double>(UKF_PARAMS["maxX"]); // maximum X value for the rover to be in the map
+    minY = static_cast<double>(UKF_PARAMS["minY"]); // minimum Y value for the rover to be in the map
+    maxY = static_cast<double>(UKF_PARAMS["maxY"]); // maximum Y value for the rover to be in the map
+    minCov = static_cast<double>(UKF_PARAMS["minCov"]); // minimum covariance value for the rover
+    maxCov = static_cast<double>(UKF_PARAMS["maxCov"]); // maximum covariance value for the rover
+
     ROS_DEBUG("UKF parameters loaded successfully");
     // Initialize ROS subscribers
     if(static_cast<bool>(UKF_PARAMS["GPS_State"])) {

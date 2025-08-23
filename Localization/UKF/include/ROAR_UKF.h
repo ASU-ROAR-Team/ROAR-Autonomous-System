@@ -146,7 +146,7 @@ public:
 	void zed_Callback(Eigen::VectorXd z_measurement, double R_ZED, double currentX, double currentY);
 
 	/*** PLAN B ***/
-	void planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, double ZEDX, double ZEDY, int Plan_B_number);
+	void planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, double ZEDX, double ZEDY, int Plan_B_number, const std::array<double, 15>& valid_array);
 
 };
 #endif

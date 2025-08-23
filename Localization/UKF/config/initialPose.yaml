@@ -34,7 +34,14 @@ UKF:
   P_x: 0.5
   P_y: 0.5
 
-  PlanB_number: 1
+  minX: -5.0
+  maxX: 100.0
+  minY: -50.0
+  maxY: 50.0
+  minCov: 0.0
+  maxCov: 5.0
+
+  PlanB_number: 2
 
   GPS_State: false
   IMU_State: false

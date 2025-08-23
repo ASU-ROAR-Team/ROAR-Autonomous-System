@@ -488,6 +488,8 @@ void UKF::imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double 
     ROS_DEBUG("[+] UKF -> IMU Callback: Orientation Finished");
     
     ROS_DEBUG("[*] UKF -> IMU Callback finished");
+
+    std::cout << "IMU x_post: " << x_post.transpose() << std::endl;
     
     ROS_WARN(x_post.allFinite() ? "[+] UKF -> IMU Callback: State is finite" : "[!] UKF -> IMU Callback: State is not finite");
     ROS_WARN(P_post.allFinite() ? "[+] UKF -> IMU Callback: P is finite" : "[!] UKF -> IMU Callback: P is not finite");
@@ -606,7 +608,7 @@ void UKF::bno_callback(double roll, double pitch ,double yaw)
     x_post(3) = q.v_3;
 }
 
-void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, double ZEDX, double ZEDY, int Plan_B_number){
+void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, double ZEDX, double ZEDY, int Plan_B_number, const std::array<double, 15>& valid_array){
     ROS_WARN("[*] UKF -> PLAN B CALLBACK STARTED");
 
     // x = [q0 q1 q2 q3 omega_x, omega_y, omega_z x y].T
@@ -620,14 +622,12 @@ void UKF::planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, do
         x_post(8) = ZEDY;
     } else if (Plan_B_number == 2){
         ROS_WARN("[*] UKF -> PLAN B CALLBACK: PLAN B (2) [Array]");
-        // EDITS
-        //
-        // Loop through the planBstate array and assign the values to x_post(7) and (8) and P_post for covariences
-        //
-        //
+        // Transforming to moving rover frame
+
+        x_post(7) = valid_array[0];
+        x_post(8) = valid_array[1];
     } else if (Plan_B_number == 3){
         ROS_WARN("[*] UKF -> PLAN B CALLBACK: PLAN B (3) [GPS]");
-        
         std::array<double, 2> result{wgs84::toCartesian({lon0, lat0}, {planBstate(8), planBstate(7)})};
         //result[1] = result[1] *2/3; //the 2/3 is for mapping the readings with gazebo world
         x_post(7) = result[0];
