@@ -35,7 +35,7 @@
       },
       {
         "nodeName": "RoverTeleopModule",
-        "launchCmd": "python3 /home/omar-magdy/ASU_ROAR/src/ROAR-Autonomous-System/Supervisor/supervisor/nodes/teleop.py",
+        "launchCmd": "rosrun supervisor teleop.py",
         "host": "xavier",
         "heartBeat": true,
         "params": {
@@ -52,8 +52,6 @@
         },
         "failureAction": "stop_rover"
       },
-
-
       {
         "nodeName": "localization",
         "launchCmd": "roslaunch localization ukf.launch",
@@ -118,8 +116,6 @@
         },
         "failureAction": "stop_rover"
       },
-
-
       {
         "nodeName": "drilling_module",
         "launchCmd": "rosrun supervisor drilling_module.py",
@@ -144,26 +140,22 @@
         "failureAction": "stop_rover"
       },
       {
-        "nodeName": "low_level_sim",
-        "launchCmd": "python3 /home/omar-magdy/ASU_ROAR/src/ROAR-Autonomous-System/Supervisor/supervisor/nodes/low_level_sim.py",
+        "nodeName": "light_tower",
+        "launchCmd": "python3 /home/nvidia/ERC25-Xavier-WS/src/light_tower.py",
         "host": "xavier",
         "heartBeat": true,
         "params": {},
         "args": [],
-        "dependencies": ["drilling_module"],
-        "critical": true,
+        "dependencies": [],
+        "critical": false,
         "resourceLimits": {
-          "maxCpu": 85.0,
-          "maxMem": 512,
-          "timeout": 5.0
+          "maxCpu": 5.0,
+          "maxMem": 64,
+          "timeout": 1.0
         },
-        "failureAction": "stop_rover"
+        "failureAction": "log_and_continue"
       }
     ],
-
-
-
-
     "controllers": [
       {
         "controllerName": "primary_nav",
@@ -179,8 +171,6 @@
         "priority": 100,
         "fallbackBehavior": "disable_all"
       },
-
-
       {
         "controllerName": "primary_nav",
         "enableTopic": "/navigation/enable",
@@ -195,8 +185,6 @@
         "priority": 100,
         "fallbackBehavior": "disable_all"
       },
-
-
       {
         "controllerName": "drilling_ctrl",
         "enableTopic": "/drilling/enable",
@@ -210,8 +198,6 @@
         "priority": 100,
         "fallbackBehavior": "disable_all"
       },
-
-
       {
         "controllerName": "teleop_ctrl",
         "enableTopic": "/teleop/enable",
@@ -237,26 +223,26 @@
         "Navigation": {
             "modules": [
                 "zed_wrapper",
-                "RoverTeleopModule",
                 "localization",
                 "path_planning",
                 "aruco_tracking",
-                "zed_obstacle_detector"
-
+                "zed_obstacle_detector",
+                "light_tower"
             ]
         },
         "Drilling": {
             "modules": [
                 "drilling_module",
-                "low_level_sim",
                 "RoverTeleopModule",
-                "localization"
+                "localization",
+                "light_tower"
             ]
         },
         "Teleoperation": {
             "modules": [
                 "RoverTeleopModule",
-                "localization"
+                "localization",
+                "light_tower"
             ]
         }
     }

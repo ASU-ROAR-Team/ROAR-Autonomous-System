@@ -3,7 +3,7 @@
     "nodes": [
       {
         "nodeName": "drilling_module",
-        "launchCmd": "rosrun supervisor node.py",
+        "launchCmd": "rosrun supervisor drilling_module.py",
         "heartBeat": false,
         "params": {
           "surface_height": 11.0,
@@ -22,22 +22,8 @@
           "timeout": 5.0
         },
         "failureAction": "stop_rover"
-      },
-      {
-        "nodeName": "low_level_sim",
-        "launchCmd": "python3 /home/omar-magdy/ASU_ROAR/src/ROAR-Autonomous-System/Supervisor/supervisor/nodes/low_level_sim.py",
-        "heartBeat": true,
-        "params": {},
-        "args": [],
-        "dependencies": ["drilling_module"],
-        "critical": true,
-        "resourceLimits": {
-          "maxCpu": 85.0,
-          "maxMem": 512,
-          "timeout": 5.0
-        },
-        "failureAction": "stop_rover"
       }
+ 
     ],
     "controllers": [
       {
