@@ -45,6 +45,6 @@
   </node>
   
   <!-- RViz for visualization (only in debug mode) -->
-  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find zed_obstacle_detector)/config/zed_obstacle_detector.rviz" if="$(eval arg('performance_mode') == 'debug')" />
+  <!-- <node name="rviz" pkg="rviz" type="rviz" args="-d $(find zed_obstacle_detector)/config/zed_obstacle_detector.rviz" if="$(eval arg('performance_mode') == 'debug')" /> -->
   
 </launch> 
