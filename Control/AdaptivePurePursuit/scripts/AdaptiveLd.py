@@ -39,10 +39,12 @@ class Control:
             "Path": rospy.Subscriber(
                 rospy.get_param("subscribing_topics/path"), Path, self.pathCallback
             ),
+            #"Benchmark": rospy.Subscriber('/gazebo/model_states', ModelStates, self.model_states_callback)
         }
 
         self.indexLD = 0
         self.currentPosition = [0, 0, 0]  ##[x,y,theta]
+        self.benchmarkPosition = [0, 0, 0]  ##[x,y,theta]
         self.distLd = 0.3
         self.MAXVELOCITY = rospy.get_param("robot_parameter/maxVelocity", 1.57)
         self.WIDTH = rospy.get_param("robot_parameters/width", 0.8)
@@ -71,6 +73,7 @@ class Control:
                     [], [], "go", label="Look ahead point", markersize=3
                 ),
                 "robotPathPlot": self.ax1.plot([], [], "r-", label="Robot Path"),
+                "robotTruePathPlot": self.ax1.plot([], [], "b-", label="Robot True Path"),
             }
             # Add a plot for the robot's path
 
@@ -83,6 +86,8 @@ class Control:
                 "pastLD": [],
                 "pastCurvature": [],
                 "pastHeadings": [],
+                "benchmarkPositionsX": [],
+                "benchmarkPositionsY": [],
             }
             self.ax1.legend()
 
@@ -298,6 +303,14 @@ class Control:
         self.debuggingLists["pastPositionsX"].append(self.currentPosition[0])
         self.debuggingLists["pastPositionsY"].append(self.currentPosition[1])
 
+        self.debuggingLists["benchmarkPositionsX"].append(self.benchmarkPosition[0])
+        self.debuggingLists["benchmarkPositionsY"].append(self.benchmarkPosition[1])
+        
+        # Update the robot path plot
+        self.plots["robotTruePathPlot"][0].set_data(
+            self.debuggingLists["benchmarkPositionsX"], self.debuggingLists["benchmarkPositionsY"]
+        )
+
         # Update the robot path plot
         self.plots["robotPathPlot"][0].set_data(
             self.debuggingLists["pastPositionsX"], self.debuggingLists["pastPositionsY"]
@@ -375,7 +388,7 @@ class Control:
         else:
             waypointsX, waypointsY = [], []
         dataFrame2 = pd.DataFrame({"waypoint_x": waypointsX, "waypoint_y": waypointsY})
-        dataFrame.to_csv("Roar_adaptive_pure_pursuit_trial_4.csv")
+        dataFrame.to_csv("  .csv")
         dataFrame2.to_csv("waypoints_3.csv")
 
 
