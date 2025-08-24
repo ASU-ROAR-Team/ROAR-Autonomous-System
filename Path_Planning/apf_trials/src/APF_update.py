@@ -16,12 +16,12 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 from tf.transformations import euler_from_quaternion
 from sympy import symbols, sqrt, cos, sin, atan2, Expr, Piecewise
-import matplotlib.pyplot as plt # type: ignore
+# import matplotlib.pyplot as plt # type: ignore
 from roar_msgs.msg import ObstacleArray
 from nav_msgs.msg import Odometry
 import pandas as pd # type: ignore
 import numpy as np # type: ignore
-from matplotlib.patches import Circle # type: ignore
+# from matplotlib.patches import Circle # type: ignore
 import tf2_ros # type: ignore
 import os # For path expansion
 
@@ -39,7 +39,7 @@ class APFPlanner:
         # ROS components
         self.rosComponents: Dict[str, Any] = {
             "pathPub": rospy.Publisher("/Path", Path, queue_size=10),
-            "modelSub": rospy.Subscriber("/filtered_state", Odometry, self.modelCallback),
+            "modelSub": rospy.Subscriber("/zed2i/zed_node/pose", PoseStamped, self.modelCallback),
             "obstacleArraySub": rospy.Subscriber(
                 rospy.get_param("~obstacleArrayTopic", "/zed_obstacle/obstacle_array"),
                 ObstacleArray,
@@ -93,11 +93,11 @@ class APFPlanner:
         self.obstacleData: Dict[str, Any] = {"obstacles": {}, "lock": threading.Lock()}
 
         # Visualization system
-        self.vizComponents: Dict[str, Any] = self.initVisualization()
-        rospy.loginfo("APF Planner Initialized. Target frame: %s", self.target_frame)
-        rospy.loginfo("APF Params: KATT=%.1f, KREP=%.1f",
-                      self.config["apfParams"]["KATT"],
-                      self.config["apfParams"]["KREP"])
+        # self.vizComponents: Dict[str, Any] = self.initVisualization()
+        # rospy.loginfo("APF Planner Initialized. Target frame: %s", self.target_frame)
+        # rospy.loginfo("APF Params: KATT=%.1f, KREP=%.1f",
+        #               self.config["apfParams"]["KATT"],
+        #               self.config["apfParams"]["KREP"])
 
     def initAPFForces(self) -> Dict[str, Expr]:
         """Initialize APF force equations. Tangential force is now dynamic."""
@@ -127,57 +127,57 @@ class APFPlanner:
             "repY": Piecewise((repY_radial, obsDist < rangeEff), (0, True)),
         }
 
-    def initVisualization(self) -> Dict[str, Any]:
-        """Initialize visualization components"""
-        fig, axes = plt.subplots()
-        xMin, xMax = 10, 22
-        yMin, yMax = 13, -4 
+    # def initVisualization(self) -> Dict[str, Any]:
+    #     """Initialize visualization components"""
+    #     fig, axes = plt.subplots()
+    #     xMin, xMax = 10, 22
+    #     yMin, yMax = 13, -4 
 
-        if self.config["costmap"] is None or self.config["costmap"].size == 0:
-            rospy.logwarn("Costmap is empty or not loaded. Visualization will not show costmap.")
-            costmap_display_array = np.zeros((10,10))
-        else:
-            pxMin, pyMax = self.realToPixel(xMin, yMin)
-            pxMax, pyMin = self.realToPixel(xMax, yMax)
-            costmap_display_array = np.flipud(
-                self.config["costmap"][
-                    max(0, pyMin) : min(self.config["costmap"].shape[0], pyMax),
-                    max(0, pxMin) : min(self.config["costmap"].shape[1], pxMax),
-                ]
-            )
+    #     if self.config["costmap"] is None or self.config["costmap"].size == 0:
+    #         rospy.logwarn("Costmap is empty or not loaded. Visualization will not show costmap.")
+    #         costmap_display_array = np.zeros((10,10))
+    #     else:
+    #         pxMin, pyMax = self.realToPixel(xMin, yMin)
+    #         pxMax, pyMin = self.realToPixel(xMax, yMax)
+    #         costmap_display_array = np.flipud(
+    #             self.config["costmap"][
+    #                 max(0, pyMin) : min(self.config["costmap"].shape[0], pyMax),
+    #                 max(0, pxMin) : min(self.config["costmap"].shape[1], pxMax),
+    #             ]
+    #         )
 
-        img_artist = axes.imshow(
-                costmap_display_array, cmap="viridis", origin="lower", extent=[xMin, xMax, yMin, yMax]
-            )
+    #     img_artist = axes.imshow(
+    #             costmap_display_array, cmap="viridis", origin="lower", extent=[xMin, xMax, yMin, yMax]
+    #         )
 
-        return {
-            "figure": fig,
-            "axes": axes,
-            "image_artist": img_artist,
-            "colorbar": plt.colorbar(img_artist, ax=axes),
-            "limits": (xMin, xMax, yMin, yMax),
-        }
+    #     return {
+    #         "figure": fig,
+    #         "axes": axes,
+    #         "image_artist": img_artist,
+    #         "colorbar": plt.colorbar(img_artist, ax=axes),
+    #         "limits": (xMin, xMax, yMin, yMax),
+    #     }
 
-    def modelCallback(self, msg: Odometry) -> None:
-        """Handle robot state updates from Odometry"""
+    def modelCallback(self, msg: PoseStamped) -> None:
+        """Handle robot state updates from PoseStamped"""
         try:
+            # The PoseStamped message contains the pose directly
             self.robotState["position"] = [
-                msg.pose.pose.position.x,
-                msg.pose.pose.position.y,
-                msg.pose.pose.position.z,
+                msg.pose.position.x,
+                msg.pose.position.y,
+                msg.pose.position.z,
                 *euler_from_quaternion([
-                    msg.pose.pose.orientation.x,
-                    msg.pose.pose.orientation.y,
-                    msg.pose.pose.orientation.z,
-                    msg.pose.pose.orientation.w
+                    msg.pose.orientation.x,
+                    msg.pose.orientation.y,
+                    msg.pose.orientation.z,
+                    msg.pose.orientation.w
                 ]),
             ]
             if not self.robotState["isActive"]:
-                rospy.loginfo(f"Robot pose received: x={msg.pose.pose.position.x:.2f}, y={msg.pose.pose.position.y:.2f}")
+                rospy.loginfo(f"Robot pose received: x={msg.pose.position.x:.2f}, y={msg.pose.position.y:.2f}")
             self.robotState["isActive"] = True
         except Exception as e:
             rospy.logerr(f"Error in modelCallback: {e}")
-
 
     def obstacleArrayCallback(self, msg: ObstacleArray) -> None:
         with self.obstacleData["lock"]:
@@ -402,68 +402,68 @@ class APFPlanner:
             fyAtt + fyEnhanced + fyRep_total + fyGrad
         )
 
-    def updateVisualization(
-        self, trajectory: List[Tuple[float, float]], lookaheadPoint: Tuple[float, float]
-    ) -> None:
-        """Update real-time visualization"""
-        if not plt.fignum_exists(self.vizComponents["figure"].number):
-             rospy.logwarn_throttle(5.0,"Plot closed or not available, skipping visualization update.")
-             return
-        try:
-            axes = self.vizComponents["axes"]
-            axes.clear()
+    # def updateVisualization(
+    #     self, trajectory: List[Tuple[float, float]], lookaheadPoint: Tuple[float, float]
+    # ) -> None:
+    #     """Update real-time visualization"""
+    #     if not plt.fignum_exists(self.vizComponents["figure"].number):
+    #          rospy.logwarn_throttle(5.0,"Plot closed or not available, skipping visualization update.")
+    #          return
+    #     try:
+    #         axes = self.vizComponents["axes"]
+    #         axes.clear()
 
-            if self.vizComponents["image_artist"].get_array().size > 1:
-                axes.imshow(
-                    self.vizComponents["image_artist"].get_array(),
-                    cmap="viridis",
-                    origin="lower",
-                    extent=self.vizComponents["limits"],
-                )
+    #         if self.vizComponents["image_artist"].get_array().size > 1:
+    #             axes.imshow(
+    #                 self.vizComponents["image_artist"].get_array(),
+    #                 cmap="viridis",
+    #                 origin="lower",
+    #                 extent=self.vizComponents["limits"],
+    #             )
 
-            if self.config["goalPoints"] and len(self.config["goalPoints"]) > 1:
-                axes.plot(*zip(*self.config["goalPoints"]), "y-", linewidth=1, label="Global Path")
+    #         if self.config["goalPoints"] and len(self.config["goalPoints"]) > 1:
+    #             axes.plot(*zip(*self.config["goalPoints"]), "y-", linewidth=1, label="Global Path")
 
-            axes.plot(
-                self.robotState["position"][0],
-                self.robotState["position"][1],
-                "bo", markersize=6, label="Robot"
-            )
-            if trajectory:
-                axes.plot(*zip(*trajectory), "r--", linewidth=1.5, label="Planned Segment")
-            axes.scatter(
-                lookaheadPoint[0], lookaheadPoint[1],
-                color="cyan", marker="*", s=80, label="Lookahead Pt", zorder=5
-            )
+    #         axes.plot(
+    #             self.robotState["position"][0],
+    #             self.robotState["position"][1],
+    #             "bo", markersize=6, label="Robot"
+    #         )
+    #         if trajectory:
+    #             axes.plot(*zip(*trajectory), "r--", linewidth=1.5, label="Planned Segment")
+    #         axes.scatter(
+    #             lookaheadPoint[0], lookaheadPoint[1],
+    #             color="cyan", marker="*", s=80, label="Lookahead Pt", zorder=5
+    #         )
 
-            if self.config["checkpoints"]:
-                axes.scatter(
-                    *zip(*self.config["checkpoints"]), color="magenta", marker="s", s=80, label="Checkpoints"
-                )
+    #         if self.config["checkpoints"]:
+    #             axes.scatter(
+    #                 *zip(*self.config["checkpoints"]), color="magenta", marker="s", s=80, label="Checkpoints"
+    #             )
 
-            with self.obstacleData["lock"]:
-                for _id, obst_data in self.obstacleData["obstacles"].items():
-                    axes.add_patch(Circle((obst_data[0], obst_data[1]), obst_data[2], color="red", alpha=0.6, zorder=4))
-                    axes.add_patch(Circle((obst_data[0], obst_data[1]), obst_data[3], color="orange", alpha=0.2, linestyle='--', zorder=3))
+    #         with self.obstacleData["lock"]:
+    #             for _id, obst_data in self.obstacleData["obstacles"].items():
+    #                 axes.add_patch(Circle((obst_data[0], obst_data[1]), obst_data[2], color="red", alpha=0.6, zorder=4))
+    #                 axes.add_patch(Circle((obst_data[0], obst_data[1]), obst_data[3], color="orange", alpha=0.2, linestyle='--', zorder=3))
 
 
-            if self.config["goalPoints"] and len(self.config["goalPoints"][0]) == 2:
-                axes.plot(
-                    self.config["goalPoints"][-1][0], self.config["goalPoints"][-1][1],
-                    "go", markersize=8, label="Final Goal"
-                )
+    #         if self.config["goalPoints"] and len(self.config["goalPoints"][0]) == 2:
+    #             axes.plot(
+    #                 self.config["goalPoints"][-1][0], self.config["goalPoints"][-1][1],
+    #                 "go", markersize=8, label="Final Goal"
+    #             )
 
-            axes.legend(loc="upper left", fontsize='small')
-            axes.set_xlabel("X Position (m)")
-            axes.set_ylabel("Y Position (m)")
-            axes.set_title("APF Path Planning")
-            axes.set_xlim(self.vizComponents["limits"][0], self.vizComponents["limits"][1])
-            axes.set_ylim(self.vizComponents["limits"][2], self.vizComponents["limits"][3])
-            axes.set_aspect('equal', adjustable='box')
-            plt.tight_layout()
-            plt.pause(0.001)
-        except Exception as e:
-            rospy.logwarn_throttle(5.0, f"Error during visualization update: {e}")
+    #         axes.legend(loc="upper left", fontsize='small')
+    #         axes.set_xlabel("X Position (m)")
+    #         axes.set_ylabel("Y Position (m)")
+    #         axes.set_title("APF Path Planning")
+    #         axes.set_xlim(self.vizComponents["limits"][0], self.vizComponents["limits"][1])
+    #         axes.set_ylim(self.vizComponents["limits"][2], self.vizComponents["limits"][3])
+    #         axes.set_aspect('equal', adjustable='box')
+    #         plt.tight_layout()
+    #         plt.pause(0.001)
+    #     except Exception as e:
+    #         rospy.logwarn_throttle(5.0, f"Error during visualization update: {e}")
 
 
     def publishPath(self, trajectory: List[Tuple[float, float]]) -> None:
@@ -488,7 +488,7 @@ class APFPlanner:
     def run(self) -> None:
         """Main planning loop"""
         rospy.loginfo("APF Planner starting run loop.")
-        plt.ion()
+        # plt.ion()
 
         while not rospy.is_shutdown() and not self.robotState["goalReached"]:
             if not self.robotState["isActive"]:
@@ -532,15 +532,15 @@ class APFPlanner:
 
 
             if trajectory:
-                if plt.fignum_exists(self.vizComponents["figure"].number):
-                    self.updateVisualization(trajectory, lookaheadPoint)
+                # if plt.fignum_exists(self.vizComponents["figure"].number):
+                #     self.updateVisualization(trajectory, lookaheadPoint)
                 self.publishPath(trajectory)
 
             self.rosComponents["rate"].sleep()
 
         rospy.loginfo("APF Planner run loop finished.")
-        if plt:
-            plt.close('all')
+        # if plt:
+        #     plt.close('all')
 
 
 if __name__ == "__main__":
@@ -552,5 +552,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         rospy.loginfo("APF Planner interrupted by Ctrl+C. Exiting.")
     finally:
-        if plt:
-            plt.close('all')
+        # if plt:
+        #     plt.close('all')
+        pass

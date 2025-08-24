@@ -1,12 +1,13 @@
 publishing_topics:
-  left_front_wheel: "/wheel_lhs_front_velocity_controller/command"
-  right_front_wheel: "/wheel_rhs_front_velocity_controller/command"
-  left_rear_wheel: "/wheel_lhs_rear_velocity_controller/command"
-  right_rear_wheel: "/wheel_rhs_rear_velocity_controller/command"
-  left_mid_wheel: "/wheel_lhs_mid_velocity_controller/command"
-  right_mid_wheel: "/wheel_rhs_mid_velocity_controller/command"
+  # left_front_wheel: "/wheel_lhs_front_velocity_controller/command"
+  # right_front_wheel: "/wheel_rhs_front_velocity_controller/command"
+  # left_rear_wheel: "/wheel_lhs_rear_velocity_controller/command"
+  # right_rear_wheel: "/wheel_rhs_rear_velocity_controller/command"
+  # left_mid_wheel: "/wheel_lhs_mid_velocity_controller/command"
+  # right_mid_wheel: "/wheel_rhs_mid_velocity_controller/command"
+  wheel_velocities: "/motor_control_cmd"
 subscribing_topics:
-  pose: "/filtered_state"
+  pose: "/zed2i/zed_node/pose"
   path: "/Path"
 meta_parameters:
   log: True

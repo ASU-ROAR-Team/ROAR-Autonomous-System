@@ -117,6 +117,22 @@
         "failureAction": "stop_rover"
       },
       {
+        "nodeName": "adaptive_controller",
+        "launchCmd": "roslaunch adaptive_pure_pursuit Control.launch",
+        "host": "xavier",
+        "heartBeat": true, 
+        "params": {"update_rate": 10.0},
+        "args": ["performance_mode:=production"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
         "nodeName": "drilling_module",
         "launchCmd": "rosrun supervisor drilling_module.py",
         "host": "xavier",
@@ -223,11 +239,9 @@
         "Navigation": {
             "modules": [
                 "zed_wrapper",
-                "localization",
                 "path_planning",
-                "aruco_tracking",
-                "zed_obstacle_detector",
-                "light_tower"
+                "light_tower",
+                "adaptive_controller"
             ]
         },
         "Drilling": {
