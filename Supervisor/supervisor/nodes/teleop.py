@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 
 import rospy
-from geometry_msgs.msg import Twist
-from std_msgs.msg import Float64 , Float32MultiArray
-from roar_msgs.msg import DrillingCommand, DrillingManualInput 
-from sensor_msgs.msg import Joy 
+from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float64
+from roar_msgs.msg import DrillingCommand, DrillingManualInput
+from sensor_msgs.msg import Joy
+import math
+
 
 class RoverTeleopModule:
     def __init__(self):
         rospy.init_node('rover_teleop_module')
-        self.logger = rospy 
 
         # --- Rover Motion Publishers ---
-        self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Float32MultiArray, queue_size=10)
+        self.all_wheel_vel_pub = rospy.Publisher(
+            'motor_control_cmd',
+            Float32MultiArray,
+            queue_size=10
+        )
 
         # --- Drilling Control Publisher ---
         self.drilling_teleop_cmd_pub = rospy.Publisher('/drilling/command_to_actuators', DrillingCommand, queue_size=10)
@@ -22,67 +27,59 @@ class RoverTeleopModule:
         self.drilling_manual_input_sub = rospy.Subscriber('/drilling/manual_input', DrillingManualInput, self.drilling_manual_input_callback, queue_size=10)
         
         # --- Internal State for Combining Commands ---
-        self._current_twist = Twist()
         self._current_drilling_command = DrillingCommand()
-        self._current_drilling_command.target_height_cm = 0.0 # Initialize to safe state
+        self._current_drilling_command.target_height_cm = 0.0
         self._current_drilling_command.gate_open = True
         self._current_drilling_command.auger_on = False
         self._current_drilling_command.manual_up = False
         self._current_drilling_command.manual_down = False
 
         # --- Parameters for Speed Scaling ---
-        self.max_linear_speed = rospy.get_param('~max_linear_speed', 1.0) # m/s
-        self.max_angular_speed = rospy.get_param('~max_angular_speed', 0.5) # rad/s
+        self.max_linear_speed = rospy.get_param('~max_linear_speed', 1.0)
+        self.max_angular_speed = rospy.get_param('~max_angular_speed', 0.5)
+        self.robot_width = rospy.get_param('~robot_width', 0.9)
+        self.max_motor_rpm = rospy.get_param('~max_motor_rpm', 15.0)
 
-
-        self.logger.loginfo("Rover Teleop Module initialized. Awaiting input.")
+        rospy.loginfo("Rover Teleop Module initialized. Awaiting input.")
+        rospy.loginfo(f"Publishing wheel velocities to: {rospy.get_param('~wheel_velocity_topic', '/all_wheel_velocities/command')}")
+        rospy.loginfo(f"Max linear speed: {self.max_linear_speed} m/s, Max angular speed: {self.max_angular_speed} rad/s")
+        rospy.loginfo(f"Robot width: {self.robot_width} m, Max motor RPM: {self.max_motor_rpm}")
 
     def joy_callback(self, msg: Joy):
         """
         Callback for raw joystick input (e.g., from JoystickView.js).
-        Publishes the Twist message immediately upon receiving joystick input.
+        Converts joystick input to Float32MultiArray for 6-wheeled robot.
         """
-        # Assuming msg.axes[0] is for angular (left/right) and msg.axes[1] is for linear (forward/backward)
-        # Adjust these indices based on your actual joystick mapping from JoystickView
-        normalized_angular = msg.axes[0] # Typically X-axis of left stick
-        normalized_linear = msg.axes[1]  # Typically Y-axis of left stick
-
-        self._current_twist.linear.x = normalized_linear * self.max_linear_speed
-        self._current_twist.angular.z = normalized_angular * self.max_angular_speed
-
-        left_motor_rpm = (self._current_twist.linear.x - self._current_twist.angular.z) * 20
-        right_motor_rpm = (self._current_twist.linear.x + self._current_twist.angular.z) * 20
-
-        max_motor_rpm = 15
-
-        left_motor_rpm = max(-max_motor_rpm, min(max_motor_rpm, left_motor_rpm))
-        right_motor_rpm = max(-max_motor_rpm, min(max_motor_rpm, right_motor_rpm))
+        rospy.logdebug("Joy callback triggered, processing new data.")
         
-        left_motor_signal = int(left_motor_rpm * (63 / max_motor_rpm) + 64)
-        right_motor_signal = int(right_motor_rpm * (63 / max_motor_rpm) + 64)
+        normalized_angular = msg.axes[0]
+        normalized_linear = msg.axes[1]
 
-        # left_motor_signal = max(0, min(127, left_motor_rpm))
-        # right_motor_signal = max(0, min(127, right_motor_rpm))
-            
-            # Create the CAN frame data with one byte per wheel (6 wheels total)
-            # Bytes 0-2 are right motors (top to bottom), bytes 3-5 are left motors (top to bottom)
-        frame = Float32MultiArray()
+        target_linear_vel = normalized_linear * self.max_linear_speed
+        target_angular_vel = normalized_angular * self.max_angular_speed
 
-        frame_data = [
-            right_motor_signal,  # Right top motor
-            right_motor_signal,  # Right middle motor
-            right_motor_signal,  # Right bottom motor
-            left_motor_signal,   # Left top motor
-            left_motor_signal,   # Left middle motor
-            left_motor_signal,   # Left bottom motor
-            0,                   # Padding to maintain 8-byte frame
-            0                    # Padding to maintain 8-byte frame
+        v_right = target_linear_vel + (target_angular_vel * self.robot_width / 2.0)
+        v_left = target_linear_vel - (target_angular_vel * self.robot_width / 2.0)
+
+        rpm_scale_factor = self.max_motor_rpm / self.max_linear_speed
+        
+        rpm_right = max(-self.max_motor_rpm, min(self.max_motor_rpm, v_right * rpm_scale_factor))
+        rpm_left = max(-self.max_motor_rpm, min(self.max_motor_rpm, v_left * rpm_scale_factor))
+
+        wheel_velocities_msg = Float32MultiArray()
+        wheel_velocities_msg.data = [
+            float(rpm_right),
+            float(rpm_right),
+            float(rpm_right),
+            float(rpm_left),
+            float(rpm_left),
+            float(rpm_left)
         ]
-            
-        frame.data = frame_data
-        # Publish rover velocity immediately
-        self.cmd_vel_pub.publish(frame)
-        # self.logger.debug(f"Published Joy Twist: Linear={self._current_twist.linear.x:.2f}, Angular={self._current_twist.angular.z:.2f}")
+
+        self.all_wheel_vel_pub.publish(wheel_velocities_msg)
+        rospy.logdebug(
+            f"Published Wheel RPMs: Right={rpm_right:.2f}, Left={rpm_left:.2f}"
+        )
 
     def drilling_manual_input_callback(self, msg: DrillingManualInput):
         """
@@ -93,15 +90,12 @@ class RoverTeleopModule:
         self._current_drilling_command.manual_down = msg.manual_down
         self._current_drilling_command.auger_on = msg.auger_on
         self._current_drilling_command.gate_open = msg.gate_open
-        # Note: target_height_cm is not set here, as manual movement handles continuous updates.
 
-        # Publish drilling manual command immediately
         self.drilling_teleop_cmd_pub.publish(self._current_drilling_command)
-        # self.logger.debug(
-        #     f"Published DrillingCommand: Up={msg.manual_up}, Down={msg.manual_down}, "
-        #     f"Auger={msg.auger_on}, Gate={msg.gate_open}"
-        # )
-
+        rospy.logdebug(
+            f"Published DrillingCommand: Up={msg.manual_up}, Down={msg.manual_down}, "
+            f"Auger={msg.auger_on}, Gate={msg.gate_open}"
+        )
 
 if __name__ == '__main__':
     try:
