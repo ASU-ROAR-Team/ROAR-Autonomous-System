@@ -21,8 +21,8 @@ UKF:
   RLL: 1.0
   R_ZED: 0.05
 
-  LLMax: 0.3
-  MaxRelativeDistance: 30.0
+  LLMax: 1.0
+  MaxRelativeDistance: 35.0
 
   P_q0: 0.5
   P_q1: 0.5
@@ -45,7 +45,7 @@ UKF:
 
   GPS_State: false
   IMU_State: false
-  BNO_State: false
+  BNO_State: true
   ENCODER_State: false
-  Landmark_State: false
-  ZED_State: true
+  Landmark_State: true
+  ZED_State: false

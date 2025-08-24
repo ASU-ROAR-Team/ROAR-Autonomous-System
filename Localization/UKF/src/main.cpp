@@ -21,6 +21,13 @@
 #include <XmlRpcValue.h>
 #include "WGS84toCartesian.hpp"
 
+//
+//
+// I want to make a callback function that subscribes to the wheels command velocities and use the values to predict the rover's motion
+// That will compansate the lack of encoders
+//
+//
+
 using namespace std;
 
 // Define global variables
@@ -838,7 +845,7 @@ void bnoCallback(const sensor_msgs::Imu::ConstPtr& msg)
 
     ukf.bno_callback(roll, pitch, yaw);
 
-    //publishState(); // Call pose callback to publish the transform
+    publishState(); // Call pose callback to publish the transform
 }
 
 // Main function
