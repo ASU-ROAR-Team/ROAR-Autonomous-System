@@ -49,7 +49,7 @@ zed_obstacle_detector:
   # Monitoring
   monitoring:
     enable_detailed_timing: false
-    enable_debug_publishers: false
+    enable_debug_publishers: true
     timing_report_interval: 30.0
     enable_performance_logging: true
     log_file_path: "/tmp/zed_obstacle_detector.log"

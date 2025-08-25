@@ -102,6 +102,7 @@ if __name__ == '__main__':
         teleop_module = RoverTeleopModule()
         rospy.spin()
     except rospy.ROSInterruptException:
+        rospy.loginfo("Shutting down Rover Teleop Module.")
         pass
     except Exception as e:
         rospy.logerr(f"Rover Teleop Module encountered a fatal error: {e}")

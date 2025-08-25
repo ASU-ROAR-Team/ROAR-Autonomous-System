@@ -241,7 +241,8 @@
                 "zed_wrapper",
                 "path_planning",
                 "light_tower",
-                "adaptive_controller"
+                "adaptive_controller",
+                "localization"
             ]
         },
         "Drilling": {

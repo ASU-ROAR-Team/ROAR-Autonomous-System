@@ -39,7 +39,7 @@ class APFPlanner:
         # ROS components
         self.rosComponents: Dict[str, Any] = {
             "pathPub": rospy.Publisher("/Path", Path, queue_size=10),
-            "modelSub": rospy.Subscriber("/zed2i/zed_node/pose", PoseStamped, self.modelCallback),
+            "modelSub": rospy.Subscriber("/filtered_state", Odometry, self.modelCallback),
             "obstacleArraySub": rospy.Subscriber(
                 rospy.get_param("~obstacleArrayTopic", "/zed_obstacle/obstacle_array"),
                 ObstacleArray,
@@ -158,23 +158,23 @@ class APFPlanner:
     #         "limits": (xMin, xMax, yMin, yMax),
     #     }
 
-    def modelCallback(self, msg: PoseStamped) -> None:
+    def modelCallback(self, msg: Odometry) -> None:
         """Handle robot state updates from PoseStamped"""
         try:
             # The PoseStamped message contains the pose directly
             self.robotState["position"] = [
-                msg.pose.position.x,
-                msg.pose.position.y,
-                msg.pose.position.z,
+                msg.pose.pose.position.x,
+                msg.pose.pose.position.y,
+                msg.pose.pose.position.z,
                 *euler_from_quaternion([
-                    msg.pose.orientation.x,
-                    msg.pose.orientation.y,
-                    msg.pose.orientation.z,
-                    msg.pose.orientation.w
+                    msg.pose.pose.orientation.x,
+                    msg.pose.pose.orientation.y,
+                    msg.pose.pose.orientation.z,
+                    msg.pose.pose.orientation.w
                 ]),
             ]
             if not self.robotState["isActive"]:
-                rospy.loginfo(f"Robot pose received: x={msg.pose.position.x:.2f}, y={msg.pose.position.y:.2f}")
+                rospy.loginfo(f"Robot pose received: x={msg.pose.pose.position.x:.2f}, y={msg.pose.pose.position.y:.2f}")
             self.robotState["isActive"] = True
         except Exception as e:
             rospy.logerr(f"Error in modelCallback: {e}")
@@ -395,11 +395,11 @@ class APFPlanner:
                     fxRep_total += fxRep_radial
                     fyRep_total += fyRep_radial
 
-        fxGrad, fyGrad = self.calculateGradientForce(position)
+        # fxGrad, fyGrad = self.calculateGradientForce(position)
         
         return (
-            fxAtt + fxEnhanced + fxRep_total + fxGrad,
-            fyAtt + fyEnhanced + fyRep_total + fyGrad
+            fxAtt + fxEnhanced + fxRep_total, #fxGrad
+            fyAtt + fyEnhanced + fyRep_total #fyGrad
         )
 
     # def updateVisualization(

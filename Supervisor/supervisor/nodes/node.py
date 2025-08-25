@@ -63,8 +63,8 @@ class SupervisorNode:
         # Register cleanup handlers
         rospy.on_shutdown(self.shutdown_hook)
         atexit.register(self.shutdown_hook)
-        signal.signal(signal.SIGINT, signal.SIG_DFL) # Use default handler for SIGINT (Ctrl+C)
-        signal.signal(signal.SIGTERM, self.signal_handler) # Use custom handler for SIGTERM
+        # signal.signal(signal.SIGINT, signal.SIG_DFL) # Use default handler for SIGINT (Ctrl+C)
+        # signal.signal(signal.SIGTERM, self.signal_handler) # Use custom handler for SIGTERM
 
         # Set up heartbeat subscriber
         self.heartbeat_sub = rospy.Subscriber(
@@ -540,6 +540,8 @@ if __name__ == '__main__':
         supervisor = SupervisorNode()
         supervisor.run()
     except rospy.ROSInterruptException:
+        rospy.loginfo("Shutting down Rover Teleop Module.")
+        supervisor.shutdown_hook()
         pass
     except Exception as e:
         rospy.logerr(f"Rover Supervisor encountered a fatal error: {e}")

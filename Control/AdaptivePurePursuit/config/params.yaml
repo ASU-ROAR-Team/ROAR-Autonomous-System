@@ -7,14 +7,14 @@ publishing_topics:
   # right_mid_wheel: "/wheel_rhs_mid_velocity_controller/command"
   wheel_velocities: "/motor_control_cmd"
 subscribing_topics:
-  pose: "/zed2i/zed_node/pose"
+  pose: "/filtered_state"
   path: "/Path"
 meta_parameters:
   log: True
   visualize: True
 robot_parameters:
   width: 0.9
-  maxVelocity: 1.57
+  maxVelocity: 15
 algorithm_parameters:
   KL: 0.3
   KC: 0.05

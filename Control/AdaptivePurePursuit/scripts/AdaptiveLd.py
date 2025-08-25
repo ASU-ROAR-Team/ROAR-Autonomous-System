@@ -14,7 +14,7 @@ from nav_msgs.msg import Path
 from gazebo_msgs.msg import ModelStates
 from tf.transformations import euler_from_quaternion
 import numpy as np
-from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry
 # import matplotlib.pyplot as plt
 
 import pandas as pd
@@ -35,7 +35,7 @@ class Control:
         # Subscribers
         self.subscribers = {
             "Pose": rospy.Subscriber(
-                rospy.get_param("subscribing_topics/pose"), PoseStamped, self.updatePose
+                rospy.get_param("subscribing_topics/pose"), Odometry, self.updatePose
             ),
             "Path": rospy.Subscriber(
                 rospy.get_param("subscribing_topics/path"), Path, self.pathCallback
@@ -112,7 +112,7 @@ class Control:
         # if self.visualize:
         #     self.updateWaypointsPlot()
 
-    def updatePose(self, msg: PoseStamped):
+    def updatePose(self, msg: Odometry):
         """
         This is the callback function for the rover's position
 
@@ -126,9 +126,9 @@ class Control:
         ----
         """
         # Access the pose information directly from the PoseStamped message
-        self.currentPosition[0] = msg.pose.position.x
-        self.currentPosition[1] = msg.pose.position.y
-        orientation = msg.pose.orientation
+        self.currentPosition[0] = msg.pose.pose.position.x
+        self.currentPosition[1] = msg.pose.pose.position.y
+        orientation = msg.pose.pose.orientation
         orientationList = [orientation.x, orientation.y, orientation.z, orientation.w]
         _, _, yaw = euler_from_quaternion(orientationList)
         self.currentPosition[2] = yaw
@@ -261,18 +261,25 @@ class Control:
             # self.debuggingLists["pastVL"].append(velocityLeft)
             # self.debuggingLists["pastVR"].append(velocityRight)
 
-            vrMapped = self.mapVelocity(velocityRight)
-            vlMapped = self.mapVelocity(velocityLeft)
-            print(
-                "Right: ",
-                velocityRight,
-                " Mapped Right:",
-                vrMapped,
-                " Left: ",
-                velocityLeft,
-                " Mapped Left:",
-                vlMapped,
-            )
+            # TODO: Ask Magdy about this, if he wants to do the m/s conversion to byte encoding value or RPM
+            # vrMapped = self.mapVelocity(velocityRight)
+            # vlMapped = self.mapVelocity(velocityLeft)
+
+            # Convert from m/s to RPM
+            tempvar = velocityRight
+            velocityRight = velocityLeft * 60 / (2 * math.pi)
+            velocityLeft = tempvar * 60 / (2 * math.pi)
+
+            #print(
+            #    "Right: ",
+            #    velocityRight,
+                # " Mapped Right:",
+                # vrMapped,
+                # " Left: ",
+                # velocityLeft,
+                # " Mapped Left:",
+                # vlMapped,
+            # )
 
             # Create and publish the multi-array message
             velocities_msg = Float32MultiArray()
