@@ -12,6 +12,7 @@
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <Eigen/Geometry>
+#include <XmlRpcValue.h>
 
 #define PI 3.14159265358979323846
 
@@ -116,6 +117,9 @@ public:
 	Eigen::Vector3d m0;
 
 	double yaw;
+	double pitch;
+
+	XmlRpc::XmlRpcValue initPose;
 
 	UnitQuaternion uq_omega;
 
@@ -133,25 +137,16 @@ public:
 			Eigen::MatrixXd Wc,
 			Eigen::MatrixXd noise_cov);
 
-
-	/*** Position Prediction ***/
-
-	void predict_states(Eigen::VectorXd w, double dt);
-	Eigen::VectorXd process_model(Eigen::VectorXd x, Eigen::VectorXd w, double dt);
-
-	/** measurnment prediction*/
-	void predict_measurement(double dt, Eigen::VectorXd w, double lon0, double lat0, double X0, double Y0, double Z0);
-	Eigen::VectorXd measurment_model(Eigen::VectorXd x, Eigen::VectorXd w, double lon0, double lat0, double X0, double Y0, double Z0, double dt);
-
-	/*** update step***/
-	void update(Eigen::MatrixXd z_measurement);
-
 	/*** Sensors Callbacks ***/
-	void encoder_callback(Eigen::VectorXd w, double dt, double yaw);
-	void imu_callback(Eigen::VectorXd z_measurement, double dt);
-	void gps_callback(Eigen::VectorXd z_measurement, double lon0, double lat0);
+	void encoder_callback(Eigen::VectorXd w, double dt, double yaw, double pitch);
+	void imu_callback(Eigen::VectorXd w, Eigen::VectorXd z_measurement, double dt, double roll, double yaw, double pitch);
+	void gps_callback(Eigen::VectorXd z_measurement, double lon0, double lat0, double Rgps);
 	void bno_callback(double roll, double pitch, double yaw);
-	void LL_Callback( Eigen::VectorXd z_measurement);
+	void LL_Callback( Eigen::VectorXd z_measurement, double currentX, double currentY, double RLL);
+	void zed_Callback(Eigen::VectorXd z_measurement, double R_ZED, double currentX, double currentY);
+
+	/*** PLAN B ***/
+	void planBCallback(Eigen::VectorXd planBstate, double lat0, double lon0, double ZEDX, double ZEDY, int Plan_B_number, const std::array<double, 15>& valid_array);
 
 };
 #endif

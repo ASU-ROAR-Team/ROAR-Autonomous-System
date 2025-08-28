@@ -1,0 +1,264 @@
+{
+    "taskName": "Rover Supervisor Configuration",
+    "nodes": [
+      {
+        "nodeName": "roscan",
+        "launchCmd": "roslaunch roscan roscan.launch",
+        "host": "xavier",
+        "heartBeat": true,
+        "params": {"update_rate": 10.0},
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "zed_wrapper",
+        "launchCmd": "roslaunch zed_wrapper zed2i.launch",
+        "host": "xavier",
+        "heartBeat": false, 
+        "params": {"update_rate": 10.0},
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "RoverTeleopModule",
+        "launchCmd": "rosrun supervisor teleop.py",
+        "host": "xavier",
+        "heartBeat": true,
+        "params": {
+          "max_linear_speed": 1.0,
+          "max_angular_speed": 0.5
+        },
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "localization",
+        "launchCmd": "roslaunch localization ukf.launch",
+        "host": "xavier",
+        "params": {"update_rate": 10.0, "map_frame": "map"},
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "statePersistPath": "/states/last_known_pose",
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "path_planning",
+        "launchCmd": "roslaunch apf_trials APF.launch",
+        "host": "xavier",
+        "heartBeat": true, 
+        "params": {"update_rate": 10.0},
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "aruco_tracking",
+        "launchCmd": "rosrun aruco_tracking node.py",
+        "host": "xavier",
+        "heartBeat": true, 
+        "params": {"update_rate": 10.0},
+        "args": [],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "zed_obstacle_detector",
+        "launchCmd": "roslaunch zed_obstacle_detector zed_camera_generic.launch",
+        "host": "xavier",
+        "heartBeat": true, 
+        "params": {"update_rate": 10.0},
+        "args": ["performance_mode:=production"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "adaptive_controller",
+        "launchCmd": "roslaunch adaptive_pure_pursuit Control.launch",
+        "host": "xavier",
+        "heartBeat": true, 
+        "params": {"update_rate": 10.0},
+        "args": ["performance_mode:=production"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "drilling_module",
+        "launchCmd": "rosrun supervisor drilling_module.py",
+        "host": "xavier",
+        "heartBeat": false,
+        "params": {
+          "surface_height": 11.0,
+          "sampling_height": 40.0,
+          "gate_open_delay_time": 5.0,
+          "ascent_delay_time": 2.0,
+          "fsm_timeout": 60.0,
+          "mode": "drilling"
+        },
+        "args": ["--mode=drilling"],
+        "dependencies": [],
+        "critical": true,
+        "resourceLimits": {
+          "maxCpu": 85.0,
+          "maxMem": 512,
+          "timeout": 5.0
+        },
+        "failureAction": "stop_rover"
+      },
+      {
+        "nodeName": "light_tower",
+        "launchCmd": "python3 /home/nvidia/ERC25-Xavier-WS/src/light_tower.py",
+        "host": "xavier",
+        "heartBeat": true,
+        "params": {},
+        "args": [],
+        "dependencies": [],
+        "critical": false,
+        "resourceLimits": {
+          "maxCpu": 5.0,
+          "maxMem": 64,
+          "timeout": 1.0
+        },
+        "failureAction": "log_and_continue"
+      }
+    ],
+    "controllers": [
+      {
+        "controllerName": "primary_nav",
+        "enableTopic": "/navigation/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop",
+        "requiredModules": ["talker", "listener"]
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      },
+      {
+        "controllerName": "primary_nav",
+        "enableTopic": "/navigation/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop",
+        "requiredModules": ["localization", "mapping"]
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      },
+      {
+        "controllerName": "drilling_ctrl",
+        "enableTopic": "/drilling/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop"
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      },
+      {
+        "controllerName": "teleop_ctrl",
+        "enableTopic": "/teleop/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop"
+      },
+      {
+        "controllerName": "drilling_ctrl",
+        "enableTopic": "/drilling/enable",
+        "priority": 10,
+        "exclusive": true,
+        "backupController": "safe_stop"
+      },
+      {
+        "controllerName": "safe_stop",
+        "enableTopic": "/emergency/stop",
+        "priority": 100,
+        "fallbackBehavior": "disable_all"
+      }
+    ],
+    "missions": {
+        "Navigation": {
+            "modules": [
+                "zed_wrapper",
+                "path_planning",
+                "light_tower",
+                "adaptive_controller",
+                "localization"
+            ]
+        },
+        "Drilling": {
+            "modules": [
+                "drilling_module",
+                "RoverTeleopModule",
+                "localization",
+                "light_tower"
+            ]
+        },
+        "Teleoperation": {
+            "modules": [
+                "RoverTeleopModule",
+                "localization",
+                "light_tower"
+            ]
+        }
+    }
+}

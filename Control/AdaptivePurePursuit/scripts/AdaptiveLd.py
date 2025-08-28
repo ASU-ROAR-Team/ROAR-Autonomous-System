@@ -9,12 +9,13 @@ using the adaptive pure pursuit algorithm"""
 
 import math
 import rospy
-from std_msgs.msg import Float64
+from std_msgs.msg import Float32MultiArray
 from nav_msgs.msg import Path
 from gazebo_msgs.msg import ModelStates
 from tf.transformations import euler_from_quaternion
 import numpy as np
-import matplotlib.pyplot as plt
+from nav_msgs.msg import Odometry
+# import matplotlib.pyplot as plt
 
 import pandas as pd
 
@@ -24,40 +25,27 @@ class Control:
     adaptive pure pursuit algorithm"""
 
     def __init__(self):
-        rospy.init_node("controller", anonymous=True)
-        self.velocityPublisher = {
-            "LF": rospy.Publisher(
-                rospy.get_param("publishing_topics/left_front_wheel"), Float64, queue_size=10
-            ),
-            "RF": rospy.Publisher(
-                rospy.get_param("publishing_topics/right_front_wheel"), Float64, queue_size=10
-            ),
-            "LR": rospy.Publisher(
-                rospy.get_param("publishing_topics/left_rear_wheel"), Float64, queue_size=10
-            ),
-            "RR": rospy.Publisher(
-                rospy.get_param("publishing_topics/right_rear_wheel"), Float64, queue_size=10
-            ),
-            "LM": rospy.Publisher(
-                rospy.get_param("publishing_topics/left_mid_wheel"), Float64, queue_size=10
-            ),
-            "RM": rospy.Publisher(
-                rospy.get_param("publishing_topics/right_mid_wheel"), Float64, queue_size=10
-            ),
-        }
-        # Publishers
+        rospy.init_node("adaptive_controller", anonymous=True)
+        # Publisher for all wheel velocities
+        self.velocityPublisher = rospy.Publisher(
+            rospy.get_param("publishing_topics/wheel_velocities"),
+            Float32MultiArray,
+            queue_size=10,
+        )
+        # Subscribers
         self.subscribers = {
             "Pose": rospy.Subscriber(
-                rospy.get_param("subscribing_topics/pose"), ModelStates, self.updatePose
+                rospy.get_param("subscribing_topics/pose"), Odometry, self.updatePose
             ),
             "Path": rospy.Subscriber(
                 rospy.get_param("subscribing_topics/path"), Path, self.pathCallback
             ),
+            #"Benchmark": rospy.Subscriber('/gazebo/model_states', ModelStates, self.model_states_callback)
         }
-        # Subscribers
 
         self.indexLD = 0
         self.currentPosition = [0, 0, 0]  ##[x,y,theta]
+        self.benchmarkPosition = [0, 0, 0]  ##[x,y,theta]
         self.distLd = 0.3
         self.MAXVELOCITY = rospy.get_param("robot_parameter/maxVelocity", 1.57)
         self.WIDTH = rospy.get_param("robot_parameters/width", 0.8)
@@ -68,40 +56,43 @@ class Control:
         self.KC = rospy.get_param("algorithm_parameters/KC", 0.05)
 
         self.waypoints = []
-        if self.visualize:
-            # Setup matplotlib for plotting
-            _, self.ax1 = plt.subplots(1, 1, figsize=(6, 6))  # Single plot with one axis
-            # Plot for waypoints
-            self.ax1.set_xlabel("X")
-            self.ax1.set_ylabel("Y")
-            self.ax1.set_title("Waypoints and Robot Path")
-            self.ax1.set_xlim(-5, 4)  # Set x-axis limits from -10 to 10
-            self.ax1.set_ylim(-1, 6.5)  # Set y-axis limits from -10 to 10
-            self.plots = {
-                "waypointsPlot": self.ax1.plot([], [], "b--", label="Waypoints"),
-                "robotPositionPlot": self.ax1.plot(
-                    [], [], "r^", label="Robot Position", markersize=6
-                ),
-                "lookaheadPointPlot": self.ax1.plot(
-                    [], [], "go", label="Look ahead point", markersize=3
-                ),
-                "robotPathPlot": self.ax1.plot([], [], "r-", label="Robot Path"),
-            }
-            # Add a plot for the robot's path
+        # if self.visualize:
+            # # Setup matplotlib for plotting
+            # _, self.ax1 = plt.subplots(1, 1, figsize=(6, 6))  # Single plot with one axis
+            # # Plot for waypoints
+            # self.ax1.set_xlabel("X")
+            # self.ax1.set_ylabel("Y")
+            # self.ax1.set_title("Waypoints and Robot Path")
+            # self.ax1.set_xlim(-5, 4)  # Set x-axis limits from -10 to 10
+            # self.ax1.set_ylim(-1, 6.5)  # Set y-axis limits from -10 to 10
+            # self.plots = {
+            #     "waypointsPlot": self.ax1.plot([], [], "b--", label="Waypoints"),
+            #     "robotPositionPlot": self.ax1.plot(
+            #         [], [], "r^", label="Robot Position", markersize=6
+            #     ),
+            #     "lookaheadPointPlot": self.ax1.plot(
+            #         [], [], "go", label="Look ahead point", markersize=3
+            #     ),
+            #     "robotPathPlot": self.ax1.plot([], [], "r-", label="Robot Path"),
+            #     "robotTruePathPlot": self.ax1.plot([], [], "b-", label="Robot True Path"),
+            # }
+            # # Add a plot for the robot's path
 
-            ##for debugging
-            self.debuggingLists = {
-                "pastPositionsX": [],
-                "pastPositionsY": [],
-                "pastVL": [],
-                "pastVR": [],
-                "pastLD": [],
-                "pastCurvature": [],
-                "pastHeadings": [],
-            }
-            self.ax1.legend()
+            # ##for debugging
+            # self.debuggingLists = {
+            #     "pastPositionsX": [],
+            #     "pastPositionsY": [],
+            #     "pastVL": [],
+            #     "pastVR": [],
+            #     "pastLD": [],
+            #     "pastCurvature": [],
+            #     "pastHeadings": [],
+            #     "benchmarkPositionsX": [],
+            #     "benchmarkPositionsY": [],
+            # }
+            # self.ax1.legend()
 
-            plt.tight_layout()
+            # plt.tight_layout()
 
     def pathCallback(self, msg: Path):
         """
@@ -118,27 +109,26 @@ class Control:
         """
         self.waypoints = [(pose.pose.position.x, pose.pose.position.y) for pose in msg.poses]
         rospy.loginfo("got waypoints")
-        if self.visualize:
-            self.updateWaypointsPlot()
+        # if self.visualize:
+        #     self.updateWaypointsPlot()
 
-    def updatePose(self, msg: ModelStates):
+    def updatePose(self, msg: Odometry):
         """
         This is the callback function for the rover's position
 
         Parameters:
         -----
-        data: this contains the rover's position
+        msg: this contains the rover's position
         ----
         Returns:
         ----
         None
         ----
         """
-        pose = msg
-
-        self.currentPosition[0] = pose.pose[1].position.x
-        self.currentPosition[1] = pose.pose[1].position.y
-        orientation = pose.pose[1].orientation
+        # Access the pose information directly from the PoseStamped message
+        self.currentPosition[0] = msg.pose.pose.position.x
+        self.currentPosition[1] = msg.pose.pose.position.y
+        orientation = msg.pose.pose.orientation
         orientationList = [orientation.x, orientation.y, orientation.z, orientation.w]
         _, _, yaw = euler_from_quaternion(orientationList)
         self.currentPosition[2] = yaw
@@ -216,8 +206,8 @@ class Control:
             else:
                 lookaheadPoint = self.waypoints[self.indexLD]
                 break
-        if self.visualize:
-            self.plotLookaheadPoint(lookaheadPoint[0], lookaheadPoint[1])
+        # if self.visualize:
+        #     self.plotLookaheadPoint(lookaheadPoint[0], lookaheadPoint[1])
         return lookaheadPoint
 
     def purePursuit(self):
@@ -235,7 +225,8 @@ class Control:
         ----
         """
         lookaheadPoint = self.findLookaheadPoint((self.currentPosition[0], self.currentPosition[1]))
-
+        rospy.loginfo("LOOK AHEAD POINT:")
+        rospy.loginfo(lookaheadPoint)
         if lookaheadPoint is not None:
             alpha = math.atan2(
                 (lookaheadPoint[1] - self.currentPosition[1]),
@@ -244,156 +235,175 @@ class Control:
             actualLookahead = math.hypot(
                 lookaheadPoint[0] - self.currentPosition[0],
                 lookaheadPoint[1] - self.currentPosition[1],
-            )
+            ) + 0.0001
+            actualLookahead = 2.0
             theta = alpha - self.currentPosition[2]
+            rospy.loginfo("LOOKHEAD DISTANCE:")
+            rospy.loginfo(actualLookahead)
             deltaX = actualLookahead * math.cos(theta)
-            k = deltaX / actualLookahead**2
-            self.debuggingLists["pastCurvature"].append(k)
+            k = deltaX / (actualLookahead**2 )
+            # self.debuggingLists["pastCurvature"].append(k)
             velocityCentre = self.setVelocity(k)
             print("velocityCentre=" + str(velocityCentre))
             self.distLd = self.KL * velocityCentre + self.KC
-            self.debuggingLists["pastLD"].append(self.distLd)
-            self.debuggingLists["pastHeadings"].append(self.currentPosition[2])
+            # self.debuggingLists["pastLD"].append(self.distLd)
+            # self.debuggingLists["pastHeadings"].append(self.currentPosition[2])
             velocityRight = velocityCentre * (
                 1 - self.WIDTH * deltaX / (actualLookahead * actualLookahead)
             )
             velocityLeft = velocityCentre * (
                 1 + self.WIDTH * deltaX / (actualLookahead * actualLookahead)
             )
-
+            
             velocityRight = min(max(velocityRight, -self.MAXVELOCITY), self.MAXVELOCITY)
             velocityLeft = min(max(velocityLeft, -self.MAXVELOCITY), self.MAXVELOCITY)
 
-            self.debuggingLists["pastVL"].append(velocityLeft)
-            self.debuggingLists["pastVR"].append(velocityRight)
+            # self.debuggingLists["pastVL"].append(velocityLeft)
+            # self.debuggingLists["pastVR"].append(velocityRight)
 
-            vrMapped = self.mapVelocity(velocityRight)
-            vlMapped = self.mapVelocity(velocityLeft)
-            print(
-                "Right: ",
-                velocityRight,
-                " Mapped Right:",
-                vrMapped,
-                " Left: ",
-                velocityLeft,
-                " Mapped Left:",
-                vlMapped,
-            )
+            # TODO: Ask Magdy about this, if he wants to do the m/s conversion to byte encoding value or RPM
+            # vrMapped = self.mapVelocity(velocityRight)
+            # vlMapped = self.mapVelocity(velocityLeft)
 
-            self.velocityPublisher["LF"].publish(velocityLeft)
-            self.velocityPublisher["RF"].publish(velocityRight)
-            self.velocityPublisher["LM"].publish(velocityLeft)
-            self.velocityPublisher["RM"].publish(velocityRight)
-            self.velocityPublisher["LR"].publish(velocityLeft)
-            self.velocityPublisher["RR"].publish(velocityRight)
-            if self.visualize:
-                self.plotRoverPosition()
-                # Give time for plot to update
-                plt.pause(0.001)
+            # Convert from m/s to RPM
+            tempvar = velocityRight
+            velocityRight = velocityLeft * 60 / (2 * math.pi)
+            velocityLeft = tempvar * 60 / (2 * math.pi)
 
-    def plotRoverPosition(self):
-        """
-        This function plots the rover position using matplotlib
+            #print(
+            #    "Right: ",
+            #    velocityRight,
+                # " Mapped Right:",
+                # vrMapped,
+                # " Left: ",
+                # velocityLeft,
+                # " Mapped Left:",
+                # vlMapped,
+            # )
 
-        Parameters:
-        -----
-        None
-        ----
-        Returns:
-        ----
-        None
-        ----
-        """
-        # Append the current position to the past positions
-        self.debuggingLists["pastPositionsX"].append(self.currentPosition[0])
-        self.debuggingLists["pastPositionsY"].append(self.currentPosition[1])
+            # Create and publish the multi-array message
+            velocities_msg = Float32MultiArray()
+            # The order here must match what the robot's driver/controller expects.
+            # Assuming an order of: [Left_Front, Right_Front, Left_Mid, Right_Mid, Left_Rear, Right_Rear]
+            velocities_msg.data = [velocityRight, velocityRight, velocityRight, velocityLeft, velocityLeft, velocityLeft]
+            self.velocityPublisher.publish(velocities_msg)
+            
+            # if self.visualize:
+            #     self.plotRoverPosition()
+            #     # Give time for plot to update
+            #     plt.pause(0.001)
 
-        # Update the robot path plot
-        self.plots["robotPathPlot"][0].set_data(
-            self.debuggingLists["pastPositionsX"], self.debuggingLists["pastPositionsY"]
-        )
-        self.plots["robotPositionPlot"][0].set_data(
-            [self.currentPosition[0]], [self.currentPosition[1]]
-        )  # Update the current position plot
+    # def plotRoverPosition(self):
+    #     """
+    #     This function plots the rover position using matplotlib
 
-    def plotLookaheadPoint(self, lookaheadX, lookaheadY):  ##added (edited)
-        """
-        This function plots the lookahead point position using matplotlib
+    #     Parameters:
+    #     -----
+    #     None
+    #     ----
+    #     Returns:
+    #     ----
+    #     None
+    #     ----
+    #     """
+    #     # Append the current position to the past positions
+    #     self.debuggingLists["pastPositionsX"].append(self.currentPosition[0])
+    #     self.debuggingLists["pastPositionsY"].append(self.currentPosition[1])
 
-        Parameters:
-        -----
-        None
-        ----
-        Returns:
-        ----
-        None
-        ----
-        """
+    #     self.debuggingLists["benchmarkPositionsX"].append(self.benchmarkPosition[0])
+    #     self.debuggingLists["benchmarkPositionsY"].append(self.benchmarkPosition[1])
+        
+    #     # Update the robot path plot
+    #     self.plots["robotTruePathPlot"][0].set_data(
+    #         self.debuggingLists["benchmarkPositionsX"], self.debuggingLists["benchmarkPositionsY"]
+    #     )
 
-        self.plots["lookaheadPointPlot"][0].set_data(
-            [lookaheadX], [lookaheadY]
-        )  # Update the current position
+    #     # Update the robot path plot
+    #     self.plots["robotPathPlot"][0].set_data(
+    #         self.debuggingLists["pastPositionsX"], self.debuggingLists["pastPositionsY"]
+    #     )
+    #     self.plots["robotPositionPlot"][0].set_data(
+    #         [self.currentPosition[0]], [self.currentPosition[1]]
+    #     )  # Update the current position plot
 
-    def updateWaypointsPlot(self):
-        """
-        This function plots the rover path using matplotlib
+    # def plotLookaheadPoint(self, lookaheadX, lookaheadY):  ##added (edited)
+    #     """
+    #     This function plots the lookahead point position using matplotlib
 
-        Parameters:
-        -----
-        None
-        ----
-        Returns:
-        ----
-        None
-        ----
-        """
-        if self.waypoints:
-            waypointsX, waypointsY = zip(*self.waypoints)
-        else:
-            waypointsX, waypointsY = [], []
+    #     Parameters:
+    #     -----
+    #     None
+    #     ----
+    #     Returns:
+    #     ----
+    #     None
+    #     ----
+    #     """
 
-        if self.plots["waypointsPlot"][0] is not None:
-            self.plots["waypointsPlot"][0].set_data(waypointsX, waypointsY)
+    #     self.plots["lookaheadPointPlot"][0].set_data(
+    #         [lookaheadX], [lookaheadY]
+    #     )  # Update the current position
 
-    def shutdownSeq(self):  ##added (edited)
-        """
-        This function saves the rover's data in a csv for further analysis
+    # def updateWaypointsPlot(self):
+    #     """
+    #     This function plots the rover path using matplotlib
 
-        Parameters:
-        -----
-        None
-        ----
-        Returns:
-        ----
-        None
-        ----
-        """
-        print("saving data")
-        dataFrame = pd.DataFrame(
-            {
-                "Vr": self.debuggingLists["pastVR"],
-                "Vl": self.debuggingLists["pastVL"],
-                "Positions_x": self.debuggingLists["pastPositionsX"],
-                "Positions_y": self.debuggingLists["pastPositionsY"],
-                "Lookahead distance": self.debuggingLists["pastLD"],
-                "curvature": self.debuggingLists["pastCurvature"],
-                "heading": self.debuggingLists["pastHeadings"],
-            }
-        )
-        if self.waypoints:
-            waypointsX, waypointsY = zip(*self.waypoints)
-        else:
-            waypointsX, waypointsY = [], []
-        dataFrame2 = pd.DataFrame({"waypoint_x": waypointsX, "waypoint_y": waypointsY})
-        dataFrame.to_csv("Roar_adaptive_pure_pursuit_trial_4.csv")
-        dataFrame2.to_csv("waypoints_3.csv")
+    #     Parameters:
+    #     -----
+    #     None
+    #     ----
+    #     Returns:
+    #     ----
+    #     None
+    #     ----
+    #     """
+    #     if self.waypoints:
+    #         waypointsX, waypointsY = zip(*self.waypoints)
+    #     else:
+    #         waypointsX, waypointsY = [], []
+
+    #     if self.plots["waypointsPlot"][0] is not None:
+    #         self.plots["waypointsPlot"][0].set_data(waypointsX, waypointsY)
+
+    # def shutdownSeq(self):  ##added (edited)
+    #     """
+    #     This function saves the rover's data in a csv for further analysis
+
+    #     Parameters:
+    #     -----
+    #     None
+    #     ----
+    #     Returns:
+    #     ----
+    #     None
+    #     ----
+    #     """
+    #     print("saving data")
+    #     dataFrame = pd.DataFrame(
+    #         {
+    #             "Vr": self.debuggingLists["pastVR"],
+    #             "Vl": self.debuggingLists["pastVL"],
+    #             "Positions_x": self.debuggingLists["pastPositionsX"],
+    #             "Positions_y": self.debuggingLists["pastPositionsY"],
+    #             "Lookahead distance": self.debuggingLists["pastLD"],
+    #             "curvature": self.debuggingLists["pastCurvature"],
+    #             "heading": self.debuggingLists["pastHeadings"],
+    #         }
+    #     )
+    #     if self.waypoints:
+    #         waypointsX, waypointsY = zip(*self.waypoints)
+    #     else:
+    #         waypointsX, waypointsY = [], []
+    #     dataFrame2 = pd.DataFrame({"waypoint_x": waypointsX, "waypoint_y": waypointsY})
+    #     dataFrame.to_csv("  .csv")
+    #     dataFrame2.to_csv("waypoints_3.csv")
 
 
 if __name__ == "__main__":
     try:
         control = Control()
-        if control.log:
-            rospy.on_shutdown(control.shutdownSeq)
+        # if control.log:
+            # rospy.on_shutdown(control.shutdownSeq)
         while not rospy.is_shutdown():
             if len(control.waypoints) > 0:
                 control.purePursuit()

@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  zed_obstacle_detector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zed_obstacle_detector
+    image: zed_obstacle_detector:latest
+    
+    # Runtime configuration (CPU-only)
+    environment:
+      - ROS_MASTER_URI=http://localhost:11311
+      - ROS_HOSTNAME=zed_obstacle_detector
+      - DISPLAY=${DISPLAY}
+    
+    # Network configuration for ROS
+    network_mode: host
+    
+    # Volume mounts
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # X11 display
+      - /dev/bus/usb:/dev/bus/usb:ro       # USB devices (for ZED camera)
+      - ./config:/catkin_ws/src/zed_obstacle_detector/config:ro  # Configuration files
+      - ./logs:/catkin_ws/logs:rw          # Log files
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker socket for debugging
+    
+    # Privileged mode for hardware access
+    privileged: true
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "rosnode", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Command to run the node
+    command: >
+      bash -c "
+        echo 'Starting ZED Obstacle Detector...' &&
+        roslaunch zed_obstacle_detector pc.launch
+      "
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+  # Optional: ROS Master service
+  roscore:
+    image: ros:noetic-ros-core
+    container_name: roscore
+    network_mode: host
+    command: roscore
+    restart: unless-stopped
+    profiles:
+      - ros-master
+
+  # Optional: RViz for visualization
+  rviz:
+    image: ros:noetic-desktop-full
+    container_name: rviz
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./rviz_config:/root/.rviz:ro
+    command: rviz
+    depends_on:
+      - zed_obstacle_detector
+    profiles:
+      - visualization 

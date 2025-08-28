@@ -1,0 +1,5 @@
+<launch>
+  <rosparam command="load" file="$(find fsm_pkg)/config/drilling_params.yaml" />
+  <node pkg="fsm_pkg" name="drilling_state_machine" type="drilling_state_machine.py" output ="screen"/>
+  <node pkg="fsm_pkg" name="low_level_sim" type="low_level_sim.py" output="screen"  />
+</launch>

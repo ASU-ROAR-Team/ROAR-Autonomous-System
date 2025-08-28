@@ -1,0 +1,25 @@
+ # Dependencies
+   node_modules/
+   
+   # Build outputs
+   build/
+   dist/
+   
+   # Logs
+   *.log
+   
+   # Environment variables
+   .env
+   
+   # IDE files
+   .vscode/
+   .idea/
+   
+   # OS files
+   .DS_Store
+   Thumbs.db.pyc
+
+   # Python cache files
+   __pycache__/
+   *.py[cod]
+   *$py.class

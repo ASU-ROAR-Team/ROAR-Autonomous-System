@@ -1,0 +1,40 @@
+{
+    "tasks": {
+      "navigation": {
+        "nodes": ["localization", "mapping", "path_planning"],
+        "controllers": ["navigation_controller"],
+        "description": "Autonomous navigation task"
+      },
+      "teleoperation": {
+        "nodes": ["localization", "sensor_fusion"],
+        "controllers": ["teleop_controller"],
+        "description": "Manual control mode"
+      }
+    },
+
+    "nodes": {
+      "localization": {
+        "launch_cmd": "rosrun rover_localization localization_node",
+        "params": {
+          "update_rate": 10.0,
+          "map_frame": "map"
+        },
+        "args": ["--verbose"],
+        "is_stateful": true,
+        "heartbeat_timeout": 2.0
+      }
+    },
+
+    "controllers": {
+      "navigation_controller": {
+        "enable_topic": "/navigation_controller/enable",
+        "priority": 10,
+        "exclusive": true
+      },
+      "teleop_controller": {
+        "enable_topic": "/teleop_controller/enable",
+        "priority": 100,
+        "exclusive": true
+      }
+    }
+  }

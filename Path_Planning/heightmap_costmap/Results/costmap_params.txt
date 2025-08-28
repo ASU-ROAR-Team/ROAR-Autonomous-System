@@ -1,0 +1,5 @@
+resolution: 0.1
+origin_x: 0.0
+origin_y: 8.0
+width: 120
+height: 140

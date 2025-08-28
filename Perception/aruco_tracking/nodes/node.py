@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # pylint: disable=all
 # mypy: ignore-errors
+
 """
 Node for aruco marker
 """
@@ -51,15 +52,35 @@ class ArucoTrackingNode:
         self.arucoTracker = ArucoTracker(self.arucoDictType)
 
         # Initialize camera matrix and distortion coefficients
-        self.cameraMatrix = None
-        self.distCoeffs = None
+        width = 1280
+        height = 720
+        h_fov = 1.7633  # radians
+        cx = 659.3049926757812
+        cy = 371.39849853515625
+
+        fx = width / (2 * np.tan(h_fov / 2))
+        fy = fx  # assuming square pixels
+
+        K = [fx, 0.0, cx,
+            0.0, fy, cy,
+            0.0, 0.0, 1.0]
+
+        D = [-0.040993299,
+        0.009593590,
+        -0.004429849,
+        0.000192024,
+        -0.000320880]
+        self.cameraMatrix = np.array(K).reshape(3, 3)
+        self.distCoeffs = np.array(D)
+        print("Camera Matrix:", self.cameraMatrix)
+        print("Distortion Coefficients:", self.distCoeffs)
 
         # Subscribers
         rospy.Subscriber(self.cameraTopic, Image, self.imageCallback)
         rospy.Subscriber(self.cameraInfoTopic, CameraInfo, self.cameraInfoCallback)
 
         # Publishers
-        self.posePub = rospy.Publisher("/landmark_topic", LandmarkArray, queue_size=10)
+        self.posePub = rospy.Publisher("/landmark_topic", Landmark, queue_size=10)
 
     def loadParameters(self):
         """
@@ -67,10 +88,10 @@ class ArucoTrackingNode:
         """
         self.cameraTopic = rospy.get_param("~cameraTopic", "/camera/color/image_raw")
         self.cameraInfoTopic = rospy.get_param("~cameraInfoTopic", "/camera/color/camera_info")
-        self.arucoDictType = rospy.get_param("~arucoDictType", cv2.aruco.DICT_5X5_10)
+        self.arucoDictType = rospy.get_param("~arucoDictType", cv2.aruco.DICT_5X5_100)
         self.visualize = rospy.get_param("~visualize", True)
         self.showRejected = rospy.get_param("~showRejected", True)
-        self.markerSize = rospy.get_param("~markerSize", 0.05)
+        self.markerSize = rospy.get_param("~markerSize", 0.15)
 
         # Validate mandatory parameters
         if self.cameraTopic is None:
@@ -93,8 +114,30 @@ class ArucoTrackingNode:
             # Estimate pose
             if self.cameraMatrix is None or self.distCoeffs is None:
                 rospy.logwarn_throttle(1, "Camera calibration not available. Cannot estimate pose.")
+                # Initialize camera matrix and distortion coefficients
+                width = 1280
+                height = 720
+                h_fov = 1.7633  # radians
+                cx = 659.3049926757812
+                cy = 371.39849853515625
+
+                fx = width / (2 * np.tan(h_fov / 2))
+                fy = fx  # assuming square pixels
+
+                K = [fx, 0.0, cx,
+                    0.0, fy, cy,
+                    0.0, 0.0, 1.0]
+
+                D = [-0.040993299,
+                0.009593590,
+                -0.004429849,
+                0.000192024,
+                -0.000320880]
+                self.cameraMatrix = np.array(K).reshape(3, 3)
+                self.distCoeffs = np.array(D)
                 return
             else:
+                print("Estimating pose for detected markers...")
                 rvecs, tvecs = self.arucoTracker.estimatePose(
                     corners, self.markerSize, self.cameraMatrix, self.distCoeffs
                 )
@@ -118,6 +161,24 @@ class ArucoTrackingNode:
                     np.vstack([np.hstack([rotationMatrix, [[0], [0], [0]]]), [0, 0, 0, 1]])
                 )
 
+                # | NEW |
+
+                # Instead of complex face detection or mapping
+                # Move 0.105 m *opposite* to face normal in camera frame
+
+                # Compute face normal in camera frame
+                face_normal_camera = rotationMatrix @ np.array([0, 0, 1])  # local +Z → camera frame
+
+                # Offset inward to cube centroid
+                offset_world = -0.125 * face_normal_camera
+                centroid = tvec + offset_world
+
+                # === STEP 3: Use centroid for publishing ===
+                tvec[0] = centroid[0]
+                tvec[1] = centroid[1]
+                tvec[2] = centroid[2]
+
+
                 # Create PoseStamped message
                 poseMsg = PoseStamped()
                 poseMsg.header = imageMsg.header
@@ -130,12 +191,14 @@ class ArucoTrackingNode:
                 poseMsg.pose.orientation.w = quaternion[3]
                 landmarkMsg = Landmark()
                 landmarkMsg.header = imageMsg.header
-                landmarkMsg.id = ids[i]
+                landmarkMsg.id = ids[i][0]
                 landmarkMsg.pose = poseMsg
+                self.posePub.publish(landmarkMsg)
                 landmarkArrMsg.landmarks.append(landmarkMsg)
 
             # Publish pose
-            self.posePub.publish(landmarkArrMsg)
+            print(ids)
+            #self.posePub.publish(landmarkArrMsg)
 
         if self.showRejected:
             cvImage = self.arucoTracker.drawRejectedMarkers(cvImage, rejected)
@@ -156,8 +219,11 @@ class ArucoTrackingNode:
         cameraInfoMsg : CameraInfo
             The incoming ROS CameraInfo message.
         """
+        print("Camera info Updated Successfully!")
         self.cameraMatrix = np.array(cameraInfoMsg.K).reshape(3, 3)
         self.distCoeffs = np.array(cameraInfoMsg.D)
+        print("Camera Matrix:", self.cameraMatrix)
+        print("Distortion Coefficients:", self.distCoeffs)
 
     def run(self):
         """

@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Load the ROAR URDF to the parameter server -->
+  <!-- <param name="robot_description" command="$(find xacro)/xacro '$(find roar_simulation)/urdf/roar.urdf'" /> -->
+
+  <!-- Start robot_state_publisher to publish static transforms from URDF -->
+  <!-- <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" /> -->
+
+  <!-- Performance Mode -->
+  <arg name="performance_mode" default="debug" doc="Performance mode (production, debug, high_performance)" />
+  
+  <!-- Transform Configuration -->
+  <arg name="enable_transformations" default="" doc="Override enable_transformations (true/false). If empty, uses performance mode default" />
+  
+  <!-- Frame Configuration -->
+  <arg name="base_link_frame" default="" doc="Base link frame. If empty, uses config file default" />
+  <arg name="world_frame" default="" doc="World frame. If empty, uses config file default" />
+  
+  <!-- Topic and Frame Configuration -->
+  <arg name="point_cloud_topic" default="" doc="Point cloud topic. If empty, uses config file default" />
+  <arg name="camera_frame" default="" doc="Camera frame. If empty, uses config file default" />
+  
+  <!-- Load parameters based on performance mode -->
+  <group if="$(eval arg('performance_mode') == 'debug')">
+    <rosparam command="load" file="$(find zed_obstacle_detector)/config/test_params.yaml" />
+  </group>
+  
+  <group if="$(eval arg('performance_mode') == 'production')">
+    <rosparam command="load" file="$(find zed_obstacle_detector)/config/params.yaml" />
+  </group>
+
+  <group if="$(eval arg('performance_mode') == 'high_performance')">
+    <rosparam command="load" file="$(find zed_obstacle_detector)/config/high_performance_params.yaml" />
+  </group>
+  
+  <node name="zed_obstacle_detector" pkg="zed_obstacle_detector" type="zed_obstacle_detector_node" output="screen">
+    
+    <!-- Only override YAML values if arguments are provided -->
+    <param name="point_cloud_topic" value="$(arg point_cloud_topic)" if="$(eval arg('point_cloud_topic') != '')" />
+    <param name="camera_frame" value="$(arg camera_frame)" if="$(eval arg('camera_frame') != '')" />
+    <param name="base_link_frame" value="$(arg base_link_frame)" if="$(eval arg('base_link_frame') != '')" />
+    <param name="world_frame" value="$(arg world_frame)" if="$(eval arg('world_frame') != '')" />
+    <param name="enable_transformations" value="$(arg enable_transformations)" if="$(eval arg('enable_transformations') != '')" />
+    
+  </node>
+  
+  <!-- RViz for visualization (only in debug mode) -->
+  <!-- <node name="rviz" pkg="rviz" type="rviz" args="-d $(find zed_obstacle_detector)/config/zed_obstacle_detector.rviz" if="$(eval arg('performance_mode') == 'debug')" /> -->
+  
+</launch> 

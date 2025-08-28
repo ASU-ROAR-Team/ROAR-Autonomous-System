@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Path planning using A* algorithm for optimal path selection in ROS."""
+"""Path planning using A* algorithm for optimal path selection in ROS with real-time visualization."""
 
 # pylint: disable=too-many-instance-attributes, too-many-public-methods
 
@@ -29,6 +29,10 @@ class OptimalPathPlanner:
         self.loadCostmap()
         self.allPoints = self.getWaypoints()
 
+        # Store completed paths for persistent visualization
+        self.completedPaths: List[List[int]] = []
+        self.totalCostSoFar: float = 0.0
+
         self.accessibilityScores: np.ndarray = self.calculateAccessibility()
         self.costMatrix: np.ndarray
         self.distanceMatrix: np.ndarray
@@ -38,7 +42,7 @@ class OptimalPathPlanner:
         if self.bestCombination:
             fullPath: List[int] = self.generateCombinationPath(self.bestCombination)
             smoothedPath: List[int] = self.smoothPath(fullPath)
-            self.visualizeResults(smoothedPath, self.bestCombination)
+            self.savePathToCsv(smoothedPath)
             self.publishCostmap()
 
         plt.ioff()
@@ -105,6 +109,7 @@ class OptimalPathPlanner:
         distanceMatrix: np.ndarray = np.full((numPoints, numPoints), np.inf)
         pointIndices: List[Optional[int]] = [self.pixelToIndex(x, y) for (x, y) in self.allPoints]
 
+        print("Precomputing all waypoint pairs (no visualization)...")
         for i in tqdm(range(numPoints)):
             for j in range(numPoints):
                 if i == j:
@@ -131,6 +136,7 @@ class OptimalPathPlanner:
         viaIndices: List[int] = list(range(1, 10))
         combinations: List[Tuple[int, ...]] = list(itertools.combinations(viaIndices, 4))
 
+        print("Finding optimal combination from precomputed paths (no visualization)...")
         for combo in tqdm(combinations):
             points: List[int] = [0] + list(combo)
             try:
@@ -158,6 +164,7 @@ class OptimalPathPlanner:
 
         if bestCombo:
             rospy.loginfo(f"Best sequence: {bestCombo['sequence']}")
+            rospy.loginfo(f"Now visualizing optimal path...")
         return bestCombo
 
     def findBestPermutation(self, points: List[int]) -> Tuple[float, float, Optional[List[int]]]:
@@ -204,6 +211,8 @@ class OptimalPathPlanner:
         """Generate full path for the best combination."""
         fullPath: List[int] = []
         sequence: List[int] = combination["sequence"]
+        self.completedPaths = []  # Reset completed paths
+        self.totalCostSoFar = 0.0
 
         for i in range(len(sequence) - 1):
             startIdx: Optional[int] = self.pixelToIndex(*self.allPoints[sequence[i]])
@@ -212,13 +221,18 @@ class OptimalPathPlanner:
             if startIdx is None or goalIdx is None:
                 continue
 
-            path, _, _ = self.astar(startIdx, goalIdx, visualize=True)
+            path, _, pathCost = self.astar(startIdx, goalIdx, visualize=True,
+                                         fromPoint=sequence[i], toPoint=sequence[i + 1])
             if path:
+                # Add completed path to persistent storage
+                self.completedPaths.append(path)
+                self.totalCostSoFar += pathCost
                 fullPath.extend(path[1:] if fullPath else path)
         return fullPath
 
     def astar(
-        self, startIdx: int, goalIdx: int, visualize: bool = True
+        self, startIdx: int, goalIdx: int, visualize: bool = True,
+        fromPoint: int = -1, toPoint: int = -1
     ) -> Tuple[Optional[List[int]], Set[int], float]:
         """A* pathfinding algorithm with terrain cost consideration."""
         openHeap: List[Tuple[float, float, int]] = []
@@ -232,14 +246,20 @@ class OptimalPathPlanner:
             _, _, current = heapq.heappop(openHeap)
 
             if current == goalIdx:
-                return self.reconstructPath(cameFrom, current), closedSet, gScore[current]
+                finalPath = self.reconstructPath(cameFrom, current)
+                if visualize:
+                    self.updateVisualization(closedSet, finalPath, gScore[current], 
+                                           fromPoint, toPoint, True)
+                return finalPath, closedSet, gScore[current]
 
             if current in closedSet:
                 continue
             closedSet.add(current)
 
-            if visualize and len(closedSet) % 100 == 0:
-                self.updateVisualization(closedSet)
+            if visualize and len(closedSet) % 50 == 0:
+                currentPath = self.reconstructPath(cameFrom, current)
+                self.updateVisualization(closedSet, currentPath, gScore[current],
+                                       fromPoint, toPoint, False)
 
             for neighbor, cost in self.getNeighbors(current):
                 if neighbor in closedSet:
@@ -293,82 +313,99 @@ class OptimalPathPlanner:
         return smoothed
 
     def updateVisualization(
-        self, closedSet: Set[int], currentPath: Optional[List[int]] = None
+        self, closedSet: Set[int], currentPath: Optional[List[int]] = None,
+        currentCost: float = 0.0, fromPoint: int = -1, toPoint: int = -1,
+        pathComplete: bool = False
     ) -> None:
-        """Update matplotlib visualization."""
+        """Update matplotlib visualization with real-time cost and path display."""
         self.axis.clear()
-        self.axis.imshow(self.costmap, cmap="gray", origin="upper", vmin=-1, vmax=100)
-
-        if closedSet:
-            exploredX: List[int] = [idx % self.width for idx in closedSet]
-            exploredY: List[int] = [idx // self.width for idx in closedSet]
-            self.axis.scatter(exploredX, exploredY, c="blue", s=1, alpha=0.1, label="Explored")
-
-        if currentPath:
-            pathX: List[int] = [idx % self.width for idx in currentPath]
-            pathY: List[int] = [idx // self.width for idx in currentPath]
-            self.axis.plot(pathX, pathY, "r-", linewidth=2, label="Current Path")
-
-        wayX: List[int] = [p[0] for p in self.allPoints]
-        wayY: List[int] = [p[1] for p in self.allPoints]
-        self.axis.scatter(wayX, wayY, c="green", s=100, marker="o", label="Waypoints")
-        self.axis.scatter(
-            self.start[0], self.start[1], c="red", s=150, marker="*", label="Start/End"
-        )
-
-        self.axis.set_title("Optimal Path Planning")
-        self.axis.legend()
-        plt.draw()
-        plt.pause(0.001)
-
-    def visualizeResults(self, path: List[int], combination: Dict[str, Any]) -> None:
-        """Visualize results with accessibility and path."""
-        self.axis.clear()
+        
+        # Display costmap
         self.axis.imshow(self.costmap, cmap="gray", origin="upper", vmin=-1, vmax=100, alpha=0.7)
 
+        # Show accessibility scores as colored circles around waypoints
         for idx, score in enumerate(self.accessibilityScores):
             xCoord, yCoord = self.allPoints[idx]
             self.axis.add_patch(
-                plt.Circle((xCoord, yCoord), 10, color=plt.cm.RdYlGn_r(score / 100), alpha=0.3)
+                plt.Circle((xCoord, yCoord), 8, color=plt.cm.RdYlGn_r(score / 100), alpha=0.4)
             )
 
+        # Display all waypoints with accessibility coloring
         allX: List[int] = [p[0] for p in self.allPoints]
         allY: List[int] = [p[1] for p in self.allPoints]
         self.axis.scatter(
-            allX,
-            allY,
+            allX, allY,
             c=self.accessibilityScores,
-            cmap="RdYlGn_r",
-            s=100,
-            edgecolors="k",
-            vmin=0,
-            vmax=100,
-            label="Waypoints",
+            cmap="RdYlGn_r", s=80, edgecolors="k",
+            vmin=0, vmax=100, alpha=0.8
         )
 
-        selPoints: List[Tuple[int, int]] = [self.allPoints[i] for i in combination["points"]]
-        selX: List[int] = [p[0] for p in selPoints]
-        selY: List[int] = [p[1] for p in selPoints]
-        self.axis.scatter(selX, selY, c="blue", s=200, marker="s", edgecolors="k", label="Selected")
+        # Show all completed paths in red (persistent)
+        for completedPath in self.completedPaths:
+            pathX: List[int] = [idx % self.width for idx in completedPath]  # y becomes x
+            pathY: List[int] = [idx // self.width for idx in completedPath]   # x becomes y
+            self.axis.plot(pathX, pathY, color="red", linewidth=3, alpha=1.0)
 
-        pathX: List[int] = [idx % self.width for idx in path]
-        pathY: List[int] = [idx // self.width for idx in path]
-        self.axis.plot(pathX, pathY, "r-", linewidth=2, label="Path")
+        # Highlight current waypoints being connected
+        if fromPoint >= 0 and toPoint >= 0:
+            fromX, fromY = self.allPoints[fromPoint]
+            toX, toY = self.allPoints[toPoint]
+            
+            # Draw line between current waypoints
+            self.axis.plot([fromX, toX], [fromY, toY], 'b--', linewidth=2, alpha=0.6, 
+                          label=f'Connecting {fromPoint}→{toPoint}')
+            
+            # Highlight current waypoints
+            self.axis.scatter([fromX, toX], [fromY, toY], c='blue', s=150, 
+                            marker='o', edgecolors='white', linewidths=2,
+                            label='Current Waypoints')
 
+        # Show explored areas
+        if closedSet:
+            exploredX: List[int] = [idx % self.width for idx in closedSet]
+            exploredY: List[int] = [idx // self.width for idx in closedSet]
+            self.axis.scatter(exploredX, exploredY, c="cyan", s=0.5, alpha=0.3)
+
+        # Show current path being constructed
+        if currentPath:
+            pathX: List[int] = [idx % self.width for idx in currentPath]
+            pathY: List[int] = [idx // self.width for idx in currentPath]
+            
+            # Use red for completed paths, yellow for paths in progress
+            pathColor = "red" if pathComplete else "yellow"
+            pathWidth = 3 if pathComplete else 2
+            pathAlpha = 1.0 if pathComplete else 0.8
+            
+            self.axis.plot(pathX, pathY, color=pathColor, linewidth=pathWidth, 
+                          alpha=pathAlpha, label="Selected Path")
+
+        # Highlight start/end point
         self.axis.scatter(
-            self.start[0], self.start[1], c="red", s=300, marker="*", label="Start/End"
+            self.start[0], self.start[1], c="red", s=200, marker="*", 
+            edgecolors='white', linewidths=2, label="Start/End"
         )
 
-        plt.colorbar(plt.cm.ScalarMappable(cmap="RdYlGn_r"), label="Accessibility Score")
-        self.axis.set_title(
-            f"Optimal Path\nCost: {combination['cost']:.1f}, Dist: {combination['distance']:.1f}m"
-        )
-        self.axis.legend()
+        # Create title with real-time information
+        if fromPoint >= 0 and toPoint >= 0:
+            title = f"A* Path Planning - Connecting Waypoint {fromPoint} to {toPoint}\n"
+            title += f"Current Path Cost: {currentCost:.1f} | Explored Nodes: {len(closedSet)}"
+            if pathComplete:
+                title += " | PATH COMPLETE"
+        else:
+            title = f"A* Path Planning\nExplored Nodes: {len(closedSet)} | Current Cost: {currentCost:.1f}"
+
+        self.axis.set_title(title, fontsize=10)
+        self.axis.legend(loc='upper right', fontsize=8)
+        
+        # Add cost information as text
+        if currentCost > 0:
+            self.axis.text(0.02, 0.98, f"Real-time Cost: {currentCost:.2f}", 
+                          transform=self.axis.transAxes, fontsize=12, 
+                          bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.8),
+                          verticalalignment='top')
 
         plt.draw()
-        plt.savefig(f"{os.path.splitext(self.outputCsv)[0]}.png")
-        plt.pause(2)
-        self.savePathToCsv(path)
+        plt.pause(0.01)  # Faster updates for smoother animation
 
     def getNeighbors(self, idx: int) -> List[Tuple[int, float]]:
         """Get valid neighbors for a given index."""
