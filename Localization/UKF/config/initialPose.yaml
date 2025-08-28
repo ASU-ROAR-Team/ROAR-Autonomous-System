@@ -1,9 +1,9 @@
 iPose:
-  position: {x: 18.6474, y: 10.8159, z: 0.0}
+  position: {x: 0.0, y: 0.0, z: 0.0}
   orientation: {x: -1.0, y: 0.0, z: 0.0, w: 0.0}
   IMUorientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
   CAMERAwrtGPS: {x: 0.0, y: 0.0, z: 0.0}
-  ZED_orientation: {x: 0.7071068, y: 0.0, z: 0.0, w: 0.7071068}
+  ZED_orientation: {x: 0.0, y: 0.0, z: 1.0, w: 0.0}
 
 UKF:
   alpha: 3.0
@@ -17,7 +17,7 @@ UKF:
   
   Q: 0.01
   R: 0.7
-  R_gps: 100.0
+  R_gps: 100.0  
   RLL: 1.0
   R_ZED: 0.05
 

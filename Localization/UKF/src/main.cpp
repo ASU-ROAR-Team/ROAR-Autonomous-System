@@ -653,14 +653,10 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
         roverCurrentY = initialPosition.y();
     }
 
-    zedXYZ(0) = zed_pose->pose.pose.position.x - init_x; // Adjust x position if initial reading is available
-    //
-    //
-    // The -ve sign for zed pose because the zed pose is in the opposite direction of the rover
-    //
-    //
-    zedXYZ(1) = - (zed_pose->pose.pose.position.y - init_y); // Adjust y position if initial reading is available
-    zedXYZ(2) = zed_pose->pose.pose.position.z - (-init_z); // Adjust z position if initial reading is available
+    // Get ZED coordinates relative to initial position (no manual sign inversions)
+    zedXYZ(0) = zed_pose->pose.pose.position.x - init_x;
+    zedXYZ(1) = zed_pose->pose.pose.position.y - init_y;
+    zedXYZ(2) = zed_pose->pose.pose.position.z - init_z;
     
     ZED_READINGS = tf2::Quaternion(zed_pose->pose.pose.orientation.x, zed_pose->pose.pose.orientation.y, zed_pose->pose.pose.orientation.z, zed_pose->pose.pose.orientation.w);
     
@@ -675,12 +671,14 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
     ukf.x_post(3) = q.v_2;  // z
 
     std::cout << "ZED Position before transformation: " << zedXYZ.transpose() << std::endl;
+    std::cout << "ZED_orientation quaternion: x=" << ZED_orientation.x() << ", y=" << ZED_orientation.y() 
+              << ", z=" << ZED_orientation.z() << ", w=" << ZED_orientation.w() << std::endl;
 
     zedXYZ = rotateXYZbyXYZW(zedXYZ, ZED_orientation) + initialPosition; // Transform ZED position to world frame
 
     z_measurement[11] = zedXYZ(0);
     z_measurement[12] = zedXYZ(1);
-    z_measurement[13] = -zedXYZ(2);
+    z_measurement[13] = zedXYZ(2);
 
     ZEDX = zedXYZ(0);
     ZEDY = zedXYZ(1);
