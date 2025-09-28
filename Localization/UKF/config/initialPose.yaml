@@ -1,9 +1,9 @@
 iPose:
-  position: {x: 18.6474, y: 10.8159, z: 0.0}
+  position: {x: 18.6625, y: 10.8159, z: 0.0}
   orientation: {x: -1.0, y: 0.0, z: 0.0, w: 0.0}
   IMUorientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
   CAMERAwrtGPS: {x: 0.0, y: 0.0, z: 0.0}
-  ZED_orientation: {x: 0.7071068, y: 0.0, z: 0.0, w: 0.7071068}
+  ZED_orientation: {x: 0.0, y: 0.0, z: 0.707, w: 0.707}
 
 UKF:
   alpha: 3.0
@@ -21,6 +21,8 @@ UKF:
   RLL: 1.0
   R_ZED: 0.05
 
+  LLMax: 0.5
+  MaxRelativeDistance: 30.0
   LLMax: 1.0
   MaxRelativeDistance: 35.0
 
@@ -43,9 +45,9 @@ UKF:
 
   PlanB_number: 2
 
-  GPS_State: false
-  IMU_State: false
+  GPS_State: true
+  IMU_State: true
   BNO_State: true
-  ENCODER_State: false
-  Landmark_State: true
+  ENCODER_State: true
+  Landmark_State: false
   ZED_State: false

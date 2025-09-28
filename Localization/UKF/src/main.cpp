@@ -18,6 +18,7 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <XmlRpcValue.h>
 #include "WGS84toCartesian.hpp"
 
@@ -73,6 +74,7 @@ tf2::Quaternion IMUorientation;
 tf2::Quaternion ZED_orientation;
 tf2::Quaternion ZED_READINGS;
 Eigen::Vector3d CAMERAwrtGPS;
+bool allow_ll = false; // Flag to allow landmark updates
 int noOfFails = 0;
 double Rgps = 5.0; // GPS noise
 double RLL = 10.0; // Landmark noise
@@ -142,7 +144,7 @@ ArrayQueue aq; // Create an instance of ArrayQueue that can store arrays of [x, 
 Eigen::Vector3d rotateXYZbyXYZW(const Eigen::Vector3d& rel_pos_rover, const tf2::Quaternion& rover_quat) {
     ROS_DEBUG("[*] Entering rotateXYZbyXYZW function");
     // Convert tf2 quaternion to Eigen quaternion
-    Eigen::Quaterniond q(rover_quat.x(), rover_quat.y(), rover_quat.z(), rover_quat.w());
+    Eigen::Quaterniond q(rover_quat.w(), rover_quat.x(), rover_quat.y(), rover_quat.z());
     // Get rotation matrix
     Eigen::Matrix3d R = q.toRotationMatrix();
 
@@ -183,10 +185,6 @@ void poseCallback(bool rotate = true){
         rotatedXYZ(0) = ukf.x_hat[7];
 	    rotatedXYZ(1) = ukf.x_hat[8];
     }
-    /*******
-    TALYEESA
-    *******/
-    //rotatedXYZ[0] = -rotatedXYZ[0]; // Invert x-coordinate for Gazebo world
 
     transformStamped.header.stamp = ros::Time::now();
     transformStamped.header.frame_id = "world";
@@ -499,128 +497,130 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg)
 
 void landmarkCallback(const roar_msgs::Landmark::ConstPtr& landmark_poses) {
 
-    //Calculate the rover position
-    //Rover's position: P
-	//Landmark TRUE position
-	//Landmark RELATIVE position: landmark_poses
-    ROS_DEBUG("[*] Entering landmarkCallback function");
-    double rovCurrentX;
-    double rovCurrentY;
-    nh_ptr->getParam("landmarks", landmarks);
-    if(landmarks.size() > 0){
+    if(allow_ll){
+        //Calculate the rover position
+        //Rover's position: P
+        //Landmark TRUE position
+        //Landmark RELATIVE position: landmark_poses
+        ROS_DEBUG("[*] Entering landmarkCallback function");
+        double rovCurrentX;
+        double rovCurrentY;
+        nh_ptr->getParam("landmarks", landmarks);
+        if(landmarks.size() > 0){
 
-        double rel_x = landmark_poses->pose.pose.position.x;
-        double rel_y = landmark_poses->pose.pose.position.z;
-        double rel_z = landmark_poses->pose.pose.position.y;
+            double rel_x = landmark_poses->pose.pose.position.x;
+            double rel_y = landmark_poses->pose.pose.position.z;
+            double rel_z = landmark_poses->pose.pose.position.y;
 
-        std::cout << "Landmark Relative untransformed Position: " << rel_x << ", " << rel_y << ", " << rel_z << std::endl;
+            std::cout << "Landmark Relative untransformed Position: " << rel_x << ", " << rel_y << ", " << rel_z << std::endl;
 
-        Eigen::Vector3d rel_pos_rover(rel_x, rel_y, rel_z); // add offset to the center of the rover
+            Eigen::Vector3d rel_pos_rover(rel_x, rel_y, rel_z); // add offset to the center of the rover
 
-        // Get rover orientation as quaternion (from your UKF state or message)
-        //make sure which is w and which is x y z
-        tf2::Quaternion rover_quat(
-            ukf.x_post[1], // x
-            ukf.x_post[2], // y
-            ukf.x_post[3], // z
-            ukf.x_post[0]  // w
-        );
+            // Get rover orientation as quaternion (from your UKF state or message)
+            //make sure which is w and which is x y z
+            tf2::Quaternion rover_quat(
+                ukf.x_post[1], // x
+                ukf.x_post[2], // y
+                ukf.x_post[3], // z
+                ukf.x_post[0]  // w
+            );
 
-        std::cout << "Rover Quaternion: " << rover_quat.x() << ", " << rover_quat.y() << ", " << rover_quat.z() << ", " << rover_quat.w() << std::endl;
+            std::cout << "Rover Quaternion: " << rover_quat.x() << ", " << rover_quat.y() << ", " << rover_quat.z() << ", " << rover_quat.w() << std::endl;
 
-        // Transform to world frame
-        // Rotate the relative position by the rover's orientation
-        // This will give you the position of the landmark in the world frame
-        ROS_DEBUG("[+] Transforming relative position by rover orientation");
-        // Use the rotateXYZbyXYZW function to get the world position
-        Eigen::Vector3d rel_pos_world = rotateXYZbyXYZW(rel_pos_rover, rover_quat);
+            // Transform to world frame
+            // Rotate the relative position by the rover's orientation
+            // This will give you the position of the landmark in the world frame
+            ROS_DEBUG("[+] Transforming relative position by rover orientation");
+            // Use the rotateXYZbyXYZW function to get the world position
+            Eigen::Vector3d rel_pos_world = rotateXYZbyXYZW(rel_pos_rover, rover_quat);
 
-        rel_x = rel_pos_world.x() + CAMERAwrtGPS.x(); // Adjusting y position to match the gps postion "diff between camera and gps"
-        rel_y = rel_pos_world.y() + CAMERAwrtGPS.y(); // Adjusting y position to match the gps postion "diff between camera and gps"
+            rel_x = rel_pos_world.x() + CAMERAwrtGPS.x(); // Adjusting y position to match the gps postion "diff between camera and gps"
+            rel_y = rel_pos_world.y() + CAMERAwrtGPS.y(); // Adjusting y position to match the gps postion "diff between camera and gps"
 
-        std::cout << "Landmark Relative Transformed Position: " << rel_x << ", " << rel_y << ", " << rel_z << std::endl;
+            std::cout << "Landmark Relative Transformed Position: " << rel_x << ", " << rel_y << ", " << rel_z << std::endl;
 
-        double relativeDistance = sqrt(pow(rel_x, 2) + pow(rel_y, 2));
+            double relativeDistance = sqrt(pow(rel_x, 2) + pow(rel_y, 2));
 
-        double rov_x = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["x"]);
-        double rov_y = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["y"]);
+            double rov_x = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["x"]);
+            double rov_y = static_cast<double>(landmarks[std::to_string(landmark_poses->id)]["y"]);
 
-        std::cout << "Landmark Position: " << rov_x << ", " << rov_y << std::endl;
+            std::cout << "Landmark Position: " << rov_x << ", " << rov_y << std::endl;
 
-        std::cout << "Landmark ID: " << landmark_poses->id << std::endl;
+            std::cout << "Landmark ID: " << landmark_poses->id << std::endl;
 
-        if(relativeDistance > MaxRelativeDistance) {
-            ROS_WARN("[!] Relative distance is greater than %f meters, skipping landmark", MaxRelativeDistance);
-            noOfPass++;
-            ROS_DEBUG("[*] Exiting landmarkCallback function");
-            return; // Skip this landmark if the relative distance is greater than 7 meters
-        }
-        
-        //All Relative Positions 
-        // 32 relative positions around the rover
-        ROS_DEBUG("[+] Calculating all relative positions around the rover");
-        std::vector<Eigen::Vector2d> rel_pos_all = {
-            {rov_x + rel_x, rov_y + rel_y},
-            {rov_x + rel_x, rov_y - rel_y},
-            {rov_x - rel_x, rov_y + rel_y},
-            {rov_x - rel_x, rov_y - rel_y},
-        };
-
-        XmlRpc::XmlRpcValue position;
-        if(nh_ptr->hasParam("/rover/position")){
-            nh_ptr->getParam("/rover/position", position);
-            rovCurrentX = static_cast<double>(position["x"]);
-            rovCurrentY = static_cast<double>(position["y"]);
-        } else {
-            ROS_ERROR("[!] No rover position found in parameter server");
-            rovCurrentX = initialPosition.x();
-            rovCurrentY = initialPosition.y();
-        }
-        
-
-        Eigen::Vector2d nearestPos(rovCurrentX, rovCurrentY); // Initialize nearest position to rover's current position
-        double minDist = 1000000.0;
-        double dist = 0.0;
-        
-
-        // Find the nearest position to the rover
-        ROS_DEBUG("[+] Finding the nearest position to the rover");
-        for (int i = 0; i < 2; i++){
-            //calc dist
-            dist = sqrt(pow((rel_pos_all[i][0] - rovCurrentX) ,2) + pow((rel_pos_all[i][1] - rovCurrentY) ,2));
-
-            if ((dist < minDist) && (dist < LLMax)) // Check if the distance is less than the minimum distance and less than 10 meters
-            {
-                minDist = dist;
-                nearestPos = rel_pos_all[i];
-                std::cout << "Nearest Position: " << nearestPos.transpose() << std::endl;
+            if(relativeDistance > MaxRelativeDistance) {
+                ROS_WARN("[!] Relative distance is greater than %f meters, skipping landmark", MaxRelativeDistance);
+                noOfPass++;
+                ROS_DEBUG("[*] Exiting landmarkCallback function");
+                return; // Skip this landmark if the relative distance is greater than 7 meters
             }
-            std::cout << "Relative Position " << i << ": " << rel_pos_all[i].transpose() << std::endl;
-            std::cout << "Rover Position: " << rovCurrentX << ", " << rovCurrentY << std::endl;
-            std::cout << "Distance to Rover: " << dist << std::endl;
-            std::cout << "Minimum Distance: " << minDist << std::endl;
-            std::cout << "----------------------------------------" << std::endl;
+            
+            //All Relative Positions 
+            // 32 relative positions around the rover
+            ROS_DEBUG("[+] Calculating all relative positions around the rover");
+            std::vector<Eigen::Vector2d> rel_pos_all = {
+                {rov_x + rel_x, rov_y + rel_y},
+                {rov_x + rel_x, rov_y - rel_y},
+                {rov_x - rel_x, rov_y + rel_y},
+                {rov_x - rel_x, rov_y - rel_y},
+            };
+
+            XmlRpc::XmlRpcValue position;
+            if(nh_ptr->hasParam("/rover/position")){
+                nh_ptr->getParam("/rover/position", position);
+                rovCurrentX = static_cast<double>(position["x"]);
+                rovCurrentY = static_cast<double>(position["y"]);
+            } else {
+                ROS_ERROR("[!] No rover position found in parameter server");
+                rovCurrentX = initialPosition.x();
+                rovCurrentY = initialPosition.y();
+            }
+            
+
+            Eigen::Vector2d nearestPos(rovCurrentX, rovCurrentY); // Initialize nearest position to rover's current position
+            double minDist = 1000000.0;
+            double dist = 0.0;
+            
+
+            // Find the nearest position to the rover
+            ROS_DEBUG("[+] Finding the nearest position to the rover");
+            for (int i = 0; i < 2; i++){
+                //calc dist
+                dist = sqrt(pow((rel_pos_all[i][0] - rovCurrentX) ,2) + pow((rel_pos_all[i][1] - rovCurrentY) ,2));
+
+                if ((dist < minDist) && (dist < LLMax)) // Check if the distance is less than the minimum distance and less than 10 meters
+                {
+                    minDist = dist;
+                    nearestPos = rel_pos_all[i];
+                    std::cout << "Nearest Position: " << nearestPos.transpose() << std::endl;
+                }
+                std::cout << "Relative Position " << i << ": " << rel_pos_all[i].transpose() << std::endl;
+                std::cout << "Rover Position: " << rovCurrentX << ", " << rovCurrentY << std::endl;
+                std::cout << "Distance to Rover: " << dist << std::endl;
+                std::cout << "Minimum Distance: " << minDist << std::endl;
+                std::cout << "----------------------------------------" << std::endl;
+            }
+            
+            if (minDist < LLMax) { // Check if the nearest position is within 0.3 meters
+                ROS_DEBUG("[+] Nearest position found within %f meters", LLMax);
+                z_measurement[11] = nearestPos[0];
+                z_measurement[12] = nearestPos[1];
+                std::cout << "Nearest Position: " << nearestPos.transpose() << std::endl;
+                std::cout << "Measurement: " << z_measurement[11] << ", " << z_measurement[12] << std::endl;
+                z_measurement[13] = 0;
+                ukf.LL_Callback(z_measurement, rovCurrentX, rovCurrentY, RLL); // Call UKF landmark callback function
+                publishState(true, false); // Publish the state message
+                noOfdone++;
+            } else {
+                ROS_WARN("[!] No Landmark found within %f meters", LLMax);
+                noOfPass++;
+            }
+            
+            
+            ROS_DEBUG("[*] Exiting landmarkCallback function");
+            std::cout << "No of skips: " << noOfPass << std::endl;
+            std::cout << "No of done: " << noOfdone << std::endl;
         }
-        
-        if (minDist < LLMax) { // Check if the nearest position is within 0.3 meters
-            ROS_DEBUG("[+] Nearest position found within %f meters", LLMax);
-            z_measurement[11] = nearestPos[0];
-            z_measurement[12] = nearestPos[1];
-            std::cout << "Nearest Position: " << nearestPos.transpose() << std::endl;
-            std::cout << "Measurement: " << z_measurement[11] << ", " << z_measurement[12] << std::endl;
-            z_measurement[13] = 0;
-            ukf.LL_Callback(z_measurement, rovCurrentX, rovCurrentY, RLL); // Call UKF landmark callback function
-            publishState(true, false); // Publish the state message
-            noOfdone++;
-        } else {
-            ROS_WARN("[!] No Landmark found within %f meters", LLMax);
-            noOfPass++;
-        }
-        
-        
-        ROS_DEBUG("[*] Exiting landmarkCallback function");
-        std::cout << "No of skips: " << noOfPass << std::endl;
-        std::cout << "No of done: " << noOfdone << std::endl;
     }
 
 }
@@ -645,6 +645,17 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
     //then edit the inital pose with the new values and add the prev pose as the initial pose
     //
     //
+    if (zed_pose->pose.covariance[0] > 20.0) {
+        ROS_WARN("[!] High covariance detected from ZED, resetting initial position");
+        planB(Plan_B_number); // Call plan B if state is not finite
+        allow_ll = true;
+        return; // Skip this ZED measurement if covariance is too high
+        //init_x = zed_pose->pose.pose.position.x;
+        //init_y = zed_pose->pose.pose.position.y;
+        //init_z = -zed_pose->pose.pose.position.z;
+        //std::cout << "New Initial ZED Position: " << init_x << ", " << init_y << ", " << init_z << std::endl;
+    }
+    allow_ll = false;
 
     double roverCurrentX;
     double roverCurrentY;
@@ -660,7 +671,7 @@ void zedCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& zed_p
         roverCurrentY = initialPosition.y();
     }
 
-    zedXYZ(0) = zed_pose->pose.pose.position.x - init_x; // Adjust x position if initial reading is available
+    zedXYZ(0) = (zed_pose->pose.pose.position.x - init_x); // Adjust x position if initial reading is available
     //
     //
     // The -ve sign for zed pose because the zed pose is in the opposite direction of the rover
@@ -927,7 +938,7 @@ int main(int argc, char **argv)
     }
     if(static_cast<bool>(UKF_PARAMS["ZED_State"])) {
         ROS_DEBUG("ZED State is enabled");
-        zed_sub = nh.subscribe("/zed2i/zed_node/pose_with_covariance", 1000, zedCallback);
+        zed_sub = nh.subscribe("/zed2i/zed_node/pose", 1000, zedCallback);
     } else {
         ROS_DEBUG("ZED State is disabled");
     }
